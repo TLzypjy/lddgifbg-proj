@@ -13,7 +13,7 @@ BUNDLE_NAME = lddgifbg
 lddgifbg_FILES = bundle/lddgifbg_bundle.mm
 lddgifbg_CFLAGS = -fno-objc-arc -Wno-unused-function
 lddgifbg_FRAMEWORKS = UIKit
-lddgifbg_PRIVATE_FRAMEWORKS = Preferences
+lddgifbg_LDFLAGS = -Wl,-undefined,dynamic_lookup
 lddgifbg_INSTALL_PATH = /Library/PreferenceBundles
 
 include $(THEOS)/makefiles/common.mk
