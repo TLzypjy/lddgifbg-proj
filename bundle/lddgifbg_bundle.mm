@@ -190,12 +190,12 @@ static id ThumbForPath(NSString *path) {
     if ((BOOL)MSG(ext, "isEqualToString:", @"gif") && gImageIO && fnCGSrcCreate && fnCGSrcImg) {
         id data = MSG(CLS("NSData"), "dataWithContentsOfFile:", path);
         if (data) {
-            void *src = ((void *(*)(void *, void *))fnCGSrcCreate)((void *)data, 0);
+            void *src = ((void *(*)(void *, void *))fnCGSrcCreate)((__bridge void *)data, 0);
             if (src) {
                 size_t n = ((size_t(*)(void *))fnCGSrcCount)(src);
                 CGImageRef cg = n > 0 ? ((CGImageRef(*)(void *, size_t, void *))fnCGSrcImg)(src, 0, 0) : 0;
                 if (cg) {
-                    id img = MSG(CLS("UIImage"), "imageWithCGImage:scale:orientation:", (void *)cg, 1.0, 0);
+                    id img = MSG(CLS("UIImage"), "imageWithCGImage:scale:orientation:", (__bridge void *)cg, 1.0, 0);
                     CFRelease((void *)cg);
                     CFRelease(src);
                     return img;
@@ -212,9 +212,9 @@ static id ThumbForPath(NSString *path) {
             id gen = MSG(CLS("AVAssetImageGenerator"), "assetImageGeneratorWithAsset:", asset);
             struct CMTimeRaw { long long value; int timescale; unsigned flags; long long epoch; } t = {1, 1, 1, 0};
             // copyCGImageAtTime:actualTime:error:  (CMTime 按值经 x2/x3)
-            CGImageRef cg = (CGImageRef)((id(*)(id, SEL, struct CMTimeRaw, void *, void *))objc_msgSend)(gen, sel_registerName("copyCGImageAtTime:actualTime:error:"), t, 0, 0);
+            CGImageRef cg = (__bridge CGImageRef)((id(*)(id, SEL, struct CMTimeRaw, void *, void *))objc_msgSend)(gen, sel_registerName("copyCGImageAtTime:actualTime:error:"), t, 0, 0);
             if (cg) {
-                id img = MSG(CLS("UIImage"), "imageWithCGImage:scale:orientation:", (void *)cg, 1.0, 0);
+                id img = MSG(CLS("UIImage"), "imageWithCGImage:scale:orientation:", (__bridge void *)cg, 1.0, 0);
                 CFRelease((void *)cg);
                 return img;
             }
