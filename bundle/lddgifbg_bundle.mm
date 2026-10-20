@@ -367,13 +367,17 @@ static id ThumbForPath(NSString *path) {
 - (void)respringNow {
     id fm = MSG(CLS("NSFileManager"), "defaultManager");
     BOOL have_sbreload = (BOOL)MSG(fm, "fileExistsAtPath:", @"/var/jb/usr/bin/sbreload");
-    if (have_sbreload) {
-        char *argv1[] = {(char *)"/var/jb/usr/bin/sbreload", 0};
-        posix_spawn(0, "/var/jb/usr/bin/sbreload", 0, 0, argv1, 0);
-    } else {
-        char *argv2[] = {(char *)"/var/jb/usr/bin/killall", (char *)"SpringBoard", 0};
-        posix_spawn(0, "/var/jb/usr/bin/killall", 0, 0, argv2, 0);
+    char *argv1[] = {(char *)"/var/jb/usr/bin/sbreload", 0};
+    char *argv2[] = {(char *)"/var/jb/usr/bin/killall", (char *)"SpringBoard", 0};
+    // 通过 dlsym 调用 posix_spawn, 避免与 SDK 头文件声明冲突
+    static int (*spawn_fn)(void *, const char *, void *, void *, char *const[], char *const[]);
+    if (!spawn_fn) {
+        void *h = dlopen(0, 1);
+        if (h) spawn_fn = (int (*)(void *, const char *, void *, void *, char *const[], char *const[]))dlsym(h, "posix_spawn");
+    }
+    if (spawn_fn) {
+        if (have_sbreload) spawn_fn(0, "/var/jb/usr/bin/sbreload", 0, 0, argv1, 0);
+        else spawn_fn(0, "/var/jb/usr/bin/killall", 0, 0, argv2, 0);
     }
 }
 @end
-extern "C" unsigned long strlen(const char *s);
