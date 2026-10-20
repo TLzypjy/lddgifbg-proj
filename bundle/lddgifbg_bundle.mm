@@ -164,7 +164,7 @@ typedef struct CGRect { double ox, oy, w, h; } CGRect;
 - (void)setMasksToBounds:(BOOL)b;
 @end
 @interface PSListController : UIViewController
-- (void)loadSpecifiersFromPlistName:(NSString *)n target:(id)t;
+- (id)loadSpecifiersFromPlistName:(NSString *)n target:(id)t;
 - (id)specifiers;
 @end
 @interface PSSpecifier : NSObject @end
@@ -375,7 +375,7 @@ static id ThumbForPath(NSString *path) {
         [self setTitle:@"灵动岛GIF背景"];
         id btn = MSG(MSG(CLS("UIBarButtonItem"), "alloc"), "initWithTitle:style:target:action:", @"重启", 0, self, sel_registerName("respringNow"));
         MSG(MSG(self, "navigationItem"), "setRightBarButtonItem:", btn);
-    } @catch (NSException *e) {
+    } @catch (id e) {
         // 防御: 设置页不允许因本插件崩溃
     }
 }
