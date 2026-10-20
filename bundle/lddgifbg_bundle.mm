@@ -358,6 +358,16 @@ static id ThumbForPath(NSString *path) {
 }
 @end
 
+// ---------- 日志(诊断用) ----------
+extern "C" void *fopen(const char *p, const char *m);
+extern "C" int fprintf(void *f, const char *fmt, ...);
+extern "C" int fflush(void *f);
+extern "C" int fclose(void *f);
+static void LogB(const char *s) {
+    void *f = fopen("/var/jb/tmp/lddgifbg-bundle.log", "a");
+    if (f) { fprintf(f, "%s\n", s ? s : "?"); fflush(f); fclose(f); }
+}
+
 // ---------- 设置主控制器 ----------
 @interface lddgifbgRootListController : PSListController @end
 @implementation lddgifbgRootListController
