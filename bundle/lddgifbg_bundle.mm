@@ -195,7 +195,7 @@ static id ThumbForPath(NSString *path) {
                 size_t n = ((size_t(*)(void *))fnCGSrcCount)(src);
                 CGImageRef cg = n > 0 ? ((CGImageRef(*)(void *, size_t, void *))fnCGSrcImg)(src, 0, 0) : 0;
                 if (cg) {
-                    id img = MSG(CLS("UIImage"), "imageWithCGImage:scale:orientation:", (__bridge void *)cg, 1.0, 0);
+                    id img = MSG(CLS("UIImage"), "imageWithCGImage:scale:orientation:", (__bridge id)cg, 1.0, 0);
                     CFRelease((void *)cg);
                     CFRelease(src);
                     return img;
@@ -214,7 +214,7 @@ static id ThumbForPath(NSString *path) {
             // copyCGImageAtTime:actualTime:error:  (CMTime 按值经 x2/x3)
             CGImageRef cg = (__bridge CGImageRef)((id(*)(id, SEL, struct CMTimeRaw, void *, void *))objc_msgSend)(gen, sel_registerName("copyCGImageAtTime:actualTime:error:"), t, 0, 0);
             if (cg) {
-                id img = MSG(CLS("UIImage"), "imageWithCGImage:scale:orientation:", (__bridge void *)cg, 1.0, 0);
+                id img = MSG(CLS("UIImage"), "imageWithCGImage:scale:orientation:", (__bridge id)cg, 1.0, 0);
                 CFRelease((void *)cg);
                 return img;
             }
