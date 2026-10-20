@@ -27,7 +27,6 @@ extern "C" void *dlopen(const char *path, int mode);
 extern "C" void *dlsym(void *handle, const char *symbol);
 extern "C" void *objc_autoreleasePoolPush(void);
 extern "C" void objc_autoreleasePoolPop(void *pool);
-extern "C" int posix_spawn(void *pid, const char *path, void *file_actions, void *attrp, char *const argv[], char *const envp[]);
 extern "C" void CFRelease(void *cf);
 extern "C" { extern void *kCGImagePropertyGIFDictionary; extern void *kCGImagePropertyGIFDelayTime; extern void *kCGImagePropertyGIFUnclampedDelayTime; }
 
