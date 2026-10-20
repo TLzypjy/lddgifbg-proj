@@ -377,4 +377,3 @@ static id ThumbForPath(NSString *path) {
 }
 @end
 extern "C" unsigned long strlen(const char *s);
-static void ensureStringHelpers(void) {}
