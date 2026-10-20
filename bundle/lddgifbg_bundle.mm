@@ -356,12 +356,28 @@ static id ThumbForPath(NSString *path) {
 // ---------- 设置主控制器 ----------
 @interface lddgifbgRootListController : PSListController @end
 @implementation lddgifbgRootListController
+{
+    id _mySpecs;
+}
+- (id)specifiers {
+    @try {
+        if (!_mySpecs) {
+            _mySpecs = [self loadSpecifiersFromPlistName:@"Root" target:self];
+        }
+    } @catch (id e) {
+        _mySpecs = MSG(CLS("NSArray"), "array");
+    }
+    return _mySpecs;
+}
 - (void)viewDidLoad {
-    [super viewDidLoad];
-    [self setTitle:@"灵动岛GIF背景"];
-    MSG(self, "loadSpecifiersFromPlistName:target:", @"Root", self);
-    id btn = MSG(MSG(CLS("UIBarButtonItem"), "alloc"), "initWithTitle:style:target:action:", @"重启", 0, self, sel_registerName("respringNow"));
-    MSG(MSG(self, "navigationItem"), "setRightBarButtonItem:", btn);
+    @try {
+        [super viewDidLoad];
+        [self setTitle:@"灵动岛GIF背景"];
+        id btn = MSG(MSG(CLS("UIBarButtonItem"), "alloc"), "initWithTitle:style:target:action:", @"重启", 0, self, sel_registerName("respringNow"));
+        MSG(MSG(self, "navigationItem"), "setRightBarButtonItem:", btn);
+    } @catch (NSException *e) {
+        // 防御: 设置页不允许因本插件崩溃
+    }
 }
 - (void)respringNow {
     id fm = MSG(CLS("NSFileManager"), "defaultManager");
