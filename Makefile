@@ -11,7 +11,7 @@ TWEAK_NAME = 灵动岛GIF背景
 
 BUNDLE_NAME = lddgifbg
 lddgifbg_FILES = bundle/lddgifbg_bundle.mm
-lddgifbg_CFLAGS = -fno-objc-arc -Wno-unused-function
+lddgifbg_CFLAGS = -fobjc-arc -Wno-unused-function
 lddgifbg_FRAMEWORKS = UIKit
 lddgifbg_LDFLAGS = -Wl,-undefined,dynamic_lookup
 lddgifbg_INSTALL_PATH = /Library/PreferenceBundles
