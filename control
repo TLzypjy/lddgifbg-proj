@@ -1,4 +1,4 @@
-Package: com.Axs.lddgifbg
+Package: com.axs.lddgifbg
 Name: 灵动岛GIF背景
 Author: liuf
 Description: 灵动岛GIF背景 重制版：素材选择器带缩略图预览（GIF首帧/视频首帧/图片直显），支持视频素材(MP4/MOV 直接循环播放)。素材放 /var/mobile/lddgifbg/ 下的子文件夹。无依赖，兼容无根与隐根。
