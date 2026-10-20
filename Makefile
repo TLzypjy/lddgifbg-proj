@@ -6,6 +6,7 @@ export DEBUG = 0
 TWEAK_NAME = 灵动岛GIF背景
 灵动岛GIF背景_FILES = main/lddgifbg_main.mm
 灵动岛GIF背景_CFLAGS = -fno-objc-arc
+灵动岛GIF背景_FRAMEWORKS = ImageIO
 灵动岛GIF背景_LDFLAGS = -Wl,-rpath,/var/jb/Library/Frameworks -Wl,-rpath,/var/jb/usr/lib -Wl,-rpath,@loader_path/.jbroot/Library/Frameworks -Wl,-rpath,@loader_path/.jbroot/usr/lib
 
 BUNDLE_NAME = lddgifbg
