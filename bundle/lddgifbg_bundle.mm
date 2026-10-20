@@ -50,6 +50,7 @@ extern "C" { extern void *kCGImagePropertyGIFDictionary; extern void *kCGImagePr
 @interface NSArray : NSObject
 - (unsigned long)count;
 - (id)objectAtIndex:(unsigned long)i;
+- (id)mutableCopy;
 - (NSUInteger)countByEnumeratingWithState:(void *)state objects:(id *)buf count:(NSUInteger)len;
 @end
 @interface NSMutableArray : NSArray
@@ -165,9 +166,13 @@ typedef struct CGRect { double ox, oy, w, h; } CGRect;
 @end
 @interface PSListController : UIViewController
 - (id)loadSpecifiersFromPlistName:(NSString *)n target:(id)t;
+- (id)preferenceSpecifierNamed:(NSString *)n target:(id)t set:(void *)s get:(void *)g detail:(id)d cell:(long)c edit:(id)e;
+- (void)setSpecifiers:(id)specifiers;
 - (id)specifiers;
 @end
-@interface PSSpecifier : NSObject @end
+@interface PSSpecifier : NSObject
+- (void)setProperty:(id)p forKey:(NSString *)k;
+@end
 
 // ---------- 素材缩略图 ----------
 static void *gImageIO = NULL;
@@ -363,6 +368,16 @@ static id ThumbForPath(NSString *path) {
     @try {
         if (!_mySpecs) {
             _mySpecs = [self loadSpecifiersFromPlistName:@"Root" target:self];
+            // 追加"立即注销"行 (PSButtonCell, 避免 UIBarButtonItem 崩溃)
+            id rs = MSG(self, "preferenceSpecifierNamed:target:set:get:detail:cell:edit:", @"立即注销", self, 0, 0, 0, 3, 0);
+            if (rs) {
+                MSG(rs, "setProperty:forKey:", @"respringNow", @"buttonAction");
+                MSG(rs, "setProperty:forKey:", @"1", @"enabled");
+                id arr = MSG(_mySpecs, "mutableCopy");
+                MSG(arr, "addObject:", rs);
+                MSG(self, "setSpecifiers:", arr);
+                _mySpecs = arr;
+            }
         }
     } @catch (id e) {
         _mySpecs = MSG(CLS("NSArray"), "array");
@@ -373,8 +388,6 @@ static id ThumbForPath(NSString *path) {
     @try {
         [super viewDidLoad];
         [self setTitle:@"灵动岛GIF背景"];
-        id btn = MSG(MSG(CLS("UIBarButtonItem"), "alloc"), "initWithTitle:style:target:action:", @"重启", 0, self, sel_registerName("respringNow"));
-        MSG(MSG(self, "navigationItem"), "setRightBarButtonItem:", btn);
     } @catch (id e) {
         // 防御: 设置页不允许因本插件崩溃
     }
