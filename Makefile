@@ -1,6 +1,6 @@
 export THEOS_PACKAGE_SCHEME = rootless
 export ARCHS = arm64 arm64e
-export TARGET = iphone:clang:17.0:15.0
+export TARGET = iphone:clang:latest:15.0
 export DEBUG = 0
 
 TWEAK_NAME = 灵动岛GIF背景
