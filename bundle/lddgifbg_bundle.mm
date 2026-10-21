@@ -30,6 +30,7 @@ static id CLSSTR(const char *n) { return (id)objc_getClass(n); }
 + (id)alloc;
 - (id)init;
 - (id)valueForKey:(id)k;
+- (void)setValue:(id)v forKey:(id)k;
 @end
 @interface NSString : NSObject
 - (NSString *)stringByAppendingPathComponent:(NSString *)s;
@@ -86,6 +87,7 @@ static id CLSSTR(const char *n) { return (id)objc_getClass(n); }
 
 typedef struct CGRect { double ox, oy, w, h; } CGRect;
 typedef struct CGSize { double w, h; } CGSize;
+static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, y, w, h}; return r; }
 
 @interface UIColor : NSObject
 + (id)clearColor;
@@ -225,9 +227,11 @@ static id ThumbForPath(NSString *path) {
     if ([ext isEqualToString:@"mp4"] || [ext isEqualToString:@"mov"]) {
         if (gAVF) {
             NSURL *url = [NSURL fileURLWithPath:path];
-            id asset = [(id)CLSSTR("AVURLAsset") performSelector:NSSelectorFromString(@"URLAssetWithURL:options:") withObject:url withObject:nil];
+            typedef id (*FnA)(id, SEL, NSURL *, id);
+            FnA fna = (FnA)objc_msgSend;
+            id asset = fna((id)CLSSTR("AVURLAsset"), sel_registerName("URLAssetWithURL:options:"), url, nil);
             if (asset) {
-                id gen = [(id)CLSSTR("AVAssetImageGenerator") performSelector:NSSelectorFromString(@"assetImageGeneratorWithAsset:") withObject:asset];
+                id gen = ((id(*)(id, SEL, id))objc_msgSend)((id)CLSSTR("AVAssetImageGenerator"), sel_registerName("assetImageGeneratorWithAsset:"), asset);
                 if (gen) {
                     [gen setValue:[NSNumber numberWithBool:YES] forKey:@"appliesPreferredTrackTransform"];
                     struct CMTimeRaw { long long value; int timescale; unsigned flags; long long epoch; };
@@ -235,7 +239,7 @@ static id ThumbForPath(NSString *path) {
                     // copyCGImageAtTime:actualTime:error:  (CMTime 按值经 x2/x3)
                     typedef id (*Fn)(id, SEL, struct CMTimeRaw, void *, void *);
                     Fn fn = (Fn)objc_msgSend;
-                    CGImageRef cg = (CGImageRef)(fn(gen, sel_registerName("copyCGImageAtTime:actualTime:error:"), t, 0, 0));
+                    CGImageRef cg = (__bridge CGImageRef)(fn(gen, sel_registerName("copyCGImageAtTime:actualTime:error:"), t, 0, 0));
                     if (cg) {
                         UIImage *img = [UIImage imageWithCGImage:cg scale:1.0 orientation:0];
                         CFRelease((void *)cg);
@@ -304,7 +308,7 @@ static id ThumbForPath(NSString *path) {
         if (thumb) [_thumbs setObject:thumb forKeyedSubscript:name];
     }
     if (thumb) {
-        UIImageView *iv = [[[UIImageView alloc] initWithFrame:(CGRect){8, 8, 44, 44}];
+        UIImageView *iv = [[[UIImageView alloc] initWithFrame:MakeRect(8, 8, 44, 44)];
         [iv setImage:thumb];
         [iv setContentMode:1];
         [iv setClipsToBounds:YES];
@@ -313,11 +317,11 @@ static id ThumbForPath(NSString *path) {
         [[cell contentView] addSubview:iv];
     }
     CGRect b = [[cell contentView] bounds];
-    UILabel *label = [[[UILabel alloc] initWithFrame:(CGRect){60, 10, b.w - 70, 22}];
+    UILabel *label = [[[UILabel alloc] initWithFrame:MakeRect(60, 10, b.w - 70, 22)];
     [label setText:name];
     [label setFont:[UIFont boldSystemFontOfSize:16.0]];
     [[cell contentView] addSubview:label];
-    UILabel *sub = [[[UILabel alloc] initWithFrame:(CGRect){60, 33, b.w - 70, 16}];
+    UILabel *sub = [[[UILabel alloc] initWithFrame:MakeRect(60, 33, b.w - 70, 16)];
     NSString *typeDesc = @"GIF";
     NSFileManager *fm2 = [NSFileManager defaultManager];
     NSArray *files2 = [fm2 contentsOfDirectoryAtPath:full error:nil];
@@ -367,11 +371,11 @@ static id ThumbForPath(NSString *path) {
     [cell setSelectionStyle:0];
     [cell setAccessoryType:0];
     if (row == 0 || row == 1) {
-        UILabel *label = [[[UILabel alloc] initWithFrame:(CGRect){16, 14, b.w - 110, 22}];
+        UILabel *label = [[[UILabel alloc] initWithFrame:MakeRect(16, 14, b.w - 110, 22)];
         [label setText:(row == 0 ? @"启用总开关" : @"启用小岛")];
         [label setFont:[UIFont systemFontOfSize:16.0]];
         [[cell contentView] addSubview:label];
-        UISwitch *sw = [[[UISwitch alloc] initWithFrame:(CGRect){b.w - 66, 9, 50, 30}];
+        UISwitch *sw = [[[UISwitch alloc] initWithFrame:MakeRect(b.w - 66, 9, 50, 30)];
         [sw setTag:(row == 0 ? 1001 : 1002)];
         NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
         id v = [ud objectForKey:(row == 0 ? @"Enablelddgifbg" : @"Enablezxhlddgifbg")];
@@ -380,11 +384,11 @@ static id ThumbForPath(NSString *path) {
         [sw addTarget:(id)self action:@selector(switchToggled:) forControlEvents:1 << 12];
         [[cell contentView] addSubview:sw];
     } else if (row == 2) {
-        UILabel *label = [[[UILabel alloc] initWithFrame:(CGRect){16, 10, b.w - 32, 20}];
+        UILabel *label = [[[UILabel alloc] initWithFrame:MakeRect(16, 10, b.w - 32, 20)];
         [label setText:@"缩放比例"];
         [label setFont:[UIFont systemFontOfSize:15.0]];
         [[cell contentView] addSubview:label];
-        UISlider *sl = [[[UISlider alloc] initWithFrame:(CGRect){16, 34, b.w - 32, 30}];
+        UISlider *sl = [[[UISlider alloc] initWithFrame:MakeRect(16, 34, b.w - 32, 30)];
         [sl setMinimumValue:0.1];
         [sl setMaximumValue:2.0];
         NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
@@ -396,7 +400,7 @@ static id ThumbForPath(NSString *path) {
         [[cell contentView] addSubview:sl];
     } else {
         NSString *t = (row == 3 ? @"选择素材" : (row == 4 ? @"跳转素材目录" : @"完成"));
-        UILabel *label = [[[UILabel alloc] initWithFrame:(CGRect){16, 14, b.w - 60, 22}];
+        UILabel *label = [[[UILabel alloc] initWithFrame:MakeRect(16, 14, b.w - 60, 22)];
         [label setText:t];
         [label setFont:[UIFont systemFontOfSize:16.0]];
         if (row == 5) [label setTextColor:[UIColor redColor]];
