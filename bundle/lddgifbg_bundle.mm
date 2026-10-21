@@ -378,9 +378,22 @@ static void LogB(const char *s) {
     [self setTitle:@"灵动岛GIF背景"];
 }
 - (id)specifiers {
-    // 框架内部读它时给空数组; 实际行数由下方数据源覆写直接控制
-    return MSG(CLS("NSArray"), "array");
+    // 返回真实的非空数组: 内部任何 objectAtIndex 都不会越界
+    @try {
+        return [self loadSpecifiersFromPlistName:@"Root" target:self];
+    } @catch (id e) {
+        return MSG(CLS("NSArray"), "array");
+    }
 }
+// --- 架空 PSListController 的头部/高度内部逻辑(防止 array 越界) ---
+- (double)tableView:(id)tv heightForRowAtIndexPath:(id)ip { return 44.0; }
+- (double)tableView:(id)tv estimatedHeightForRowAtIndexPath:(id)ip { return 44.0; }
+- (double)tableView:(id)tv heightForHeaderInSection:(long)s { return 0.0; }
+- (double)tableView:(id)tv heightForFooterInSection:(long)s { return 0.0; }
+- (id)tableView:(id)tv viewForHeaderInSection:(long)s { return 0; }
+- (id)tableView:(id)tv viewForFooterInSection:(long)s { return 0; }
+- (id)tableView:(id)tv titleForHeaderInSection:(long)s { return @""; }
+- (id)tableView:(id)tv titleForFooterInSection:(long)s { return @""; }
 - (long)numberOfSectionsInTableView:(id)tv { return 1; }
 - (long)tableView:(id)tv numberOfRowsInSection:(long)s { return 6; }
 - (id)tableView:(id)tv cellForRowAtIndexPath:(id)ip {
