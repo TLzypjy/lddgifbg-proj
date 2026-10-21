@@ -368,54 +368,103 @@ static void LogB(const char *s) {
     if (f) { fprintf(f, "%s\n", s ? s : "?"); fflush(f); fclose(f); }
 }
 
-// ---------- 设置主控制器 ----------
-@interface lddgifbgRootListController : PSListController @end
+// ---------- 设置主控制器 (自绘 UITableViewController, 完全绕开 PSListController) ----------
+@interface lddgifbgRootListController : UITableViewController
+@end
 @implementation lddgifbgRootListController
-{}
-
-// ---------- 设置项: 加载 Root.plist 并写入 PSListController 的真实 _specifiers (KVC 方式) ----------
-- (id)specifiers {
-    @try {
-        id cur = MSG(self, "valueForKey:", @"_specifiers");
-        if (!cur) {
-            cur = [self loadSpecifiersFromPlistName:@"Root" target:self];
-            if (cur) {
-                MSG(self, "setValue:forKey:", cur, @"_specifiers");
-                LogB("kvc-set");
-            } else {
-                LogB("plist-nil");
-            }
-        }
-        if (cur) LogB(((unsigned long)MSG(cur, "count") > 0) ? "plist-ok-rows" : "plist-empty");
-        return cur;
-    } @catch (id e) {
-        LogB("specifiers-exception");
-    }
-    return MSG(CLS("NSArray"), "array");
-}
 - (void)viewDidLoad {
     @try {
         [super viewDidLoad];
-        [self setTitle:@"灵动岛GIF背景"];
-        MSG(self, "reloadSpecifiers");
     } @catch (id e) {
-        // 防御: 设置页不允许因本插件崩溃
+    }
+    [self setTitle:@"灵动岛GIF背景"];
+}
+- (long)numberOfSectionsInTableView:(id)tv { return 1; }
+- (long)tableView:(id)tv numberOfRowsInSection:(long)s { return 5; }
+- (id)tableView:(id)tv cellForRowAtIndexPath:(id)ip {
+    long row = (long)MSG(ip, "row");
+    id cell = MSG(tv, "dequeueReusableCellWithIdentifier:", @"c");
+    if (!cell) cell = MSG(MSG(CLS("UITableViewCell"), "alloc"), "initWithStyle:reuseIdentifier:", 1, @"c");
+    CGRect b = MSGR(MSG(cell, "contentView"), "bounds");
+    // 清除残留子视图(复用)
+    @try {
+        id subs = MSG(MSG(cell, "contentView"), "subviews");
+        for (id v in subs) MSG(v, "removeFromSuperview");
+    } @catch (id e) {}
+    MSG(cell, "setSelectionStyle:", 0);
+    MSG(cell, "setAccessoryType:", 0);
+
+    if (row == 0 || row == 1) {
+        // 开关
+        id label = MSG(CLS("UILabel"), "alloc");
+        label = MSG(label, "initWithFrame:", (CGRect){16, 14, b.w - 110, 22});
+        MSG(label, "setText:", row == 0 ? @"启用总开关" : @"启用小岛");
+        MSG(label, "setFont:", MSG(CLS("UIFont"), "systemFontOfSize:", 16.0));
+        MSG(MSG(cell, "contentView"), "addSubview:", label);
+
+        id sw = MSG(CLS("UISwitch"), "alloc");
+        sw = MSG(sw, "initWithFrame:", (CGRect){b.w - 66, 9, 50, 30});
+        MSG(sw, "setTag:", row == 0 ? 1001 : 1002);
+        id udc = MSG(MSG(CLS("NSUserDefaults"), "alloc"), "initWithSuiteName:", @"lddgifbg");
+        id v = MSG(udc, "objectForKey:", row == 0 ? @"Enablelddgifbg" : @"Enablezxhlddgifbg");
+        BOOL on = v ? (BOOL)MSG(v, "boolValue") : YES;
+        MSG(sw, "setOn:animated:", on, 0);
+        MSG(sw, "addTarget:action:forControlEvents:", self, sel_registerName("switchToggled:"), 1 << 12);
+        MSG(MSG(cell, "contentView"), "addSubview:", sw);
+    } else if (row == 2) {
+        // 缩放滑块
+        id label = MSG(CLS("UILabel"), "alloc");
+        label = MSG(label, "initWithFrame:", (CGRect){16, 12, b.w - 32, 20});
+        MSG(label, "setText:", @"缩放比例");
+        MSG(label, "setFont:", MSG(CLS("UIFont"), "systemFontOfSize:", 15.0));
+        MSG(MSG(cell, "contentView"), "addSubview:", label);
+        id sl = MSG(CLS("UISlider"), "alloc");
+        sl = MSG(sl, "initWithFrame:", (CGRect){16, 36, b.w - 32, 30});
+        MSG(sl, "setMinimumValue:", 0.1);
+        MSG(sl, "setMaximumValue:", 2.0);
+        id udc = MSG(MSG(CLS("NSUserDefaults"), "alloc"), "initWithSuiteName:", @"lddgifbg");
+        id v = MSG(udc, "objectForKey:", @"lddgifbgScale");
+        double dv = v ? MSGD(v, "doubleValue") : 1.0;
+        if (dv <= 0) dv = 1.0;
+        MSG(sl, "setValue:", dv);
+        MSG(sl, "addTarget:action:forControlEvents:", self, sel_registerName("sliderChanged:"), 1 << 12);
+        MSG(MSG(cell, "contentView"), "addSubview:", sl);
+    } else {
+        // 入口行
+        id label = MSG(CLS("UILabel"), "alloc");
+        label = MSG(label, "initWithFrame:", (CGRect){16, 14, b.w - 60, 22});
+        MSG(label, "setText:", row == 3 ? @"选择素材" : @"跳转素材目录");
+        MSG(label, "setFont:", MSG(CLS("UIFont"), "systemFontOfSize:", 16.0));
+        MSG(MSG(cell, "contentView"), "addSubview:", label);
+        MSG(cell, "setAccessoryType:", 1);
+        MSG(cell, "setSelectionStyle:", 1);
+    }
+    return cell;
+}
+- (void)tableView:(id)tv didSelectRowAtIndexPath:(id)ip {
+    long row = (long)MSG(ip, "row");
+    MSG(tv, "deselectRowAtIndexPath:animated:", ip, 1);
+    if (row == 3) {
+        id pc = MSG(CLS("LDDMaterialPickerController"), "alloc");
+        pc = MSG(pc, "initWithStyle:", 1);
+        MSG(MSG(self, "navigationController"), "pushViewController:animated:", pc, 1);
+    } else if (row == 4) {
+        id app = MSG(CLS("UIApplication"), "sharedApplication");
+        id url = MSG(CLS("NSURL"), "fileURLWithPath:", @"/var/mobile/lddgifbg");
+        MSG(app, "openURL:options:completionHandler:", url, MSG(CLS("NSDictionary"), "dictionary"), 0);
     }
 }
-- (void)respringNow {
-    id fm = MSG(CLS("NSFileManager"), "defaultManager");
-    BOOL have_sbreload = (BOOL)MSG(fm, "fileExistsAtPath:", @"/var/jb/usr/bin/sbreload");
-    char *argv1[] = {(char *)"/var/jb/usr/bin/sbreload", 0};
-    char *argv2[] = {(char *)"/var/jb/usr/bin/killall", (char *)"SpringBoard", 0};
-    // 通过 dlsym 调用 posix_spawn, 避免与 SDK 头文件声明冲突
-    static int (*spawn_fn)(void *, const char *, void *, void *, char *const[], char *const[]);
-    if (!spawn_fn) {
-        void *h = dlopen(0, 1);
-        if (h) spawn_fn = (int (*)(void *, const char *, void *, void *, char *const[], char *const[]))dlsym(h, "posix_spawn");
-    }
-    if (spawn_fn) {
-        if (have_sbreload) spawn_fn(0, "/var/jb/usr/bin/sbreload", 0, 0, argv1, 0);
-        else spawn_fn(0, "/var/jb/usr/bin/killall", 0, 0, argv2, 0);
-    }
+- (void)switchToggled:(id)sw {
+    NSString *key = (long)MSG(sw, "tag") == 1001 ? @"Enablelddgifbg" : @"Enablezxhlddgifbg";
+    BOOL on = (BOOL)MSG(sw, "isOn");
+    id udc = MSG(MSG(CLS("NSUserDefaults"), "alloc"), "initWithSuiteName:", @"lddgifbg");
+    MSG(udc, "setObject:forKey:", MSG(CLS("NSNumber"), "numberWithBool:", on), key);
+    MSG(udc, "synchronize");
+}
+- (void)sliderChanged:(id)sl {
+    double dv = MSGD(sl, "value");
+    id udc = MSG(MSG(CLS("NSUserDefaults"), "alloc"), "initWithSuiteName:", @"lddgifbg");
+    MSG(udc, "setObject:forKey:", MSG(CLS("NSNumber"), "numberWithDouble:", dv), @"lddgifbgScale");
+    MSG(udc, "synchronize");
 }
 @end
