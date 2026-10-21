@@ -1,3 +1,4 @@
+#include <stdio.h>
 // 灵动岛GIF背景 —— 重制版设置 Bundle
 // lddgifbgRootListController: 设置项 + 注销按钮
 // LDDMaterialPickerController: 带缩略图的素材选择 (GIF首帧/视频首帧/静态图)
