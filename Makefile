@@ -5,7 +5,7 @@ export DEBUG = 0
 
 TWEAK_NAME = 灵动岛GIF背景
 灵动岛GIF背景_FILES = main/lddgifbg_main.mm
-灵动岛GIF背景_CFLAGS = -fno-objc-arc
+灵动岛GIF背景_CFLAGS = -fobjc-arc -Wno-unused-function
 灵动岛GIF背景_FRAMEWORKS = ImageIO
 灵动岛GIF背景_LDFLAGS = -lsubstrate
 
