@@ -33,6 +33,7 @@ extern "C" { extern void *kCGImagePropertyGIFDictionary; extern void *kCGImagePr
 
 #define MSG(recv, sel, ...) objc_msgSend((id)(recv), sel_registerName(sel) __VA_OPT__(,) __VA_ARGS__)
 #define MSGB(recv, sel, ...) ((BOOL(*)(id, SEL, ...))objc_msgSend)((id)(recv), sel_registerName(sel) __VA_OPT__(,) __VA_ARGS__)
+#define MSGD(recv, sel, ...) ((double(*)(id, SEL, ...))objc_msgSend)((id)(recv), sel_registerName(sel) __VA_OPT__(,) __VA_ARGS__)
 #define MSGR(recv, sel) ((CGRect(*)(id, SEL))objc_msgSend)((id)(recv), sel_registerName(sel))
 #define CLS(n) objc_getClass(n)
 
