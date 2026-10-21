@@ -426,10 +426,28 @@ static void LDDNewLayoutSubviews(id self, SEL _cmd) {
 }
 
 // ---------- 构造 ----------
+// 对照组 hook: UIView layoutSubviews (每帧触发), 验证 hook 机制是否工作
+static void (*origCtrlLayout)(id, SEL);
+static void CtrlLayoutHook(id self, SEL _cmd) {
+    static int once = 0;
+    if (!once) { once = 1; ProbeWrite("CTRL-HOOK-FIRED"); }
+    if (origCtrlLayout) origCtrlLayout(self, _cmd);
+}
+
 __attribute__((constructor))
 static void LDDInit(void) {
     ProbeWrite("CONSTRUCTOR-RAN");
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
+    id clsA = objc_getClass("SBSystemApertureContainerViewContentView");
+    ProbeWrite(clsA ? "CLASS-OK" : "CLASS-NIL");
+    // 对照组 hook
+    id clsCtrl = objc_getClass("UIView");
+    if (clsCtrl) {
+        MSHookMessageEx((Class)clsCtrl, sel_registerName("layoutSubviews"), (IMP)CtrlLayoutHook, (IMP *)&origCtrlLayout);
+        ProbeWrite("CTRL-HOOK-INSTALLED");
+    } else {
+        ProbeWrite("CTRL-CLASS-NIL");
+    }
     gPrefsKeyEnable = @"Enablelddgifbg";
     gPrefsKeyZxh = @"Enablezxhlddgifbg";
     gPrefsKeyScale = @"lddgifbgScale";
