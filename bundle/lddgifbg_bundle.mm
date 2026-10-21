@@ -40,8 +40,8 @@ extern "C" { extern void *kCGImagePropertyGIFDictionary; extern void *kCGImagePr
 @interface NSObject
 + (id)alloc;
 - (id)init;
-- (id)valueForKey:(NSString *)k;
-- (void)setValue:(id)v forKey:(NSString *)k;
+- (id)valueForKey:(id)k;
+- (void)setValue:(id)v forKey:(id)k;
 @end
 @interface NSString : NSObject
 - (NSString *)stringByAppendingPathComponent:(NSString *)s;
