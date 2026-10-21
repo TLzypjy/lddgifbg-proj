@@ -289,7 +289,7 @@ static id ThumbForPath(NSString *path) {
     if (!_folders || row >= (NSInteger)[_folders count]) return nil;
     NSString *name = [_folders objectAtIndex:(NSUInteger)row];
     UITableViewCell *cell = [tv dequeueReusableCellWithIdentifier:@"mat"];
-    if (!cell) cell = [[[UITableViewCell alloc] initWithStyle:1 reuseIdentifier:@"mat"]];
+    if (!cell) cell = [[UITableViewCell alloc] initWithStyle:1 reuseIdentifier:@"mat"];
     for (UIView *v in [[cell contentView] subviews]) { if (v) [v removeFromSuperview]; }
 
     NSString *full = [@"/var/mobile/lddgifbg" stringByAppendingPathComponent:name];
@@ -309,7 +309,7 @@ static id ThumbForPath(NSString *path) {
         if (thumb) [_thumbs setObject:thumb forKeyedSubscript:name];
     }
     if (thumb) {
-        UIImageView *iv = [[[UIImageView alloc] initWithFrame:MakeRect(8, 8, 44, 44)]];
+        UIImageView *iv = [[UIImageView alloc] initWithFrame:MakeRect(8, 8, 44, 44)];
         [iv setImage:thumb];
         [iv setContentMode:1];
         [iv setClipsToBounds:YES];
@@ -318,11 +318,11 @@ static id ThumbForPath(NSString *path) {
         [[cell contentView] addSubview:iv];
     }
     CGRect b = [[cell contentView] bounds];
-    UILabel *label = [[[UILabel alloc] initWithFrame:MakeRect(60, 10, b.w - 70, 22)]];
+    UILabel *label = [[UILabel alloc] initWithFrame:MakeRect(60, 10, b.w - 70, 22)];
     [label setText:name];
     [label setFont:[UIFont boldSystemFontOfSize:16.0]];
     [[cell contentView] addSubview:label];
-    UILabel *sub = [[[UILabel alloc] initWithFrame:MakeRect(60, 33, b.w - 70, 16)]];
+    UILabel *sub = [[UILabel alloc] initWithFrame:MakeRect(60, 33, b.w - 70, 16)];
     NSString *typeDesc = @"GIF";
     NSFileManager *fm2 = [NSFileManager defaultManager];
     NSArray *files2 = [fm2 contentsOfDirectoryAtPath:full error:nil];
@@ -366,17 +366,17 @@ static id ThumbForPath(NSString *path) {
 - (UITableViewCell *)tableView:(UITableView *)tv cellForRowAtIndexPath:(NSIndexPath *)ip {
     NSInteger row = [ip row];
     UITableViewCell *cell = [tv dequeueReusableCellWithIdentifier:@"c"];
-    if (!cell) cell = [[[UITableViewCell alloc] initWithStyle:1 reuseIdentifier:@"c"]];
+    if (!cell) cell = [[UITableViewCell alloc] initWithStyle:1 reuseIdentifier:@"c"];
     for (UIView *v in [[cell contentView] subviews]) { if (v) [v removeFromSuperview]; }
     CGRect b = [[cell contentView] bounds];
     [cell setSelectionStyle:0];
     [cell setAccessoryType:0];
     if (row == 0 || row == 1) {
-        UILabel *label = [[[UILabel alloc] initWithFrame:MakeRect(16, 14, b.w - 110, 22)]];
+        UILabel *label = [[UILabel alloc] initWithFrame:MakeRect(16, 14, b.w - 110, 22)];
         [label setText:(row == 0 ? @"启用总开关" : @"启用小岛")];
         [label setFont:[UIFont systemFontOfSize:16.0]];
         [[cell contentView] addSubview:label];
-        UISwitch *sw = [[[UISwitch alloc] initWithFrame:MakeRect(b.w - 66, 9, 50, 30)]];
+        UISwitch *sw = [[UISwitch alloc] initWithFrame:MakeRect(b.w - 66, 9, 50, 30)];
         [sw setTag:(row == 0 ? 1001 : 1002)];
         NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
         id v = [ud objectForKey:(row == 0 ? @"Enablelddgifbg" : @"Enablezxhlddgifbg")];
@@ -385,11 +385,11 @@ static id ThumbForPath(NSString *path) {
         [sw addTarget:(id)self action:@selector(switchToggled:) forControlEvents:1 << 12];
         [[cell contentView] addSubview:sw];
     } else if (row == 2) {
-        UILabel *label = [[[UILabel alloc] initWithFrame:MakeRect(16, 10, b.w - 32, 20)]];
+        UILabel *label = [[UILabel alloc] initWithFrame:MakeRect(16, 10, b.w - 32, 20)];
         [label setText:@"缩放比例"];
         [label setFont:[UIFont systemFontOfSize:15.0]];
         [[cell contentView] addSubview:label];
-        UISlider *sl = [[[UISlider alloc] initWithFrame:MakeRect(16, 34, b.w - 32, 30)]];
+        UISlider *sl = [[UISlider alloc] initWithFrame:MakeRect(16, 34, b.w - 32, 30)];
         [sl setMinimumValue:0.1];
         [sl setMaximumValue:2.0];
         NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
@@ -401,7 +401,7 @@ static id ThumbForPath(NSString *path) {
         [[cell contentView] addSubview:sl];
     } else {
         NSString *t = (row == 3 ? @"选择素材" : (row == 4 ? @"跳转素材目录" : @"完成"));
-        UILabel *label = [[[UILabel alloc] initWithFrame:MakeRect(16, 14, b.w - 60, 22)]];
+        UILabel *label = [[UILabel alloc] initWithFrame:MakeRect(16, 14, b.w - 60, 22)];
         [label setText:t];
         [label setFont:[UIFont systemFontOfSize:16.0]];
         if (row == 5) [label setTextColor:[UIColor redColor]];
