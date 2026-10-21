@@ -376,28 +376,28 @@ static void LogB(const char *s) {
 - (id)buildProgrammaticSpecifiers {
     id specs = MSG(CLS("NSMutableArray"), "array");
     @try {
-        id s1 = MSG(self, "preferenceSpecifierNamed:target:set:get:detail:cell:edit:", @"启用总开关", self, 0, 0, 0, 2, 0);
+        id s1 = MSG(CLS("PSSpecifier"), "preferenceSpecifierNamed:target:set:get:detail:cell:edit:", @"启用总开关", self, 0, 0, 0, 2, 0);
         MSG(s1, "setProperty:forKey:", @"Enablelddgifbg", @"key");
         MSG(s1, "setProperty:forKey:", @"lddgifbg", @"defaults");
         MSG(specs, "addObject:", s1);
-        id s2 = MSG(self, "preferenceSpecifierNamed:target:set:get:detail:cell:edit:", @"启用小岛", self, 0, 0, 0, 2, 0);
+        id s2 = MSG(CLS("PSSpecifier"), "preferenceSpecifierNamed:target:set:get:detail:cell:edit:", @"启用小岛", self, 0, 0, 0, 2, 0);
         MSG(s2, "setProperty:forKey:", @"Enablezxhlddgifbg", @"key");
         MSG(s2, "setProperty:forKey:", @"lddgifbg", @"defaults");
         MSG(specs, "addObject:", s2);
-        id s3 = MSG(self, "preferenceSpecifierNamed:target:set:get:detail:cell:edit:", @"缩放比例", self, 0, 0, 0, 4, 0);
+        id s3 = MSG(CLS("PSSpecifier"), "preferenceSpecifierNamed:target:set:get:detail:cell:edit:", @"缩放比例", self, 0, 0, 0, 4, 0);
         MSG(s3, "setProperty:forKey:", @"lddgifbgScale", @"key");
         MSG(s3, "setProperty:forKey:", @"lddgifbg", @"defaults");
         MSG(s3, "setProperty:forKey:", MSG(CLS("NSNumber"), "numberWithDouble:", 0.1), @"min");
         MSG(s3, "setProperty:forKey:", MSG(CLS("NSNumber"), "numberWithDouble:", 2.0), @"max");
         MSG(s3, "setProperty:forKey:", MSG(CLS("NSNumber"), "numberWithDouble:", 1.0), @"default");
         MSG(specs, "addObject:", s3);
-        id s4 = MSG(self, "preferenceSpecifierNamed:target:set:get:detail:cell:edit:", @"选择素材", self, 0, 0, 0, 1, 0);
+        id s4 = MSG(CLS("PSSpecifier"), "preferenceSpecifierNamed:target:set:get:detail:cell:edit:", @"选择素材", self, 0, 0, 0, 1, 0);
         MSG(s4, "setProperty:forKey:", @"LDDMaterialPickerController", @"detail");
         MSG(specs, "addObject:", s4);
-        id s5 = MSG(self, "preferenceSpecifierNamed:target:set:get:detail:cell:edit:", @"跳转素材目录", self, 0, 0, 0, 1, 0);
+        id s5 = MSG(CLS("PSSpecifier"), "preferenceSpecifierNamed:target:set:get:detail:cell:edit:", @"跳转素材目录", self, 0, 0, 0, 1, 0);
         MSG(s5, "setProperty:forKey:", @"LDDMaterialFolderOpenerController", @"detail");
         MSG(specs, "addObject:", s5);
-        id s6 = MSG(self, "preferenceSpecifierNamed:target:set:get:detail:cell:edit:", @"立即注销", self, 0, 0, 0, 3, 0);
+        id s6 = MSG(CLS("PSSpecifier"), "preferenceSpecifierNamed:target:set:get:detail:cell:edit:", @"立即注销", self, 0, 0, 0, 3, 0);
         MSG(s6, "setProperty:forKey:", @"respringNow", @"buttonAction");
         MSG(specs, "addObject:", s6);
     } @catch (id e) {
@@ -417,7 +417,7 @@ static void LogB(const char *s) {
                 _mySpecs = [self buildProgrammaticSpecifiers];
             }
             // 追加"立即注销"行
-            id rs = MSG(self, "preferenceSpecifierNamed:target:set:get:detail:cell:edit:", @"立即注销", self, 0, 0, 0, 3, 0);
+            id rs = MSG(CLS("PSSpecifier"), "preferenceSpecifierNamed:target:set:get:detail:cell:edit:", @"立即注销", self, 0, 0, 0, 3, 0);
             if (rs) {
                 MSG(rs, "setProperty:forKey:", @"respringNow", @"buttonAction");
                 id arr = MSG(_mySpecs, "mutableCopy");
