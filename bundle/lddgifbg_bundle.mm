@@ -372,65 +372,18 @@ static void LogB(const char *s) {
     id _mySpecs;
 }
 
-// ---------- 程序化构建设置项(plist 失败时兜底, 保证页面不空) ----------
-- (id)buildProgrammaticSpecifiers {
-    id specs = MSG(CLS("NSMutableArray"), "array");
-    @try {
-        id s1 = MSG(CLS("PSSpecifier"), "preferenceSpecifierNamed:target:set:get:detail:cell:edit:", @"启用总开关", self, 0, 0, 0, 2, 0);
-        MSG(s1, "setProperty:forKey:", @"Enablelddgifbg", @"key");
-        MSG(s1, "setProperty:forKey:", @"lddgifbg", @"defaults");
-        MSG(specs, "addObject:", s1);
-        id s2 = MSG(CLS("PSSpecifier"), "preferenceSpecifierNamed:target:set:get:detail:cell:edit:", @"启用小岛", self, 0, 0, 0, 2, 0);
-        MSG(s2, "setProperty:forKey:", @"Enablezxhlddgifbg", @"key");
-        MSG(s2, "setProperty:forKey:", @"lddgifbg", @"defaults");
-        MSG(specs, "addObject:", s2);
-        id s3 = MSG(CLS("PSSpecifier"), "preferenceSpecifierNamed:target:set:get:detail:cell:edit:", @"缩放比例", self, 0, 0, 0, 4, 0);
-        MSG(s3, "setProperty:forKey:", @"lddgifbgScale", @"key");
-        MSG(s3, "setProperty:forKey:", @"lddgifbg", @"defaults");
-        MSG(s3, "setProperty:forKey:", MSG(CLS("NSNumber"), "numberWithDouble:", 0.1), @"min");
-        MSG(s3, "setProperty:forKey:", MSG(CLS("NSNumber"), "numberWithDouble:", 2.0), @"max");
-        MSG(s3, "setProperty:forKey:", MSG(CLS("NSNumber"), "numberWithDouble:", 1.0), @"default");
-        MSG(specs, "addObject:", s3);
-        id s4 = MSG(CLS("PSSpecifier"), "preferenceSpecifierNamed:target:set:get:detail:cell:edit:", @"选择素材", self, 0, 0, 0, 1, 0);
-        MSG(s4, "setProperty:forKey:", @"LDDMaterialPickerController", @"detail");
-        MSG(specs, "addObject:", s4);
-        id s5 = MSG(CLS("PSSpecifier"), "preferenceSpecifierNamed:target:set:get:detail:cell:edit:", @"跳转素材目录", self, 0, 0, 0, 1, 0);
-        MSG(s5, "setProperty:forKey:", @"LDDMaterialFolderOpenerController", @"detail");
-        MSG(specs, "addObject:", s5);
-        id s6 = MSG(CLS("PSSpecifier"), "preferenceSpecifierNamed:target:set:get:detail:cell:edit:", @"立即注销", self, 0, 0, 0, 3, 0);
-        MSG(s6, "setProperty:forKey:", @"respringNow", @"buttonAction");
-        MSG(specs, "addObject:", s6);
-    } @catch (id e) {
-        LogB("prog-exception");
-    }
-    return specs;
-}
-
+// ---------- 设置项: 仅加载 Root.plist (代码构造在 arm64e 上不可靠, 已弃用) ----------
 - (id)specifiers {
     @try {
         if (!_mySpecs) {
             _mySpecs = [self loadSpecifiersFromPlistName:@"Root" target:self];
-            if (_mySpecs) LogB("plist-ok");
+            if (_mySpecs) LogB(MSG(_mySpecs, "count") > 0 ? "plist-ok-rows" : "plist-empty");
             else LogB("plist-nil");
-            if (!_mySpecs || MSG(_mySpecs, "count") == 0) {
-                LogB("fallback-programmatic");
-                _mySpecs = [self buildProgrammaticSpecifiers];
-            }
-            // 追加"立即注销"行
-            id rs = MSG(CLS("PSSpecifier"), "preferenceSpecifierNamed:target:set:get:detail:cell:edit:", @"立即注销", self, 0, 0, 0, 3, 0);
-            if (rs) {
-                MSG(rs, "setProperty:forKey:", @"respringNow", @"buttonAction");
-                id arr = MSG(_mySpecs, "mutableCopy");
-                MSG(arr, "addObject:", rs);
-                MSG(self, "setSpecifiers:", arr);
-                _mySpecs = arr;
-            }
         }
     } @catch (id e) {
         LogB("specifiers-exception");
-        _mySpecs = [self buildProgrammaticSpecifiers];
-        if (!_mySpecs) _mySpecs = MSG(CLS("NSArray"), "array");
     }
+    if (!_mySpecs) _mySpecs = MSG(CLS("NSArray"), "array");
     return _mySpecs;
 }
 - (void)viewDidLoad {
