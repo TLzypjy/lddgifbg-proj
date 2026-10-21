@@ -361,7 +361,7 @@ static id ThumbForPath(NSString *path) {
 
 // ---------- 日志(诊断用) ----------
 static void LogB(const char *s) {
-    void *f = fopen("/var/jb/tmp/lddgifbg-bundle.log", "a");
+    FILE *f = fopen("/var/jb/tmp/lddgifbg-bundle.log", "a");
     if (f) { fprintf(f, "%s\n", s ? s : "?"); fflush(f); fclose(f); }
 }
 
