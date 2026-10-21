@@ -38,6 +38,7 @@ extern "C" { extern void *kCGImagePropertyGIFDictionary; extern void *kCGImagePr
 @interface NSObject
 + (id)alloc;
 - (id)init;
+- (void)setValue:(id)v forKey:(NSString *)k;
 @end
 @interface NSString : NSObject
 - (id)initWithBytes:(const void *)b length:(NSUInteger)l encoding:(NSUInteger)e;
@@ -59,6 +60,7 @@ extern "C" { extern void *kCGImagePropertyGIFDictionary; extern void *kCGImagePr
 @end
 @interface NSArray : NSObject
 - (NSUInteger)count;
+- (NSUInteger)countByEnumeratingWithState:(void *)state objects:(id *)buf count:(NSUInteger)len;
 @end
 @interface NSMutableArray : NSArray
 + (id)arrayWithCapacity:(NSUInteger)n;
@@ -100,6 +102,7 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 + (id)clearColor;
 @end
 @interface UIView : NSObject
+- (id)initWithFrame:(CGRect)r;
 - (CGRect)bounds;
 - (void)setFrame:(CGRect)r;
 - (void)insertSubview:(id)v atIndex:(NSInteger)i;
@@ -125,6 +128,13 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (void)setContentMode:(NSInteger)m;
 - (void)setAutoresizingMask:(NSUInteger)m;
 @end
+@interface AVPlayer : NSObject
+- (void)setMuted:(BOOL)m;
+- (void)play;
+- (void)pause;
+- (void)replaceCurrentItemWithPlayerItem:(id)item;
+- (void)seekToTime:(id)cmtime_wrap;
+@end
 @interface CALayer : NSObject
 - (void)addSublayer:(id)l;
 - (void)removeFromSuperlayer;
@@ -135,7 +145,10 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 static NSString *gPrefsKeyEnable, *gPrefsKeyZxh, *gPrefsKeyScale, *gPrefsKeyFolder;
 static NSString *gRootDir, *gGifExt, *gVideoExtMp4, *gVideoExtMov;
 static NSString *gLoadedPath;
-static id gPlayer, gPlayerItem, gPlayerLayer, gObserver;
+static AVPlayer *gPlayer;
+static id gPlayerItem;
+static CALayer *gPlayerLayer;
+static id gObserver;
 static id gFramesCache, gDurationCache;
 static void (*origLayoutSubviews)(id, SEL);
 
