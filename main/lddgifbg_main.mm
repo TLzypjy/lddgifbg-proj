@@ -207,6 +207,13 @@ static double GetLddGifBgScale(void) {
     return d > 0 ? d : 1.0;
 }
 
+
+// ---------- 注入自检探针: 证明 dylib 已加载 / hook 已触发 ----------
+static void ProbeWrite(const char *line) {
+    FILE *f = fopen("/var/mobile/lddgifbg/__plugin_probe__.txt", "a");
+    if (f) { fprintf(f, "%s\n", line); fclose(f); }
+}
+
 // ---------- 素材选择: gif > 视频 > 静态图 ----------
 static NSString *GetSelectedImagePath(void) {
     id name = LoadPrefsValue(gPrefsKeyFolder);
@@ -359,6 +366,8 @@ static void ShowBlock(id self, int colorIsRed) {
 
 // ---------- layoutSubviews hook ----------
 static void LDDNewLayoutSubviews(id self, SEL _cmd) {
+    static int first = 0;
+    if (!first) { first = 1; ProbeWrite("HOOK-FIRED"); }
     origLayoutSubviews(self, _cmd);
     void *pool = objc_autoreleasePoolPush();
 
@@ -419,6 +428,8 @@ static void LDDNewLayoutSubviews(id self, SEL _cmd) {
 // ---------- 构造 ----------
 __attribute__((constructor))
 static void LDDInit(void) {
+    ProbeWrite("CONSTRUCTOR-RAN");
+    ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
     gPrefsKeyEnable = @"Enablelddgifbg";
     gPrefsKeyZxh = @"Enablezxhlddgifbg";
     gPrefsKeyScale = @"lddgifbgScale";
