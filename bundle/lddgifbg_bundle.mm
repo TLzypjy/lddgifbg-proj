@@ -377,7 +377,7 @@ static void LogB(const char *s) {
     @try {
         if (!_mySpecs) {
             _mySpecs = [self loadSpecifiersFromPlistName:@"Root" target:self];
-            if (_mySpecs) LogB(MSG(_mySpecs, "count") > 0 ? "plist-ok-rows" : "plist-empty");
+            if (_mySpecs) LogB(((unsigned long)MSG(_mySpecs, "count") > 0) ? "plist-ok-rows" : "plist-empty");
             else LogB("plist-nil");
         }
     } @catch (id e) {
