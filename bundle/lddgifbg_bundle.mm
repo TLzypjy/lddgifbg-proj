@@ -1,59 +1,45 @@
+// 灵动岛GIF背景 —— 重制版设置 Bundle (v3: 全标准 ObjC 语法, 适配 arm64e)
+// 架构: 入口壳(PSListController) -> 模态面板(UITableViewController 自绘) -> 素材选择器(模态)
+// 关键: 全部使用 [obj method:] 标准语法, 由编译器生成 arm64e 正确的 objc_msgSend
 #include <stdio.h>
-// 灵动岛GIF背景 —— 重制版设置 Bundle
-// lddgifbgRootListController: 设置项 + 注销按钮
-// LDDMaterialPickerController: 带缩略图的素材选择 (GIF首帧/视频首帧/静态图)
-// LDDMaterialFolderOpenerController: 跳转素材目录 (Filza / 文件)
-// 无 SDK 编译: 全部运行时动态解析; ImageIO/AVFoundation 用 dlopen+dlsym, 无硬链接
-
-#include <stdint.h>
-#include <stddef.h>
 
 typedef struct objc_class *Class;
 typedef struct objc_object { Class isa; } *id;
 typedef struct objc_selector *SEL;
-typedef void *IMP;
 typedef struct CGImage *CGImageRef;
-typedef struct CGColor *CGColorRef;
 typedef bool BOOL;
 typedef unsigned long NSUInteger;
+typedef long NSInteger;
 #define YES 1
 #define NO 0
 #define nil 0
 #define Nil 0
 
-extern "C" id objc_msgSend(id self, SEL op, ...);
-extern "C" id objc_getClass(const char *name);
-extern "C" SEL sel_registerName(const char *name);
-extern "C" void *dlopen(const char *path, int mode);
-extern "C" void *dlsym(void *handle, const char *symbol);
-extern "C" void *objc_autoreleasePoolPush(void);
-extern "C" void objc_autoreleasePoolPop(void *pool);
-extern "C" void CFRelease(void *cf);
-extern "C" { extern void *kCGImagePropertyGIFDictionary; extern void *kCGImagePropertyGIFDelayTime; extern void *kCGImagePropertyGIFUnclampedDelayTime; }
+extern id objc_msgSend(id self, SEL op, ...);
+extern id objc_getClass(const char *name);
+extern SEL sel_registerName(const char *name);
+extern void *dlopen(const char *path, int mode);
+extern void *dlsym(void *handle, const char *symbol);
+extern void CFRelease(void *cf);
 
-#define MSG(recv, sel, ...) objc_msgSend((id)(recv), sel_registerName(sel) __VA_OPT__(,) __VA_ARGS__)
-#define MSGB(recv, sel, ...) ((BOOL(*)(id, SEL, ...))objc_msgSend)((id)(recv), sel_registerName(sel) __VA_OPT__(,) __VA_ARGS__)
-#define MSGD(recv, sel, ...) ((double(*)(id, SEL, ...))objc_msgSend)((id)(recv), sel_registerName(sel) __VA_OPT__(,) __VA_ARGS__)
-#define MSGR(recv, sel) ((CGRect(*)(id, SEL))objc_msgSend)((id)(recv), sel_registerName(sel))
 #define CLS(n) objc_getClass(n)
+static id CLSSTR(const char *n) { return (id)objc_getClass(n); }
 
-// ---------- ObjC 存根 ----------
+// ---------- ObjC 存根 (标准声明, 供编译期检查) ----------
 @interface NSObject
 + (id)alloc;
 - (id)init;
 - (id)valueForKey:(id)k;
-- (void)setValue:(id)v forKey:(id)k;
 @end
 @interface NSString : NSObject
 - (NSString *)stringByAppendingPathComponent:(NSString *)s;
 - (NSString *)pathExtension;
 - (NSString *)lowercaseString;
 - (BOOL)isEqualToString:(NSString *)s;
-- (unsigned long)length;
 @end
 @interface NSArray : NSObject
-- (unsigned long)count;
-- (id)objectAtIndex:(unsigned long)i;
+- (NSUInteger)count;
+- (id)objectAtIndex:(NSUInteger)i;
 - (id)mutableCopy;
 - (NSUInteger)countByEnumeratingWithState:(void *)state objects:(id *)buf count:(NSUInteger)len;
 @end
@@ -62,135 +48,155 @@ extern "C" { extern void *kCGImagePropertyGIFDictionary; extern void *kCGImagePr
 - (void)addObject:(id)obj;
 @end
 @interface NSDictionary : NSObject
++ (id)dictionary;
 - (id)objectForKeyedSubscript:(id)k;
 @end
 @interface NSMutableDictionary : NSDictionary
 + (id)dictionary;
 - (void)setObject:(id)obj forKeyedSubscript:(id)k;
-- (void)setObject:(id)obj forKey:(id)k;
 @end
 @interface NSData : NSObject
 + (id)dataWithContentsOfFile:(NSString *)p;
 @end
+@interface NSNumber : NSObject
++ (id)numberWithDouble:(double)d;
++ (id)numberWithBool:(BOOL)b;
+- (double)doubleValue;
+- (BOOL)boolValue;
+@end
 @interface NSFileManager : NSObject
 + (id)defaultManager;
+- (BOOL)fileExistsAtPath:(NSString *)p;
 - (BOOL)fileExistsAtPath:(NSString *)p isDirectory:(BOOL *)d;
 - (id)contentsOfDirectoryAtPath:(NSString *)p error:(id *)e;
 @end
 @interface NSUserDefaults : NSObject
 - (id)initWithSuiteName:(NSString *)n;
-- (id)objectForKey:(NSString *)k;
-- (void)setObject:(id)obj forKey:(NSString *)k;
+- (id)objectForKey:(id)k;
+- (void)setObject:(id)obj forKey:(id)k;
 - (BOOL)synchronize;
 @end
 @interface NSURL : NSObject
 + (id)fileURLWithPath:(NSString *)p;
 @end
 @interface NSIndexPath : NSObject
-- (unsigned long)row;
+- (NSInteger)row;
+@end
+@interface NSException : NSObject @end
+
+typedef struct CGRect { double ox, oy, w, h; } CGRect;
+typedef struct CGSize { double w, h; } CGSize;
+
+@interface UIColor : NSObject
++ (id)clearColor;
++ (id)redColor;
+@end
+@interface UIFont : NSObject
++ (id)systemFontOfSize:(double)s;
++ (id)boldSystemFontOfSize:(double)s;
+@end
+@interface UIView : NSObject
+- (id)initWithFrame:(CGRect)r;
+- (CGRect)bounds;
+- (void)setFrame:(CGRect)r;
+- (void)addSubview:(id)v;
+- (void)removeFromSuperview;
+- (void)setBackgroundColor:(id)c;
+- (id)subviews;
+- (id)layer;
+- (void)setContentMode:(NSInteger)m;
+- (void)setClipsToBounds:(BOOL)b;
+@end
+@interface UILabel : UIView
+- (id)initWithFrame:(CGRect)r;
+- (void)setText:(NSString *)t;
+- (void)setFont:(id)f;
+- (void)setTextColor:(id)c;
+- (void)setTextAlignment:(NSInteger)a;
+@end
+@interface UIImage : NSObject
++ (id)imageWithContentsOfFile:(NSString *)p;
++ (id)imageWithCGImage:(CGImageRef)cg scale:(double)s orientation:(NSInteger)o;
+@end
+@interface UIImageView : UIView
+- (id)initWithFrame:(CGRect)r;
+- (void)setImage:(id)img;
+@end
+@interface UIButton : UIView @end
+@interface UISwitch : UIView
+- (id)initWithFrame:(CGRect)r;
+- (void)setOn:(BOOL)on animated:(BOOL)a;
+- (BOOL)isOn;
+- (void)setTag:(NSInteger)t;
+- (NSInteger)tag;
+- (void)addTarget:(id)t action:(SEL)a forControlEvents:(NSUInteger)e;
+@end
+@interface UISlider : UIView
+- (id)initWithFrame:(CGRect)r;
+- (void)setMinimumValue:(double)m;
+- (void)setMaximumValue:(double)m;
+- (void)setValue:(double)v;
+- (double)value;
+- (void)addTarget:(id)t action:(SEL)a forControlEvents:(NSUInteger)e;
+@end
+@interface UITableViewCell : UIView
+- (id)initWithStyle:(NSInteger)style reuseIdentifier:(NSString *)ri;
+- (id)contentView;
+- (void)setAccessoryType:(NSInteger)t;
+- (void)setSelectionStyle:(NSInteger)s;
+@end
+@interface UITableView : UIView
+- (id)dequeueReusableCellWithIdentifier:(NSString *)ri;
+- (void)deselectRowAtIndexPath:(id)ip animated:(BOOL)a;
+@end
+@interface UIViewController : NSObject
+- (id)initWithNibName:(id)n bundle:(id)b;
+- (id)view;
+- (void)setTitle:(NSString *)t;
+- (void)viewDidLoad;
+- (void)viewDidAppear:(BOOL)a;
+- (void)presentViewController:(id)vc animated:(BOOL)a completion:(id)c;
+- (void)dismissViewControllerAnimated:(BOOL)a completion:(id)c;
+@end
+@interface UITableViewController : UIViewController
+- (id)initWithStyle:(NSInteger)style;
+- (void)setTableView:(id)tv;
+@end
+@interface UINavigationController : UIViewController
+- (id)initWithRootViewController:(id)rvc;
+- (void)pushViewController:(id)vc animated:(BOOL)a;
+- (void)popViewControllerAnimated:(BOOL)a;
 @end
 @interface UIApplication : NSObject
 + (id)sharedApplication;
 - (BOOL)canOpenURL:(id)url;
 - (void)openURL:(id)url options:(id)opts completionHandler:(id)handler;
 @end
-@interface UIScreen : NSObject
-+ (id)mainScreen;
-@end
-@interface UIColor : NSObject
-+ (id)whiteColor;
-+ (id)clearColor;
-@end
-typedef struct CGRect { double ox, oy, w, h; } CGRect;
-@interface UIView : NSObject
-- (id)initWithFrame:(CGRect)r;
-- (void)setFrame:(CGRect)r;
-- (CGRect)bounds;
-- (void)addSubview:(id)v;
-- (id)layer;
-- (void)setBackgroundColor:(id)c;
-- (void)setClipsToBounds:(BOOL)b;
-- (void)setContentMode:(long)m;
-- (void)setAutoresizingMask:(unsigned long)m;
-- (void)setText:(NSString *)t;      // UILabel 专用(运行时)
-- (void)setFont:(id)f;
-- (void)setTextColor:(id)c;
-- (void)setTextAlignment:(long)a;
-- (void)setNumberOfLines:(long)n;
-@end
-@interface UIImage : NSObject
-+ (id)imageWithContentsOfFile:(NSString *)p;
-+ (id)imageWithCGImage:(CGImageRef)cg scale:(double)s orientation:(long)o;
-@end
-@interface UIImageView : UIView
-- (void)setImage:(id)img;
-@end
-@interface UILabel : UIView
-- (id)initWithFrame:(CGRect)r;
-@end
-@interface UIFont : NSObject
-+ (id)systemFontOfSize:(double)s;
-+ (id)boldSystemFontOfSize:(double)s;
-@end
-@interface UIViewController : NSObject
-- (id)view;
-- (id)navigationItem;
-- (id)navigationController;
-- (void)setTitle:(NSString *)t;
-- (id)title;
-- (void)viewDidLoad;
-- (void)viewDidAppear:(BOOL)a;
-- (void)presentViewController:(id)vc animated:(BOOL)a completion:(id)comp;
-- (void)dismissViewControllerAnimated:(BOOL)a completion:(id)comp;
-@end
-@interface UITableViewController : UIViewController
-- (id)initWithStyle:(long)style;
-- (id)tableView;
-- (void)setTableView:(id)tv;
-@end
-@interface UITableViewController (LDD)
-- (long)numberOfSectionsInTableView:(id)tv;
-- (long)tableView:(id)tv numberOfRowsInSection:(long)s;
-- (id)tableView:(id)tv cellForRowAtIndexPath:(id)ip;
-- (void)tableView:(id)tv didSelectRowAtIndexPath:(id)ip;
-@end
-@interface UINavigationController : UIViewController
-- (void)popViewControllerAnimated:(BOOL)a;
-@end
-@interface UIBarButtonItem : NSObject
-- (id)initWithTitle:(NSString *)t style:(long)s target:(id)tgt action:(SEL)a;
-@end
-@interface UITableViewCell : UIView
-- (id)initWithStyle:(long)style reuseIdentifier:(NSString *)ri;
-- (id)contentView;
-- (void)setAccessoryType:(long)t;
-- (void)setSelectionStyle:(long)s;
+@interface NSTimer : NSObject
++ (id)scheduledTimerWithTimeInterval:(double)t target:(id)target selector:(SEL)s userInfo:(id)info repeats:(BOOL)r;
 @end
 @interface CALayer : NSObject
 - (void)setCornerRadius:(double)r;
 - (void)setMasksToBounds:(BOOL)b;
 @end
 @interface PSListController : UIViewController
-- (void)reloadSpecifiers;
 - (id)loadSpecifiersFromPlistName:(NSString *)n target:(id)t;
-- (id)preferenceSpecifierNamed:(NSString *)n target:(id)t set:(void *)s get:(void *)g detail:(id)d cell:(long)c edit:(id)e;
-- (void)setSpecifiers:(id)specifiers;
 - (id)specifiers;
 @end
-@interface PSSpecifier : NSObject
-- (void)setProperty:(id)p forKey:(NSString *)k;
+@interface NSBundle : NSObject
++ (id)mainBundle;
+- (NSString *)pathForResource:(NSString *)n ofType:(NSString *)t;
 @end
 
 // ---------- 素材缩略图 ----------
 static void *gImageIO = NULL;
 static void *gAVF = NULL;
-static void *fnCGSrcCreate = NULL, *fnCGSrcCount = NULL, *fnCGSrcImg = NULL;
+static void *fnCGSrcCreate = NULL, *fnCGSrcImg = NULL;
 static void EnsureLibs(void) {
     if (!gImageIO) {
         gImageIO = dlopen("/System/Library/Frameworks/ImageIO.framework/ImageIO", 2);
         if (gImageIO) {
             fnCGSrcCreate = dlsym(gImageIO, "CGImageSourceCreateWithData");
-            fnCGSrcCount = dlsym(gImageIO, "CGImageSourceGetCount");
             fnCGSrcImg = dlsym(gImageIO, "CGImageSourceCreateImageAtIndex");
         }
     }
@@ -198,16 +204,15 @@ static void EnsureLibs(void) {
 }
 static id ThumbForPath(NSString *path) {
     EnsureLibs();
-    id ext = MSG(MSG(path, "pathExtension"), "lowercaseString");
-    if ((BOOL)MSG(ext, "isEqualToString:", @"gif") && gImageIO && fnCGSrcCreate && fnCGSrcImg) {
-        id data = MSG(CLS("NSData"), "dataWithContentsOfFile:", path);
+    NSString *ext = [[path pathExtension] lowercaseString];
+    if ([ext isEqualToString:@"gif"] && gImageIO && fnCGSrcCreate && fnCGSrcImg) {
+        NSData *data = [NSData dataWithContentsOfFile:path];
         if (data) {
             void *src = ((void *(*)(void *, void *))fnCGSrcCreate)((__bridge void *)data, 0);
             if (src) {
-                size_t n = ((size_t(*)(void *))fnCGSrcCount)(src);
-                CGImageRef cg = n > 0 ? ((CGImageRef(*)(void *, size_t, void *))fnCGSrcImg)(src, 0, 0) : 0;
+                CGImageRef cg = ((CGImageRef(*)(void *, NSUInteger, void *))fnCGSrcImg)(src, 0, 0);
                 if (cg) {
-                    id img = MSG(CLS("UIImage"), "imageWithCGImage:scale:orientation:", (__bridge id)cg, 1.0, 0);
+                    UIImage *img = [UIImage imageWithCGImage:cg scale:1.0 orientation:0];
                     CFRelease((void *)cg);
                     CFRelease(src);
                     return img;
@@ -217,273 +222,219 @@ static id ThumbForPath(NSString *path) {
         }
         return nil;
     }
-    if ((BOOL)MSG(ext, "isEqualToString:", @"mp4") || (BOOL)MSG(ext, "isEqualToString:", @"mov")) {
+    if ([ext isEqualToString:@"mp4"] || [ext isEqualToString:@"mov"]) {
         if (gAVF) {
-            id url = MSG(CLS("NSURL"), "fileURLWithPath:", path);
-            id asset = MSG(CLS("AVURLAsset"), "URLAssetWithURL:options:", url, nil);
-            id gen = MSG(CLS("AVAssetImageGenerator"), "assetImageGeneratorWithAsset:", asset);
-            struct CMTimeRaw { long long value; int timescale; unsigned flags; long long epoch; } t = {1, 1, 1, 0};
-            // copyCGImageAtTime:actualTime:error:  (CMTime 按值经 x2/x3)
-            CGImageRef cg = (__bridge CGImageRef)((id(*)(id, SEL, struct CMTimeRaw, void *, void *))objc_msgSend)(gen, sel_registerName("copyCGImageAtTime:actualTime:error:"), t, 0, 0);
-            if (cg) {
-                id img = MSG(CLS("UIImage"), "imageWithCGImage:scale:orientation:", (__bridge id)cg, 1.0, 0);
-                CFRelease((void *)cg);
-                return img;
+            NSURL *url = [NSURL fileURLWithPath:path];
+            id asset = [(id)CLSSTR("AVURLAsset") performSelector:NSSelectorFromString(@"URLAssetWithURL:options:") withObject:url withObject:nil];
+            if (asset) {
+                id gen = [(id)CLSSTR("AVAssetImageGenerator") performSelector:NSSelectorFromString(@"assetImageGeneratorWithAsset:") withObject:asset];
+                if (gen) {
+                    [gen setValue:[NSNumber numberWithBool:YES] forKey:@"appliesPreferredTrackTransform"];
+                    struct CMTimeRaw { long long value; int timescale; unsigned flags; long long epoch; };
+                    struct CMTimeRaw t = {1, 1, 1, 0};
+                    // copyCGImageAtTime:actualTime:error:  (CMTime 按值经 x2/x3)
+                    typedef id (*Fn)(id, SEL, struct CMTimeRaw, void *, void *);
+                    Fn fn = (Fn)objc_msgSend;
+                    CGImageRef cg = (CGImageRef)(fn(gen, sel_registerName("copyCGImageAtTime:actualTime:error:"), t, 0, 0));
+                    if (cg) {
+                        UIImage *img = [UIImage imageWithCGImage:cg scale:1.0 orientation:0];
+                        CFRelease((void *)cg);
+                        return img;
+                    }
+                }
             }
         }
         return nil;
     }
-    return MSG(CLS("UIImage"), "imageWithContentsOfFile:", path);   // png/jpg 兜底(含无扩展名)
+    return [UIImage imageWithContentsOfFile:path];
 }
 
 // ---------- 素材选择器 ----------
-@interface LDDMaterialPickerController : UITableViewController @end
+@interface LDDMaterialPickerController : UITableViewController
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tv;
+- (NSInteger)tableView:(UITableView *)tv numberOfRowsInSection:(NSInteger)s;
+- (UITableViewCell *)tableView:(UITableView *)tv cellForRowAtIndexPath:(NSIndexPath *)ip;
+- (void)tableView:(UITableView *)tv didSelectRowAtIndexPath:(NSIndexPath *)ip;
+@end
 @implementation LDDMaterialPickerController
 {
-    id _folders;        // NSArray<NSString*>: 素材目录列表
-    id _thumbs;         // 缓存 name -> UIImage
-    NSString *_sel;     // 当前选中
+    id _folders;
+    id _thumbs;
+    NSString *_sel;
 }
 - (void)viewDidLoad {
     [super viewDidLoad];
     [self setTitle:@"选择素材"];
-    id fm = MSG(CLS("NSFileManager"), "defaultManager");
+    NSFileManager *fm = [NSFileManager defaultManager];
     BOOL isDir = NO;
-    NSString *root = @"/var/mobile/lddgifbg";
     _folders = nil;
-    if ((BOOL)MSG(fm, "fileExistsAtPath:isDirectory:", root, &isDir) && isDir) {
-        _folders = MSG(fm, "contentsOfDirectoryAtPath:error:", root, nil);
+    if ([fm fileExistsAtPath:@"/var/mobile/lddgifbg" isDirectory:&isDir] && isDir) {
+        _folders = [fm contentsOfDirectoryAtPath:@"/var/mobile/lddgifbg" error:nil];
     }
-    _thumbs = MSG(CLS("NSMutableDictionary"), "dictionary");
-    id ud = MSG(MSG(CLS("NSUserDefaults"), "alloc"), "initWithSuiteName:", @"lddgifbg");
-    _sel = (NSString *)MSG(ud, "objectForKey:", @"SelectedMaterialFolder");
+    _thumbs = [NSMutableDictionary dictionary];
+    NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
+    _sel = [ud objectForKey:@"SelectedMaterialFolder"];
 }
-- (long)numberOfSectionsInTableView:(id)tv { return 1; }
-- (long)tableView:(id)tv numberOfRowsInSection:(long)s {
-    return _folders ? (long)MSG(_folders, "count") : 0;
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tv { return 1; }
+- (NSInteger)tableView:(UITableView *)tv numberOfRowsInSection:(NSInteger)s {
+    return _folders ? (NSInteger)[_folders count] : 0;
 }
-- (id)tableView:(id)tv cellForRowAtIndexPath:(id)ip {
-    long row = (long)MSG(ip, "row");
-    if (!_folders || row >= (long)MSG(_folders, "count")) return nil;
-    NSString *name = (NSString *)MSG(_folders, "objectAtIndex:", (unsigned long)row);
-    id cell = MSG(tv, "dequeueReusableCellWithIdentifier:", @"mat");
-    if (!cell) cell = MSG(MSG(CLS("UITableViewCell"), "alloc"), "initWithStyle:reuseIdentifier:", 1 /*Subtitle*/, @"mat");
-    // 清空旧内容
-    MSG(MSG(cell, "contentView"), "setBackgroundColor:", MSG(CLS("UIColor"), "clearColor"));
-    // 缩略图
-    NSString *full = (NSString *)MSG(@"/var/mobile/lddgifbg", "stringByAppendingPathComponent:", name);
-    id thumb = MSG(_thumbs, "objectForKeyedSubscript:", name);
+- (UITableViewCell *)tableView:(UITableView *)tv cellForRowAtIndexPath:(NSIndexPath *)ip {
+    NSInteger row = [ip row];
+    if (!_folders || row >= (NSInteger)[_folders count]) return nil;
+    NSString *name = [_folders objectAtIndex:(NSUInteger)row];
+    UITableViewCell *cell = [tv dequeueReusableCellWithIdentifier:@"mat"];
+    if (!cell) cell = [[[UITableViewCell alloc] initWithStyle:1 reuseIdentifier:@"mat"];
+    for (UIView *v in [[cell contentView] subviews]) { if (v) [v removeFromSuperview]; }
+
+    NSString *full = [@"/var/mobile/lddgifbg" stringByAppendingPathComponent:name];
+    UIImage *thumb = [_thumbs objectForKeyedSubscript:name];
     if (!thumb) {
-        // 找出素材文件再取首帧
-        NSString *media = nil;
-        id fm = MSG(CLS("NSFileManager"), "defaultManager");
-        id files = MSG(fm, "contentsOfDirectoryAtPath:error:", full, nil);
-        if (files) {
-            for (id f in files) {
-                id ext = MSG(MSG(f, "pathExtension"), "lowercaseString");
-                if ((BOOL)MSG(ext, "isEqualToString:", @"gif") || (BOOL)MSG(ext, "isEqualToString:", @"mp4") ||
-                    (BOOL)MSG(ext, "isEqualToString:", @"mov") || (BOOL)MSG(ext, "isEqualToString:", @"png") ||
-                    (BOOL)MSG(ext, "isEqualToString:", @"jpg") || (BOOL)MSG(ext, "isEqualToString:", @"jpeg")) {
-                    media = (NSString *)MSG(full, "stringByAppendingPathComponent:", f);
-                    break;
-                }
+        NSFileManager *fm = [NSFileManager defaultManager];
+        NSArray *files = [fm contentsOfDirectoryAtPath:full error:nil];
+        for (NSString *f in files) {
+            NSString *ext = [[f pathExtension] lowercaseString];
+            if ([ext isEqualToString:@"gif"] || [ext isEqualToString:@"mp4"] || [ext isEqualToString:@"mov"] ||
+                [ext isEqualToString:@"png"] || [ext isEqualToString:@"jpg"] || [ext isEqualToString:@"jpeg"]) {
+                NSString *media = [full stringByAppendingPathComponent:f];
+                thumb = ThumbForPath(media);
+                break;
             }
         }
-        if (media) thumb = ThumbForPath(media);
-        if (thumb) MSG(_thumbs, "setObject:forKeyedSubscript:", thumb, name);
+        if (thumb) [_thumbs setObject:thumb forKeyedSubscript:name];
     }
     if (thumb) {
-        id iv = MSG(CLS("UIImageView"), "alloc");
-        iv = MSG(iv, "initWithFrame:", (CGRect){8, 8, 44, 44});
-        MSG(iv, "setImage:", thumb);
-        MSG(iv, "setContentMode:", 1);   // AspectFit
-        MSG(iv, "setClipsToBounds:", 1);
-        MSG(MSG(iv, "layer"), "setCornerRadius:", 6.0);
-        MSG(MSG(iv, "layer"), "setMasksToBounds:", 1);
-        MSG(MSG(cell, "contentView"), "addSubview:", iv);
+        UIImageView *iv = [[[UIImageView alloc] initWithFrame:(CGRect){8, 8, 44, 44}];
+        [iv setImage:thumb];
+        [iv setContentMode:1];
+        [iv setClipsToBounds:YES];
+        [[iv layer] setCornerRadius:6.0];
+        [[iv layer] setMasksToBounds:YES];
+        [[cell contentView] addSubview:iv];
     }
-    // 名称 + 类型
-    CGRect b = MSGR(MSG(cell, "contentView"), "bounds");
-    id label = MSG(CLS("UILabel"), "alloc");
-    label = MSG(label, "initWithFrame:", (CGRect){60, 10, b.w - 70, 22});
-    MSG(label, "setText:", name);
-    MSG(label, "setFont:", MSG(CLS("UIFont"), "boldSystemFontOfSize:", 16.0));
-    MSG(MSG(cell, "contentView"), "addSubview:", label);
-    id sub = MSG(CLS("UILabel"), "alloc");
-    sub = MSG(sub, "initWithFrame:", (CGRect){60, 33, b.w - 70, 16});
-    // 素材类型描述
+    CGRect b = [[cell contentView] bounds];
+    UILabel *label = [[[UILabel alloc] initWithFrame:(CGRect){60, 10, b.w - 70, 22}];
+    [label setText:name];
+    [label setFont:[UIFont boldSystemFontOfSize:16.0]];
+    [[cell contentView] addSubview:label];
+    UILabel *sub = [[[UILabel alloc] initWithFrame:(CGRect){60, 33, b.w - 70, 16}];
     NSString *typeDesc = @"GIF";
-    id fm2 = MSG(CLS("NSFileManager"), "defaultManager");
-    id files2 = MSG(fm2, "contentsOfDirectoryAtPath:error:", full, nil);
-    if (files2) {
-        for (id f in files2) {
-            id ext = MSG(MSG(f, "pathExtension"), "lowercaseString");
-            if ((BOOL)MSG(ext, "isEqualToString:", @"mp4") || (BOOL)MSG(ext, "isEqualToString:", @"mov")) { typeDesc = @"视频"; break; }
-            if ((BOOL)MSG(ext, "isEqualToString:", @"png") || (BOOL)MSG(ext, "isEqualToString:", @"jpg") || (BOOL)MSG(ext, "isEqualToString:", @"jpeg")) { typeDesc = @"静态图"; }
-        }
+    NSFileManager *fm2 = [NSFileManager defaultManager];
+    NSArray *files2 = [fm2 contentsOfDirectoryAtPath:full error:nil];
+    for (NSString *f in files2) {
+        NSString *ext = [[f pathExtension] lowercaseString];
+        if ([ext isEqualToString:@"mp4"] || [ext isEqualToString:@"mov"]) { typeDesc = @"视频"; break; }
+        if ([ext isEqualToString:@"png"] || [ext isEqualToString:@"jpg"] || [ext isEqualToString:@"jpeg"]) typeDesc = @"静态图";
     }
-    MSG(sub, "setText:", typeDesc);
-    MSG(sub, "setFont:", MSG(CLS("UIFont"), "systemFontOfSize:", 12.0));
-    MSG(MSG(cell, "contentView"), "addSubview:", sub);
-    // 当前选中打勾
-    if (_sel && (BOOL)MSG(_sel, "isEqualToString:", name)) {
-        MSG(cell, "setAccessoryType:", 3);
-    } else {
-        MSG(cell, "setAccessoryType:", 0);
-    }
-    MSG(cell, "setSelectionStyle:", 0);
+    [sub setText:typeDesc];
+    [sub setFont:[UIFont systemFontOfSize:12.0]];
+    [[cell contentView] addSubview:sub];
+    if (_sel && [_sel isEqualToString:name]) [cell setAccessoryType:3];
+    else [cell setAccessoryType:0];
     return cell;
 }
-- (void)tableView:(id)tv didSelectRowAtIndexPath:(id)ip {
-    long row = (long)MSG(ip, "row");
-    if (!_folders || row >= (long)MSG(_folders, "count")) return;
-    NSString *name = (NSString *)MSG(_folders, "objectAtIndex:", (unsigned long)row);
-    id ud = MSG(MSG(CLS("NSUserDefaults"), "alloc"), "initWithSuiteName:", @"lddgifbg");
-    MSG(ud, "setObject:forKey:", name, @"SelectedMaterialFolder");
-    MSG(ud, "synchronize");
-    MSG(tv, "deselectRowAtIndexPath:animated:", ip, 1);
-    MSG(self, "dismissViewControllerAnimated:completion:", 1, 0);
+- (void)tableView:(UITableView *)tv didSelectRowAtIndexPath:(NSIndexPath *)ip {
+    NSInteger row = [ip row];
+    if (!_folders || row >= (NSInteger)[_folders count]) return;
+    NSString *name = [_folders objectAtIndex:(NSUInteger)row];
+    NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
+    [ud setObject:name forKey:@"SelectedMaterialFolder"];
+    [ud synchronize];
+    [self dismissViewControllerAnimated:YES completion:0];
 }
 @end
 
-// ---------- 跳转素材目录 ----------
-@interface LDDMaterialFolderOpenerController : PSListController @end
-@implementation LDDMaterialFolderOpenerController
-- (void)viewDidLoad {
-    [super viewDidLoad];
-    id app = MSG(CLS("UIApplication"), "sharedApplication");
-    id filza = MSG(CLS("NSURL"), "fileURLWithPath:", @"/var/mobile/lddgifbg");
-    if ((BOOL)MSG(app, "canOpenURL:", MSG(CLS("NSURL"), "fileURLWithPath:", @"/var/mobile/lddgifbg"))) {
-        // file:// 通常可以直接打开"文件"
-        MSG(app, "openURL:options:completionHandler:", filza, MSG(CLS("NSDictionary"), "dictionary"), nil);
-    } else {
-        // 尝试 Filza
-        id fz = MSG(CLS("NSURL"), "fileURLWithPath:", @"/var/mobile/lddgifbg");
-        MSG(app, "openURL:options:completionHandler:", fz, MSG(CLS("NSDictionary"), "dictionary"), nil);
-    }
-    MSG(MSG(self, "navigationController"), "popViewControllerAnimated:", 1);
-}
-@end
-
-// ---------- 日志(诊断用) ----------
-static void LogB(const char *s) {
-    FILE *f = fopen("/var/jb/tmp/lddgifbg-bundle.log", "a");
-    if (f) { fprintf(f, "%s\n", s ? s : "?"); fflush(f); fclose(f); }
-}
-
-// ---------- 模态设置面板 (普通 UITableViewController, 不经过推入机制) ----------
+// ---------- 模态设置面板 ----------
 @interface LDDMainSettingsController : UITableViewController
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tv;
+- (NSInteger)tableView:(UITableView *)tv numberOfRowsInSection:(NSInteger)s;
+- (UITableViewCell *)tableView:(UITableView *)tv cellForRowAtIndexPath:(NSIndexPath *)ip;
+- (void)tableView:(UITableView *)tv didSelectRowAtIndexPath:(NSIndexPath *)ip;
 @end
 @implementation LDDMainSettingsController
 - (void)viewDidLoad {
     [super viewDidLoad];
     [self setTitle:@"灵动岛GIF背景"];
 }
-- (long)numberOfSectionsInTableView:(id)tv { return 1; }
-- (long)tableView:(id)tv numberOfRowsInSection:(long)s { return 6; }
-- (id)tableView:(id)tv cellForRowAtIndexPath:(id)ip {
-    long row = (long)MSG(ip, "row");
-    id cell = MSG(tv, "dequeueReusableCellWithIdentifier:", @"c");
-    if (!cell) cell = MSG(MSG(CLS("UITableViewCell"), "alloc"), "initWithStyle:reuseIdentifier:", 1, @"c");
-    CGRect b = MSGR(MSG(cell, "contentView"), "bounds");
-    @try {
-        id subs = MSG(MSG(cell, "contentView"), "subviews");
-        for (id v in subs) MSG(v, "removeFromSuperview");
-    } @catch (id e) {}
-    MSG(cell, "setSelectionStyle:", 0);
-    MSG(cell, "setAccessoryType:", 0);
+- (NSInteger)numberOfSectionsInTableView:(UITableView *)tv { return 1; }
+- (NSInteger)tableView:(UITableView *)tv numberOfRowsInSection:(NSInteger)s { return 6; }
+- (UITableViewCell *)tableView:(UITableView *)tv cellForRowAtIndexPath:(NSIndexPath *)ip {
+    NSInteger row = [ip row];
+    UITableViewCell *cell = [tv dequeueReusableCellWithIdentifier:@"c"];
+    if (!cell) cell = [[[UITableViewCell alloc] initWithStyle:1 reuseIdentifier:@"c"];
+    for (UIView *v in [[cell contentView] subviews]) { if (v) [v removeFromSuperview]; }
+    CGRect b = [[cell contentView] bounds];
+    [cell setSelectionStyle:0];
+    [cell setAccessoryType:0];
     if (row == 0 || row == 1) {
-        id label = MSG(CLS("UILabel"), "alloc");
-        label = MSG(label, "initWithFrame:", (CGRect){16, 14, b.w - 110, 22});
-        MSG(label, "setText:", row == 0 ? @"启用总开关" : @"启用小岛");
-        MSG(label, "setFont:", MSG(CLS("UIFont"), "systemFontOfSize:", 16.0));
-        MSG(MSG(cell, "contentView"), "addSubview:", label);
-        id sw = MSG(CLS("UISwitch"), "alloc");
-        sw = MSG(sw, "initWithFrame:", (CGRect){b.w - 66, 9, 50, 30});
-        MSG(sw, "setTag:", row == 0 ? 1001 : 1002);
-        id udc = MSG(MSG(CLS("NSUserDefaults"), "alloc"), "initWithSuiteName:", @"lddgifbg");
-        id v = MSG(udc, "objectForKey:", row == 0 ? @"Enablelddgifbg" : @"Enablezxhlddgifbg");
-        BOOL on = v ? MSGB(v, "boolValue") : YES;
-        MSG(sw, "setOn:animated:", on, 0);
-        MSG(sw, "addTarget:action:forControlEvents:", self, sel_registerName("switchToggled:"), 1 << 12);
-        MSG(MSG(cell, "contentView"), "addSubview:", sw);
+        UILabel *label = [[[UILabel alloc] initWithFrame:(CGRect){16, 14, b.w - 110, 22}];
+        [label setText:(row == 0 ? @"启用总开关" : @"启用小岛")];
+        [label setFont:[UIFont systemFontOfSize:16.0]];
+        [[cell contentView] addSubview:label];
+        UISwitch *sw = [[[UISwitch alloc] initWithFrame:(CGRect){b.w - 66, 9, 50, 30}];
+        [sw setTag:(row == 0 ? 1001 : 1002)];
+        NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
+        id v = [ud objectForKey:(row == 0 ? @"Enablelddgifbg" : @"Enablezxhlddgifbg")];
+        BOOL on = v ? [v boolValue] : YES;
+        [sw setOn:on animated:NO];
+        [sw addTarget:(id)self action:@selector(switchToggled:) forControlEvents:1 << 12];
+        [[cell contentView] addSubview:sw];
     } else if (row == 2) {
-        id label = MSG(CLS("UILabel"), "alloc");
-        label = MSG(label, "initWithFrame:", (CGRect){16, 10, b.w - 32, 20});
-        MSG(label, "setText:", @"缩放比例");
-        MSG(label, "setFont:", MSG(CLS("UIFont"), "systemFontOfSize:", 15.0));
-        MSG(MSG(cell, "contentView"), "addSubview:", label);
-        id sl = MSG(CLS("UISlider"), "alloc");
-        sl = MSG(sl, "initWithFrame:", (CGRect){16, 34, b.w - 32, 30});
-        MSG(sl, "setMinimumValue:", 0.1);
-        MSG(sl, "setMaximumValue:", 2.0);
-        id udc = MSG(MSG(CLS("NSUserDefaults"), "alloc"), "initWithSuiteName:", @"lddgifbg");
-        id v = MSG(udc, "objectForKey:", @"lddgifbgScale");
-        double dv = v ? MSGD(v, "doubleValue") : 1.0;
+        UILabel *label = [[[UILabel alloc] initWithFrame:(CGRect){16, 10, b.w - 32, 20}];
+        [label setText:@"缩放比例"];
+        [label setFont:[UIFont systemFontOfSize:15.0]];
+        [[cell contentView] addSubview:label];
+        UISlider *sl = [[[UISlider alloc] initWithFrame:(CGRect){16, 34, b.w - 32, 30}];
+        [sl setMinimumValue:0.1];
+        [sl setMaximumValue:2.0];
+        NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
+        id v = [ud objectForKey:@"lddgifbgScale"];
+        double dv = v ? [v doubleValue] : 1.0;
         if (dv <= 0) dv = 1.0;
-        MSG(sl, "setValue:", dv);
-        MSG(sl, "addTarget:action:forControlEvents:", self, sel_registerName("sliderChanged:"), 1 << 12);
-        MSG(MSG(cell, "contentView"), "addSubview:", sl);
+        [sl setValue:dv];
+        [sl addTarget:(id)self action:@selector(sliderChanged:) forControlEvents:1 << 12];
+        [[cell contentView] addSubview:sl];
     } else {
-        NSString *t = row == 3 ? @"选择素材" : (row == 4 ? @"跳转素材目录" : @"完成");
-        id label = MSG(CLS("UILabel"), "alloc");
-        label = MSG(label, "initWithFrame:", (CGRect){16, 14, b.w - 60, 22});
-        MSG(label, "setText:", t);
-        MSG(label, "setFont:", MSG(CLS("UIFont"), "systemFontOfSize:", 16.0));
-        MSG(MSG(cell, "contentView"), "addSubview:", label);
-        if (row == 5) MSG(label, "setTextColor:", MSG(CLS("UIColor"), "redColor"));
-        MSG(cell, "setSelectionStyle:", 1);
+        NSString *t = (row == 3 ? @"选择素材" : (row == 4 ? @"跳转素材目录" : @"完成"));
+        UILabel *label = [[[UILabel alloc] initWithFrame:(CGRect){16, 14, b.w - 60, 22}];
+        [label setText:t];
+        [label setFont:[UIFont systemFontOfSize:16.0]];
+        if (row == 5) [label setTextColor:[UIColor redColor]];
+        [[cell contentView] addSubview:label];
+        [cell setSelectionStyle:1];
     }
     return cell;
 }
-- (void)tableView:(id)tv didSelectRowAtIndexPath:(id)ip {
-    long row = (long)MSG(ip, "row");
+- (void)tableView:(UITableView *)tv didSelectRowAtIndexPath:(NSIndexPath *)ip {
+    NSInteger row = [ip row];
+    [tv deselectRowAtIndexPath:ip animated:YES];
     if (row == 3) {
-        id pc = MSG(CLS("LDDMaterialPickerController"), "alloc");
-        pc = MSG(pc, "initWithStyle:", 1);
-        MSG(self, "presentViewController:animated:completion:", pc, 1, 0);
+        LDDMaterialPickerController *pc = [[LDDMaterialPickerController alloc] initWithStyle:1];
+        [self presentViewController:pc animated:YES completion:0];
     } else if (row == 4) {
-        id app = MSG(CLS("UIApplication"), "sharedApplication");
-        id url = MSG(CLS("NSURL"), "fileURLWithPath:", @"/var/mobile/lddgifbg");
-        MSG(app, "openURL:options:completionHandler:", url, MSG(CLS("NSDictionary"), "dictionary"), 0);
+        UIApplication *app = [UIApplication sharedApplication];
+        NSURL *url = [NSURL fileURLWithPath:@"/var/mobile/lddgifbg"];
+        [app openURL:url options:[NSDictionary dictionary] completionHandler:0];
     } else if (row == 5) {
-        MSG(self, "dismissViewControllerAnimated:completion:", 1, 0);
+        [self dismissViewControllerAnimated:YES completion:0];
     }
 }
-- (void)switchToggled:(id)sw {
-    NSString *key = (long)MSG(sw, "tag") == 1001 ? @"Enablelddgifbg" : @"Enablezxhlddgifbg";
-    BOOL on = MSGB(sw, "isOn");
-    id udc = MSG(MSG(CLS("NSUserDefaults"), "alloc"), "initWithSuiteName:", @"lddgifbg");
-    MSG(udc, "setObject:forKey:", MSG(CLS("NSNumber"), "numberWithBool:", on), key);
-    MSG(udc, "synchronize");
+- (void)switchToggled:(UISwitch *)sw {
+    NSString *key = ([sw tag] == 1001 ? @"Enablelddgifbg" : @"Enablezxhlddgifbg");
+    BOOL on = [sw isOn];
+    NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
+    [ud setObject:[NSNumber numberWithBool:on] forKey:key];
+    [ud synchronize];
 }
-- (void)sliderChanged:(id)sl {
-    double dv = MSGD(sl, "value");
-    id udc = MSG(MSG(CLS("NSUserDefaults"), "alloc"), "initWithSuiteName:", @"lddgifbg");
-    MSG(udc, "setObject:forKey:", MSG(CLS("NSNumber"), "numberWithDouble:", dv), @"lddgifbgScale");
-    MSG(udc, "synchronize");
-}
-- (void)respringNow {
-    id fm = MSG(CLS("NSFileManager"), "defaultManager");
-    BOOL have = MSGB(fm, "fileExistsAtPath:", @"/var/jb/usr/bin/sbreload");
-    static int (*spawn_fn)(void *, const char *, void *, void *, char *const[], char *const[]);
-    if (!spawn_fn) {
-        void *h = dlopen(0, 1);
-        if (h) spawn_fn = (int (*)(void *, const char *, void *, void *, char *const[], char *const[]))dlsym(h, "posix_spawn");
-    }
-    if (spawn_fn) {
-        if (have) {
-            char *argv1[] = {(char *)"/var/jb/usr/bin/sbreload", 0};
-            spawn_fn(0, "/var/jb/usr/bin/sbreload", 0, 0, argv1, 0);
-        } else {
-            char *argv2[] = {(char *)"/var/jb/usr/bin/killall", (char *)"SpringBoard", 0};
-            spawn_fn(0, "/var/jb/usr/bin/killall", 0, 0, argv2, 0);
-        }
-    }
+- (void)sliderChanged:(UISlider *)sl {
+    double dv = [sl value];
+    NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
+    [ud setObject:[NSNumber numberWithDouble:dv] forKey:@"lddgifbgScale"];
+    [ud synchronize];
 }
 @end
 
-// ---------- 入口壳: PSListController 子类(满足推入) + 模态呼出设置面板 ----------
+// ---------- 入口壳 ----------
 @interface lddgifbgRootListController : PSListController
 @end
 @implementation lddgifbgRootListController
@@ -496,17 +447,15 @@ static void LogB(const char *s) {
     static int shown = 0;
     if (!shown) {
         shown = 1;
-        // 延迟 0.4s: 避开推入转场与模态呼出的竞态
-        MSG(CLS("NSTimer"), "scheduledTimerWithTimeInterval:target:selector:userInfo:repeats:", 0.4, self, sel_registerName("showPanel:"), 0, 0);
+        [NSTimer scheduledTimerWithTimeInterval:0.4 target:self selector:@selector(showPanel:) userInfo:0 repeats:NO];
     }
 }
 - (void)showPanel:(id)t {
-    id panel = MSG(CLS("LDDMainSettingsController"), "alloc");
-    panel = MSG(panel, "initWithStyle:", 1);
-    MSG(self, "presentViewController:animated:completion:", panel, 1, 0);
+    LDDMainSettingsController *panel = [[LDDMainSettingsController alloc] initWithStyle:1];
+    [self presentViewController:panel animated:YES completion:0];
 }
 - (id)specifiers {
     @try { return [self loadSpecifiersFromPlistName:@"Root" target:self]; }
-    @catch (id e) { return MSG(CLS("NSArray"), "array"); }
+    @catch (id e) { return [NSArray array]; }
 }
 @end
