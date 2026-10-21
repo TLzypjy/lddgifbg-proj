@@ -25,6 +25,8 @@ extern "C" id objc_getClass(const char *name);
 extern "C" SEL sel_registerName(const char *name);
 extern "C" void *dlopen(const char *path, int mode);
 extern "C" void MSHookMessageEx(Class _class, SEL _sel, IMP _replacement, IMP *_result);
+extern "C" int objc_getClassList(void *buffer, int bufferLen);
+extern "C" const char *class_getName(void *cls);
 extern "C" void *objc_autoreleasePoolPush(void);
 extern "C" void objc_autoreleasePoolPop(void *pool);
 extern "C" void CFRelease(void *cf);
@@ -430,6 +432,7 @@ static void LDDNewLayoutSubviews(id self, SEL _cmd) {
 // 对照组 hook: UIView layoutSubviews (每帧触发) —— 兼作"启动延迟器": SB 就绪后补挂灵动岛 hook
 static void (*origCtrlLayout)(id, SEL);
 static int gApertureAttempts = 0;
+static void DumpIslandClasses(void);
 static void TryHookAperture(void) {
     id cls = objc_getClass("SBSystemApertureContainerViewContentView");
     if (cls) {
@@ -438,9 +441,28 @@ static void TryHookAperture(void) {
         gApertureAttempts = 999;
     } else {
         gApertureAttempts++;
+        if (gApertureAttempts % 20 == 1) DumpIslandClasses();
         if (gApertureAttempts < 60) ProbeWrite("APERTURE-RETRY");
         else ProbeWrite("APERTURE-NIL-GIVEUP");
     }
+}
+static void DumpIslandClasses(void) {
+    int n = objc_getClassList(0, 0);
+    if (n <= 0 || n > 20000) return;
+    void *buf[4096];
+    int got = objc_getClassList(buf, n > 4096 ? 4096 : n);
+    if (got <= 0) return;
+    FILE *f = fopen("/var/mobile/lddgifbg/__island_classes__.txt", "w");
+    if (!f) return;
+    for (int i = 0; i < got; i++) {
+        const char *nm = class_getName(buf[i]);
+        if (!nm) continue;
+        if (strstr(nm, "Aperture") || strstr(nm, "Island") || strstr(nm, "island")) {
+            fprintf(f, "%s\n", nm);
+        }
+    }
+    fclose(f);
+    ProbeWrite("ISLAND-CLASSES-DUMPED");
 }
 static void CtrlLayoutHook(id self, SEL _cmd) {
     static int once = 0;
