@@ -40,6 +40,8 @@ extern "C" { extern void *kCGImagePropertyGIFDictionary; extern void *kCGImagePr
 @interface NSObject
 + (id)alloc;
 - (id)init;
+- (id)valueForKey:(NSString *)k;
+- (void)setValue:(id)v forKey:(NSString *)k;
 @end
 @interface NSString : NSObject
 - (NSString *)stringByAppendingPathComponent:(NSString *)s;
@@ -166,6 +168,7 @@ typedef struct CGRect { double ox, oy, w, h; } CGRect;
 - (void)setMasksToBounds:(BOOL)b;
 @end
 @interface PSListController : UIViewController
+- (void)reloadSpecifiers;
 - (id)loadSpecifiersFromPlistName:(NSString *)n target:(id)t;
 - (id)preferenceSpecifierNamed:(NSString *)n target:(id)t set:(void *)s get:(void *)g detail:(id)d cell:(long)c edit:(id)e;
 - (void)setSpecifiers:(id)specifiers;
@@ -368,28 +371,33 @@ static void LogB(const char *s) {
 // ---------- 设置主控制器 ----------
 @interface lddgifbgRootListController : PSListController @end
 @implementation lddgifbgRootListController
-{
-    id _mySpecs;
-}
+{}
 
-// ---------- 设置项: 仅加载 Root.plist (代码构造在 arm64e 上不可靠, 已弃用) ----------
+// ---------- 设置项: 加载 Root.plist 并写入 PSListController 的真实 _specifiers (KVC 方式) ----------
 - (id)specifiers {
     @try {
-        if (!_mySpecs) {
-            _mySpecs = [self loadSpecifiersFromPlistName:@"Root" target:self];
-            if (_mySpecs) LogB(((unsigned long)MSG(_mySpecs, "count") > 0) ? "plist-ok-rows" : "plist-empty");
-            else LogB("plist-nil");
+        id cur = MSG(self, "valueForKey:", @"_specifiers");
+        if (!cur) {
+            cur = [self loadSpecifiersFromPlistName:@"Root" target:self];
+            if (cur) {
+                MSG(self, "setValue:forKey:", cur, @"_specifiers");
+                LogB("kvc-set");
+            } else {
+                LogB("plist-nil");
+            }
         }
+        if (cur) LogB(((unsigned long)MSG(cur, "count") > 0) ? "plist-ok-rows" : "plist-empty");
+        return cur;
     } @catch (id e) {
         LogB("specifiers-exception");
     }
-    if (!_mySpecs) _mySpecs = MSG(CLS("NSArray"), "array");
-    return _mySpecs;
+    return MSG(CLS("NSArray"), "array");
 }
 - (void)viewDidLoad {
     @try {
         [super viewDidLoad];
         [self setTitle:@"灵动岛GIF背景"];
+        MSG(self, "reloadSpecifiers");
     } @catch (id e) {
         // 防御: 设置页不允许因本插件崩溃
     }
