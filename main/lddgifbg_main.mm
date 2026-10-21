@@ -1,24 +1,20 @@
-// 灵动岛GIF背景 —— 重制版主插件 (1:1 复刻原行为 + 视频素材支持)
-// Objective-C++ + MRC, 无 SDK 无头文件, 全部运行时动态解析
-// 行为复刻:
-//   prefs suite "lddgifbg": Enablelddgifbg / Enablezxhlddgifbg / lddgifbgScale / SelectedMaterialFolder
-//   主开关关时: 小岛开 或 island 高度>=65 仍显示
-//   素材目录 /var/mobile/lddgifbg/<文件夹>/, 选择 gif > 视频(mp4/mov) > 静态(png/jpg)
-//   tag=9999 视图, contentMode=ScaleAspectFill, autoresizing=FlexibleWidth|FlexibleHeight
-//   居中缩放 frame=((W-w)/2,(H-h)/2,w,h), w=W*scale h=H*scale, scale<=0 -> 1.0
-//   GIF: ImageIO 逐帧 -> animationImages, 默认帧延迟0.1s, frames/duration 缓存
-//   视频: AVPlayer + AVPlayerLayer (AspectFill, 静音, 循环) — 动态 dlopen, 无硬链接
+// 灵动岛GIF背景 —— 重制版主插件 (全标准 ObjC 语法, arm64e 安全)
+// hook SBSystemApertureContainerViewContentView layoutSubviews
+// prefs: suite lddgifbg (NSUserDefaults + plist 文件多路径兜底, 含 @P@ RootHide 路径)
+// 素材: /var/mobile/lddgifbg/<文件夹>/, gif > mp4/mov > png/jpg
+// 诊断: 无素材=红块, 素材加载失败=蓝块, 正常=素材
 
-#include <stdint.h>
-#include <stddef.h>
+#include <stdio.h>
+#include <string.h>
 
 typedef struct objc_class *Class;
 typedef struct objc_object { Class isa; } *id;
 typedef struct objc_selector *SEL;
 typedef void *IMP;
 typedef struct CGImage *CGImageRef;
-typedef unsigned char BOOL;
+typedef bool BOOL;
 typedef unsigned long NSUInteger;
+typedef long NSInteger;
 #define YES 1
 #define NO 0
 #define nil 0
@@ -31,98 +27,109 @@ extern "C" void *dlopen(const char *path, int mode);
 extern "C" void MSHookMessageEx(Class _class, SEL _sel, IMP _replacement, IMP *_result);
 extern "C" void *objc_autoreleasePoolPush(void);
 extern "C" void objc_autoreleasePoolPop(void *pool);
-
-extern "C" CGImageRef CGImageSourceCreateImageAtIndex(void *src, size_t idx, void *opts);
-extern "C" size_t CGImageSourceGetCount(void *src);
-extern "C" void *CGImageSourceCreateWithData(void *data, void *opts);
-extern "C" void *CGImageSourceCopyPropertiesAtIndex(void *src, size_t idx, void *opts);
 extern "C" void CFRelease(void *cf);
+extern "C" CGImageRef CGImageSourceCreateImageAtIndex(void *src, NSUInteger idx, void *opts);
+extern "C" NSUInteger CGImageSourceGetCount(void *src);
+extern "C" void *CGImageSourceCreateWithData(void *data, void *opts);
+extern "C" void *CGImageSourceCopyPropertiesAtIndex(void *src, NSUInteger idx, void *opts);
 extern "C" { extern void *kCGImagePropertyGIFDictionary; extern void *kCGImagePropertyGIFDelayTime; extern void *kCGImagePropertyGIFUnclampedDelayTime; }
 
-// ---------- ObjC 存根 (仅声明) ----------
+// ---------- ObjC 存根 ----------
 @interface NSObject
 + (id)alloc;
 - (id)init;
 @end
 @interface NSString : NSObject
-- (NSString *)stringByAppendingPathComponent:(NSString *)str;
+- (id)initWithBytes:(const void *)b length:(NSUInteger)l encoding:(NSUInteger)e;
+- (NSString *)stringByAppendingPathComponent:(NSString *)s;
 - (NSString *)pathExtension;
 - (NSString *)lowercaseString;
+- (BOOL)isEqualToString:(NSString *)s;
 @end
 @interface NSDictionary : NSObject
-- (id)objectForKeyedSubscript:(id)key;
++ (id)dictionaryWithContentsOfFile:(NSString *)p;
+- (id)objectForKeyedSubscript:(id)k;
+- (id)objectForKey:(id)k;
+- (BOOL)writeToFile:(NSString *)p atomically:(BOOL)a;
 @end
 @interface NSMutableDictionary : NSDictionary
 + (id)dictionary;
-- (void)setObject:(id)obj forKeyedSubscript:(id)key;
+- (void)setObject:(id)obj forKeyedSubscript:(id)k;
+- (void)setObject:(id)obj forKey:(id)k;
 @end
 @interface NSArray : NSObject
-- (unsigned long)count;
+- (NSUInteger)count;
 @end
 @interface NSMutableArray : NSArray
-+ (id)arrayWithCapacity:(unsigned long)num;
++ (id)arrayWithCapacity:(NSUInteger)n;
 - (void)addObject:(id)obj;
 @end
 @interface NSData : NSObject
-+ (id)dataWithContentsOfFile:(NSString *)path;
++ (id)dataWithContentsOfFile:(NSString *)p;
 @end
 @interface NSNumber : NSObject
 + (id)numberWithDouble:(double)d;
++ (id)numberWithBool:(BOOL)b;
+- (double)doubleValue;
+- (BOOL)boolValue;
 @end
 @interface NSFileManager : NSObject
 + (id)defaultManager;
+- (BOOL)fileExistsAtPath:(NSString *)p;
+- (BOOL)fileExistsAtPath:(NSString *)p isDirectory:(BOOL *)d;
+- (id)contentsOfDirectoryAtPath:(NSString *)p error:(id *)e;
 @end
 @interface NSUserDefaults : NSObject
-- (id)initWithSuiteName:(NSString *)name;
-- (id)objectForKey:(NSString *)key;
+- (id)initWithSuiteName:(NSString *)n;
+- (id)objectForKey:(id)k;
 @end
 @interface NSNotificationCenter : NSObject
 + (id)defaultCenter;
-- (void)addObserver:(id)obs selector:(SEL)sel name:(NSString *)name object:(id)obj;
+- (void)addObserver:(id)o selector:(SEL)s name:(NSString *)n object:(id)obj;
 @end
 @interface NSURL : NSObject
-+ (id)fileURLWithPath:(NSString *)path;
++ (id)fileURLWithPath:(NSString *)p;
 @end
 
 typedef struct CGRect { double ox, oy, w, h; } CGRect;
+static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, y, w, h}; return r; }
 
+@interface UIColor : NSObject
++ (id)redColor;
++ (id)blueColor;
++ (id)clearColor;
+@end
 @interface UIView : NSObject
 - (CGRect)bounds;
 - (void)setFrame:(CGRect)r;
-- (void)insertSubview:(id)view atIndex:(long)index;
+- (void)insertSubview:(id)v atIndex:(NSInteger)i;
 - (void)removeFromSuperview;
-- (id)viewWithTag:(long)tag;
+- (id)viewWithTag:(NSInteger)t;
 - (id)layer;
+- (void)setBackgroundColor:(id)c;
+- (void)setTag:(NSInteger)t;
 @end
 @interface UIImage : NSObject
-+ (id)imageWithContentsOfFile:(NSString *)path;
-+ (id)imageWithCGImage:(CGImageRef)cg scale:(double)scale orientation:(long)orientation;
++ (id)imageWithContentsOfFile:(NSString *)p;
++ (id)imageWithCGImage:(CGImageRef)cg scale:(double)s orientation:(NSInteger)o;
 @end
 @interface UIImageView : UIView
 - (id)initWithFrame:(CGRect)r;
 - (void)setImage:(id)img;
 - (void)setAnimationImages:(id)images;
 - (void)setAnimationDuration:(double)d;
-- (void)setAnimationRepeatCount:(long)n;
+- (void)setAnimationRepeatCount:(NSInteger)n;
+- (BOOL)isAnimating;
 - (void)startAnimating;
 - (void)stopAnimating;
-- (void)setContentMode:(long)mode;
-- (void)setAutoresizingMask:(unsigned long)mask;
-- (void)setTag:(long)tag;
+- (void)setContentMode:(NSInteger)m;
+- (void)setAutoresizingMask:(NSUInteger)m;
 @end
 @interface CALayer : NSObject
-- (void)addSublayer:(id)layer;
+- (void)addSublayer:(id)l;
 - (void)removeFromSuperlayer;
 - (void)setFrame:(CGRect)r;
 @end
-
-// ---------- 类型安全调用宏 ----------
-static SEL S(const char *s) { return sel_registerName(s); }
-#define MSG(recv, sel, ...)  objc_msgSend((id)(recv), S(sel) __VA_OPT__(,) __VA_ARGS__)
-#define MSGB(recv, sel, ...) ((BOOL(*)(id, SEL, ...))objc_msgSend)((id)(recv), S(sel) __VA_OPT__(,) __VA_ARGS__)
-#define MSGD(recv, sel, ...) ((double(*)(id, SEL, ...))objc_msgSend)((id)(recv), S(sel) __VA_OPT__(,) __VA_ARGS__)
-#define MSGR(recv, sel)      ((CGRect(*)(id, SEL))objc_msgSend)((id)(recv), S(sel))
-#define CLS(n) objc_getClass(n)
 
 // ---------- 全局 ----------
 static NSString *gPrefsKeyEnable, *gPrefsKeyZxh, *gPrefsKeyScale, *gPrefsKeyFolder;
@@ -141,35 +148,32 @@ struct CMTimeRaw { long long value; int timescale; unsigned flags; long long epo
 @implementation LDDVideoLoopObserver
 - (void)videoDidEnd:(id)n {
     if (gPlayer) {
+        typedef id (*Fn)(id, SEL, struct CMTimeRaw);
+        Fn fn = (Fn)objc_msgSend;
         struct CMTimeRaw zero = {0, 0, 0, 0};
-        ((id(*)(id, SEL, struct CMTimeRaw))objc_msgSend)(gPlayer, S("seekToTime:"), zero);
-        MSG(gPlayer, "play");
+        fn(gPlayer, sel_registerName("seekToTime:"), zero);
+        [gPlayer play];
     }
 }
 @end
 
-// ---------- prefs ----------
-static id LoadPrefs(void) {
-    id ud = MSG(CLS("NSUserDefaults"), "alloc");
-    return MSG(ud, "initWithSuiteName:", @"lddgifbg");
-}
-static id NSString_fromCStr(const char *s) {
-    return MSG(CLS("NSString"), "stringWithUTF8String:", s);
-}
-// RootHide 下 NSUserDefaults 可能与原版直接读的 plist 文件不同步, 做多路径兜底
+// ---------- prefs (NSUserDefaults + plist 多路径兜底) ----------
 static id LoadPrefsValue(NSString *key) {
-    id v = MSG(LoadPrefs(), "objectForKey:", key);
+    NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
+    id v = [ud objectForKey:key];
     if (v) return v;
     const char *paths[] = {
         "/var/jb/User/Library/Preferences/lddgifbg.plist",
         "/var/mobile/Library/Preferences/lddgifbg.plist",
         "@P@/var/jb/User/Library/Preferences/lddgifbg.plist",
+        "@P@/var/mobile/Library/Preferences/lddgifbg.plist",
         0
     };
     for (int i = 0; paths[i]; i++) {
-        id d = MSG(CLS("NSDictionary"), "dictionaryWithContentsOfFile:", NSString_fromCStr(paths[i]));
+        NSString *p = [[NSString alloc] initWithBytes:paths[i] length:strlen(paths[i]) encoding:4];
+        NSDictionary *d = [NSDictionary dictionaryWithContentsOfFile:p];
         if (d) {
-            id x = MSG(d, "objectForKey:", key);
+            id x = [d objectForKeyedSubscript:key];
             if (x) return x;
         }
     }
@@ -177,38 +181,39 @@ static id LoadPrefsValue(NSString *key) {
 }
 static BOOL IsLddGifBgEnabled(void) {
     id v = LoadPrefsValue(gPrefsKeyEnable);
-    return v ? MSGB(v, "boolValue") : YES;
+    return v ? [v boolValue] : YES;
 }
 static BOOL IsZxhLddGifBgEnabled(void) {
     id v = LoadPrefsValue(gPrefsKeyZxh);
-    return v ? MSGB(v, "boolValue") : YES;
+    return v ? [v boolValue] : YES;
 }
 static double GetLddGifBgScale(void) {
     id v = LoadPrefsValue(gPrefsKeyScale);
     if (!v) return 1.0;
-    double d = MSGD(v, "doubleValue");
+    double d = [v doubleValue];
     return d > 0 ? d : 1.0;
 }
 
-// ---------- 素材文件选择 (gif > 视频 > 静态图) ----------
+// ---------- 素材选择: gif > 视频 > 静态图 ----------
 static NSString *GetSelectedImagePath(void) {
     id name = LoadPrefsValue(gPrefsKeyFolder);
     if (!name) return nil;
-    NSString *folder = (NSString *)MSG(gRootDir, "stringByAppendingPathComponent:", name);
+    NSString *folder = [gRootDir stringByAppendingPathComponent:name];
     BOOL isDir = NO;
-    id fm = MSG(CLS("NSFileManager"), "defaultManager");
-    if (!MSGB(fm, "fileExistsAtPath:isDirectory:", folder, &isDir) || !isDir) return nil;
-    id files = MSG(fm, "contentsOfDirectoryAtPath:error:", folder, nil);
+    NSFileManager *fm = [NSFileManager defaultManager];
+    if (![fm fileExistsAtPath:folder isDirectory:&isDir] || !isDir) return nil;
+    NSArray *files = [fm contentsOfDirectoryAtPath:folder error:nil];
     if (!files) return nil;
     NSString *videoPick = nil, *imgPick = nil;
-    for (id f in files) {
-        id ext = MSG(MSG(f, "pathExtension"), "lowercaseString");
-        if (MSGB(ext, "isEqualToString:", gGifExt))
-            return (NSString *)MSG(folder, "stringByAppendingPathComponent:", f);
-        if (MSGB(ext, "isEqualToString:", gVideoExtMp4) || MSGB(ext, "isEqualToString:", gVideoExtMov))
-            if (!videoPick) videoPick = (NSString *)MSG(folder, "stringByAppendingPathComponent:", f);
-        if (MSGB(ext, "isEqualToString:", @"png") || MSGB(ext, "isEqualToString:", @"jpg") || MSGB(ext, "isEqualToString:", @"jpeg"))
-            if (!imgPick) imgPick = (NSString *)MSG(folder, "stringByAppendingPathComponent:", f);
+    for (NSString *f in files) {
+        NSString *ext = [[f pathExtension] lowercaseString];
+        if ([ext isEqualToString:gGifExt]) return [folder stringByAppendingPathComponent:f];
+        if ([ext isEqualToString:gVideoExtMp4] || [ext isEqualToString:gVideoExtMov]) {
+            if (!videoPick) videoPick = [folder stringByAppendingPathComponent:f];
+        }
+        if ([ext isEqualToString:@"png"] || [ext isEqualToString:@"jpg"] || [ext isEqualToString:@"jpeg"]) {
+            if (!imgPick) imgPick = [folder stringByAppendingPathComponent:f];
+        }
     }
     return videoPick ? videoPick : imgPick;
 }
@@ -216,38 +221,38 @@ static NSString *GetSelectedImagePath(void) {
 // ---------- GIF 载入 ----------
 static void LoadGIFWithPathIntoImageView(NSString *path, UIImageView *iv) {
     if (!path || !iv) return;
-    id frames = MSG(gFramesCache, "objectForKeyedSubscript:", path);
-    id durObj = MSG(gDurationCache, "objectForKeyedSubscript:", path);
+    id frames = [gFramesCache objectForKeyedSubscript:path];
+    id durObj = [gDurationCache objectForKeyedSubscript:path];
     if (frames && durObj) {
-        MSG(iv, "setAnimationImages:", frames);
-        MSG(iv, "setAnimationDuration:", MSGD(durObj, "doubleValue"));
-        MSG(iv, "setAnimationRepeatCount:", 0);
-        MSG(iv, "startAnimating");
+        [iv setAnimationImages:frames];
+        [iv setAnimationDuration:[durObj doubleValue]];
+        [iv setAnimationRepeatCount:0];
+        [iv startAnimating];
         return;
     }
-    id data = MSG(CLS("NSData"), "dataWithContentsOfFile:", path);
+    NSData *data = [NSData dataWithContentsOfFile:path];
     if (!data) return;
-    void *src = CGImageSourceCreateWithData((void *)data, 0);
+    void *src = CGImageSourceCreateWithData((__bridge void *)data, 0);
     if (!src) return;
-    size_t count = CGImageSourceGetCount(src);
+    NSUInteger count = CGImageSourceGetCount(src);
     if (count == 0) { CFRelease(src); return; }
-    id arr = MSG(CLS("NSMutableArray"), "arrayWithCapacity:", (unsigned long)count);
+    NSMutableArray *arr = [NSMutableArray arrayWithCapacity:count];
     double total = 0.0;
-    for (size_t i = 0; i < count; i++) {
+    for (NSUInteger i = 0; i < count; i++) {
         CGImageRef cg = CGImageSourceCreateImageAtIndex(src, i, 0);
         if (!cg) continue;
         void *props = CGImageSourceCopyPropertiesAtIndex(src, i, 0);
-        id img = MSG(CLS("UIImage"), "imageWithCGImage:scale:orientation:", (void *)cg, 1.0, 0);
-        MSG(arr, "addObject:", img);
+        UIImage *img = [UIImage imageWithCGImage:cg scale:1.0 orientation:0];
+        [arr addObject:img];
         double delay = 0.1;
         if (props) {
-            id gd = MSG((id)props, "objectForKeyedSubscript:", (id)kCGImagePropertyGIFDictionary);
+            NSDictionary *gd = [(__bridge NSDictionary *)props objectForKeyedSubscript:(__bridge id)kCGImagePropertyGIFDictionary];
             if (gd) {
-                id d1 = MSG(gd, "objectForKeyedSubscript:", (id)kCGImagePropertyGIFUnclampedDelayTime);
-                id d2 = MSG(gd, "objectForKeyedSubscript:", (id)kCGImagePropertyGIFDelayTime);
+                id d1 = [gd objectForKeyedSubscript:(__bridge id)kCGImagePropertyGIFUnclampedDelayTime];
+                id d2 = [gd objectForKeyedSubscript:(__bridge id)kCGImagePropertyGIFDelayTime];
                 double dd = 0.0;
-                if (d1) dd = MSGD(d1, "doubleValue");
-                if (dd <= 0 && d2) dd = MSGD(d2, "doubleValue");
+                if (d1) dd = [d1 doubleValue];
+                if (dd <= 0 && d2) dd = [d2 doubleValue];
                 if (dd > 0) delay = dd;
             }
             CFRelease(props);
@@ -256,13 +261,13 @@ static void LoadGIFWithPathIntoImageView(NSString *path, UIImageView *iv) {
         CFRelease((void *)cg);
     }
     CFRelease(src);
-    MSG(gFramesCache, "setObject:forKeyedSubscript:", arr, path);
-    id dur = MSG(CLS("NSNumber"), "numberWithDouble:", total);
-    MSG(gDurationCache, "setObject:forKeyedSubscript:", dur, path);
-    MSG(iv, "setAnimationImages:", arr);
-    MSG(iv, "setAnimationDuration:", total);
-    MSG(iv, "setAnimationRepeatCount:", 0);
-    MSG(iv, "startAnimating");
+    [gFramesCache setObject:arr forKeyedSubscript:path];
+    NSNumber *dur = [NSNumber numberWithDouble:total];
+    [gDurationCache setObject:dur forKeyedSubscript:path];
+    [iv setAnimationImages:arr];
+    [iv setAnimationDuration:total];
+    [iv setAnimationRepeatCount:0];
+    [iv startAnimating];
 }
 
 // ---------- 视频载入 ----------
@@ -272,65 +277,70 @@ static void EnsureAVFoundation(void) {
 }
 static void LoadVideoWithPathIntoView(NSString *path, UIView *view) {
     EnsureAVFoundation();
-    id url = MSG(CLS("NSURL"), "fileURLWithPath:", path);
+    NSURL *url = [NSURL fileURLWithPath:path];
+    typedef id (*FnA)(id, SEL, NSURL *);
+    FnA fna = (FnA)objc_msgSend;
     if (gPlayer && gPlayerItem) {
-        MSG(gPlayer, "replaceCurrentItemWithPlayerItem:", MSG(CLS("AVPlayerItem"), "playerItemWithURL:", url));
+        id item = fna((id)objc_getClass("AVPlayerItem"), sel_registerName("playerItemWithURL:"), url);
+        [gPlayer replaceCurrentItemWithPlayerItem:item];
     } else {
-        gPlayerItem = MSG(CLS("AVPlayerItem"), "playerItemWithURL:", url);
-        gPlayer = MSG(CLS("AVPlayer"), "playerWithPlayerItem:", gPlayerItem);
-        MSG(gPlayer, "setMuted:", 1);
-        gPlayerLayer = MSG(CLS("AVPlayerLayer"), "playerLayerWithPlayer:", gPlayer);
-        MSG(gPlayerLayer, "setVideoGravity:", @"AVLayerVideoGravityResizeAspectFill");
-        gObserver = (id)[[LDDVideoLoopObserver alloc] init];
-        id nc = MSG(CLS("NSNotificationCenter"), "defaultCenter");
-        MSG(nc, "addObserver:selector:name:object:", gObserver, S("videoDidEnd:"), @"AVPlayerItemDidPlayToEndTimeNotification", gPlayerItem);
+        gPlayerItem = fna((id)objc_getClass("AVPlayerItem"), sel_registerName("playerItemWithURL:"), url);
+        typedef id (*FnB)(id, SEL, id);
+        FnB fnb = (FnB)objc_msgSend;
+        gPlayer = fnb((id)objc_getClass("AVPlayer"), sel_registerName("playerWithPlayerItem:"), gPlayerItem);
+        [gPlayer setMuted:YES];
+        gPlayerLayer = fnb((id)objc_getClass("AVPlayerLayer"), sel_registerName("playerLayerWithPlayer:"), gPlayer);
+        [gPlayerLayer setValue:@"AVLayerVideoGravityResizeAspectFill" forKey:@"videoGravity"];
+        gObserver = [[LDDVideoLoopObserver alloc] init];
+        NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
+        [nc addObserver:gObserver selector:@selector(videoDidEnd:) name:@"AVPlayerItemDidPlayToEndTimeNotification" object:gPlayerItem];
     }
-    CGRect b = MSGR(view, "bounds");
-    MSG(gPlayerLayer, "setFrame:", b);
-    MSG(MSG(view, "layer"), "addSublayer:", gPlayerLayer);
-    MSG(gPlayer, "play");
+    CGRect b = [view bounds];
+    [gPlayerLayer setFrame:b];
+    [[view layer] addSublayer:gPlayerLayer];
+    [gPlayer play];
 }
 static void StopVideo(void) {
-    if (gPlayer) MSG(gPlayer, "pause");
-    if (gPlayerLayer) MSG(gPlayerLayer, "removeFromSuperlayer");
+    if (gPlayer) [gPlayer pause];
+    if (gPlayerLayer) [gPlayerLayer removeFromSuperlayer];
 }
 
 // ---------- 素材分发 ----------
 static void LoadMediaWithPathIntoImageView(NSString *path, UIImageView *iv) {
-    id ext = MSG(MSG(path, "pathExtension"), "lowercaseString");
-    if (MSGB(ext, "isEqualToString:", gGifExt)) {
+    NSString *ext = [[path pathExtension] lowercaseString];
+    if ([ext isEqualToString:gGifExt]) {
         StopVideo();
-        MSG(iv, "setImage:", nil);
-        MSG(iv, "setAnimationImages:", nil);
+        [iv setImage:nil];
+        [iv setAnimationImages:nil];
         LoadGIFWithPathIntoImageView(path, iv);
-    } else if (MSGB(ext, "isEqualToString:", gVideoExtMp4) || MSGB(ext, "isEqualToString:", gVideoExtMov)) {
-        MSG(iv, "stopAnimating");
-        MSG(iv, "setImage:", nil);
-        MSG(iv, "setAnimationImages:", nil);
+    } else if ([ext isEqualToString:gVideoExtMp4] || [ext isEqualToString:gVideoExtMov]) {
+        [iv stopAnimating];
+        [iv setImage:nil];
+        [iv setAnimationImages:nil];
         LoadVideoWithPathIntoView(path, iv);
     } else {
         StopVideo();
-        MSG(iv, "stopAnimating");
-        MSG(iv, "setImage:", MSG(CLS("UIImage"), "imageWithContentsOfFile:", path));
+        [iv stopAnimating];
+        [iv setAnimationImages:nil];
+        [iv setImage:[UIImage imageWithContentsOfFile:path]];
     }
 }
 
-// ---------- 占位方块 (诊断用: 插件活着但无素材时会显示) ----------
-static void RemovePlaceholder(id self) {
-    id ph = MSG(self, "viewWithTag:", 9998);
-    if (ph) MSG(ph, "removeFromSuperview");
+// ---------- 诊断占位 (红=无素材, 蓝=加载失败) ----------
+static void RemoveTagged(id self, NSInteger tag) {
+    id v = [self viewWithTag:tag];
+    if (v) [v removeFromSuperview];
 }
-static void ShowPlaceholder(id self) {
-    RemovePlaceholder(self);
-    id v = MSG(self, "viewWithTag:", 9999);
-    if (v) MSG(v, "removeFromSuperview");
-    id ph = MSG(self, "viewWithTag:", 9998);
+static void ShowBlock(id self, int colorIsRed) {
+    RemoveTagged(self, 9999);
+    RemoveTagged(self, 9998);
+    id ph = [self viewWithTag:colorIsRed ? 9997 : 9996];
     if (!ph) {
-        CGRect b = MSGR(self, "bounds");
-        ph = MSG(MSG(CLS("UIView"), "alloc"), "initWithFrame:", (CGRect){ b.w / 2.0 - 15, b.h / 2.0 - 20, 30, 40 });
-        MSG(ph, "setBackgroundColor:", MSG(CLS("UIColor"), "redColor"));
-        MSG(ph, "setTag:", 9998);
-        MSG(self, "insertSubview:atIndex:", ph, 0);
+        CGRect b = [self bounds];
+        UIView *v = [[UIView alloc] initWithFrame:MakeRect(b.w/2 - 15, b.h/2 - 20, 30, 40)];
+        [v setBackgroundColor:(colorIsRed ? [UIColor redColor] : [UIColor blueColor])];
+        [v setTag:(colorIsRed ? 9997 : 9996)];
+        [self insertSubview:v atIndex:0];
     }
 }
 
@@ -342,55 +352,54 @@ static void LDDNewLayoutSubviews(id self, SEL _cmd) {
     BOOL show = IsLddGifBgEnabled();
     if (!show && IsZxhLddGifBgEnabled()) show = YES;
     if (!show) {
-        CGRect b = MSGR(self, "bounds");
+        CGRect b = [self bounds];
         if (b.h >= 65.0) show = YES;
     }
     if (!show) {
-        id v = MSG(self, "viewWithTag:", 9999);
-        if (v) MSG(v, "removeFromSuperview");
-        RemovePlaceholder(self);
+        RemoveTagged(self, 9999);
+        RemoveTagged(self, 9998);
         objc_autoreleasePoolPop(pool);
         return;
     }
 
-    NSString *path = (NSString *)GetSelectedImagePath();
+    NSString *path = GetSelectedImagePath();
     if (!path) {
-        ShowPlaceholder(self);
+        ShowBlock(self, 1);   // 红: 没读到素材(可能是 prefs 问题)
         objc_autoreleasePoolPop(pool);
         return;
     }
-    id fm = MSG(CLS("NSFileManager"), "defaultManager");
-    if (!MSGB(fm, "fileExistsAtPath:", path)) {
-        ShowPlaceholder(self);
-        objc_autoreleasePoolPop(pool);
-        return;
+    NSFileManager *fm = [NSFileManager defaultManager];
+    if (![fm fileExistsAtPath:path]) {
+        ShowBlock(self, 1);
+        return objc_autoreleasePoolPop(pool), (void)0;
     }
-    RemovePlaceholder(self);
+    RemoveTagged(self, 9997);
+    RemoveTagged(self, 9996);
 
-    UIImageView *view = (UIImageView *)MSG(self, "viewWithTag:", 9999);
+    UIImageView *view = (UIImageView *)[self viewWithTag:9999];
     if (!view) {
-        CGRect b = MSGR(self, "bounds");
-        view = (UIImageView *)MSG(MSG(CLS("UIImageView"), "alloc"), "initWithFrame:", (CGRect){0, 0, b.w, b.h});
-        MSG(view, "setContentMode:", 2);
-        MSG(view, "setAutoresizingMask:", 18);
-        MSG(view, "setTag:", 9999);
-        MSG(self, "insertSubview:atIndex:", view, 0);
+        CGRect b = [self bounds];
+        view = [[UIImageView alloc] initWithFrame:MakeRect(0, 0, b.w, b.h)];
+        [view setContentMode:2];
+        [view setAutoresizingMask:18];
+        [view setTag:9999];
+        [self insertSubview:view atIndex:0];
     }
 
     double scale = GetLddGifBgScale();
-    CGRect b = MSGR(self, "bounds");
+    CGRect b = [self bounds];
     double w = b.w * scale, h = b.h * scale;
-    MSG(view, "setFrame:", (CGRect){ (b.w - w) / 2.0, (b.h - h) / 2.0, w, h });
+    [view setFrame:MakeRect((b.w - w) / 2.0, (b.h - h) / 2.0, w, h)];
 
     BOOL needReload = YES;
-    if (gLoadedPath && MSGB(gLoadedPath, "isEqualToString:", path)) {
-        if (MSGB(view, "isAnimating") || gPlayerLayer) needReload = NO;
+    if (gLoadedPath && [gLoadedPath isEqualToString:path]) {
+        if ([view isAnimating] || gPlayerLayer) needReload = NO;
     }
     if (needReload) {
         gLoadedPath = path;
         LoadMediaWithPathIntoImageView(path, view);
     }
-    MSG(self, "insertSubview:atIndex:", view, 0);
+    [self insertSubview:view atIndex:0];
     objc_autoreleasePoolPop(pool);
 }
 
@@ -405,10 +414,12 @@ static void LDDInit(void) {
     gGifExt = @"gif";
     gVideoExtMp4 = @"mp4";
     gVideoExtMov = @"mov";
-    gFramesCache = MSG(CLS("NSMutableDictionary"), "dictionary");
-    gDurationCache = MSG(CLS("NSMutableDictionary"), "dictionary");
-    Class cls = (Class)objc_getClass("SBSystemApertureContainerViewContentView");
+    NSMutableDictionary *fc = [NSMutableDictionary dictionary];
+    NSMutableDictionary *dc = [NSMutableDictionary dictionary];
+    gFramesCache = fc;
+    gDurationCache = dc;
+    id cls = objc_getClass("SBSystemApertureContainerViewContentView");
     if (cls) {
-        MSHookMessageEx(cls, S("layoutSubviews"), (IMP)LDDNewLayoutSubviews, (IMP *)&origLayoutSubviews);
+        MSHookMessageEx((Class)cls, sel_registerName("layoutSubviews"), (IMP)LDDNewLayoutSubviews, (IMP *)&origLayoutSubviews);
     }
 }
