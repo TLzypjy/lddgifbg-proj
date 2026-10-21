@@ -369,58 +369,54 @@ static void LogB(const char *s) {
     if (f) { fprintf(f, "%s\n", s ? s : "?"); fflush(f); fclose(f); }
 }
 
-// ---------- 设置主控制器 (自绘 UITableViewController, 完全绕开 PSListController) ----------
-@interface lddgifbgRootListController : UITableViewController
+// ---------- 设置主控制器: PSListController 子类(满足推入机制) + 直接覆写表格数据源(绕开 specifiers 渲染) ----------
+@interface lddgifbgRootListController : PSListController
 @end
 @implementation lddgifbgRootListController
 - (void)viewDidLoad {
-    @try {
-        [super viewDidLoad];
-    } @catch (id e) {
-    }
+    @try { [super viewDidLoad]; } @catch (id e) {}
     [self setTitle:@"灵动岛GIF背景"];
 }
+- (id)specifiers {
+    // 框架内部读它时给空数组; 实际行数由下方数据源覆写直接控制
+    return MSG(CLS("NSArray"), "array");
+}
 - (long)numberOfSectionsInTableView:(id)tv { return 1; }
-- (long)tableView:(id)tv numberOfRowsInSection:(long)s { return 5; }
+- (long)tableView:(id)tv numberOfRowsInSection:(long)s { return 6; }
 - (id)tableView:(id)tv cellForRowAtIndexPath:(id)ip {
     long row = (long)MSG(ip, "row");
     id cell = MSG(tv, "dequeueReusableCellWithIdentifier:", @"c");
     if (!cell) cell = MSG(MSG(CLS("UITableViewCell"), "alloc"), "initWithStyle:reuseIdentifier:", 1, @"c");
     CGRect b = MSGR(MSG(cell, "contentView"), "bounds");
-    // 清除残留子视图(复用)
     @try {
         id subs = MSG(MSG(cell, "contentView"), "subviews");
         for (id v in subs) MSG(v, "removeFromSuperview");
     } @catch (id e) {}
     MSG(cell, "setSelectionStyle:", 0);
     MSG(cell, "setAccessoryType:", 0);
-
     if (row == 0 || row == 1) {
-        // 开关
         id label = MSG(CLS("UILabel"), "alloc");
         label = MSG(label, "initWithFrame:", (CGRect){16, 14, b.w - 110, 22});
         MSG(label, "setText:", row == 0 ? @"启用总开关" : @"启用小岛");
         MSG(label, "setFont:", MSG(CLS("UIFont"), "systemFontOfSize:", 16.0));
         MSG(MSG(cell, "contentView"), "addSubview:", label);
-
         id sw = MSG(CLS("UISwitch"), "alloc");
         sw = MSG(sw, "initWithFrame:", (CGRect){b.w - 66, 9, 50, 30});
         MSG(sw, "setTag:", row == 0 ? 1001 : 1002);
         id udc = MSG(MSG(CLS("NSUserDefaults"), "alloc"), "initWithSuiteName:", @"lddgifbg");
         id v = MSG(udc, "objectForKey:", row == 0 ? @"Enablelddgifbg" : @"Enablezxhlddgifbg");
-        BOOL on = v ? (BOOL)MSG(v, "boolValue") : YES;
+        BOOL on = v ? MSGB(v, "boolValue") : YES;
         MSG(sw, "setOn:animated:", on, 0);
         MSG(sw, "addTarget:action:forControlEvents:", self, sel_registerName("switchToggled:"), 1 << 12);
         MSG(MSG(cell, "contentView"), "addSubview:", sw);
     } else if (row == 2) {
-        // 缩放滑块
         id label = MSG(CLS("UILabel"), "alloc");
-        label = MSG(label, "initWithFrame:", (CGRect){16, 12, b.w - 32, 20});
+        label = MSG(label, "initWithFrame:", (CGRect){16, 10, b.w - 32, 20});
         MSG(label, "setText:", @"缩放比例");
         MSG(label, "setFont:", MSG(CLS("UIFont"), "systemFontOfSize:", 15.0));
         MSG(MSG(cell, "contentView"), "addSubview:", label);
         id sl = MSG(CLS("UISlider"), "alloc");
-        sl = MSG(sl, "initWithFrame:", (CGRect){16, 36, b.w - 32, 30});
+        sl = MSG(sl, "initWithFrame:", (CGRect){16, 34, b.w - 32, 30});
         MSG(sl, "setMinimumValue:", 0.1);
         MSG(sl, "setMaximumValue:", 2.0);
         id udc = MSG(MSG(CLS("NSUserDefaults"), "alloc"), "initWithSuiteName:", @"lddgifbg");
@@ -431,20 +427,19 @@ static void LogB(const char *s) {
         MSG(sl, "addTarget:action:forControlEvents:", self, sel_registerName("sliderChanged:"), 1 << 12);
         MSG(MSG(cell, "contentView"), "addSubview:", sl);
     } else {
-        // 入口行
+        NSString *t = row == 3 ? @"选择素材" : (row == 4 ? @"跳转素材目录" : @"立即注销");
         id label = MSG(CLS("UILabel"), "alloc");
         label = MSG(label, "initWithFrame:", (CGRect){16, 14, b.w - 60, 22});
-        MSG(label, "setText:", row == 3 ? @"选择素材" : @"跳转素材目录");
+        MSG(label, "setText:", t);
         MSG(label, "setFont:", MSG(CLS("UIFont"), "systemFontOfSize:", 16.0));
         MSG(MSG(cell, "contentView"), "addSubview:", label);
-        MSG(cell, "setAccessoryType:", 1);
+        if (row == 5) MSG(label, "setTextColor:", MSG(CLS("UIColor"), "redColor"));
         MSG(cell, "setSelectionStyle:", 1);
     }
     return cell;
 }
 - (void)tableView:(id)tv didSelectRowAtIndexPath:(id)ip {
     long row = (long)MSG(ip, "row");
-    MSG(tv, "deselectRowAtIndexPath:animated:", ip, 1);
     if (row == 3) {
         id pc = MSG(CLS("LDDMaterialPickerController"), "alloc");
         pc = MSG(pc, "initWithStyle:", 1);
@@ -453,11 +448,13 @@ static void LogB(const char *s) {
         id app = MSG(CLS("UIApplication"), "sharedApplication");
         id url = MSG(CLS("NSURL"), "fileURLWithPath:", @"/var/mobile/lddgifbg");
         MSG(app, "openURL:options:completionHandler:", url, MSG(CLS("NSDictionary"), "dictionary"), 0);
+    } else if (row == 5) {
+        [self respringNow];
     }
 }
 - (void)switchToggled:(id)sw {
     NSString *key = (long)MSG(sw, "tag") == 1001 ? @"Enablelddgifbg" : @"Enablezxhlddgifbg";
-    BOOL on = (BOOL)MSG(sw, "isOn");
+    BOOL on = MSGB(sw, "isOn");
     id udc = MSG(MSG(CLS("NSUserDefaults"), "alloc"), "initWithSuiteName:", @"lddgifbg");
     MSG(udc, "setObject:forKey:", MSG(CLS("NSNumber"), "numberWithBool:", on), key);
     MSG(udc, "synchronize");
@@ -467,5 +464,23 @@ static void LogB(const char *s) {
     id udc = MSG(MSG(CLS("NSUserDefaults"), "alloc"), "initWithSuiteName:", @"lddgifbg");
     MSG(udc, "setObject:forKey:", MSG(CLS("NSNumber"), "numberWithDouble:", dv), @"lddgifbgScale");
     MSG(udc, "synchronize");
+}
+- (void)respringNow {
+    id fm = MSG(CLS("NSFileManager"), "defaultManager");
+    BOOL have = MSGB(fm, "fileExistsAtPath:", @"/var/jb/usr/bin/sbreload");
+    static int (*spawn_fn)(void *, const char *, void *, void *, char *const[], char *const[]);
+    if (!spawn_fn) {
+        void *h = dlopen(0, 1);
+        if (h) spawn_fn = (int (*)(void *, const char *, void *, void *, char *const[], char *const[]))dlsym(h, "posix_spawn");
+    }
+    if (spawn_fn) {
+        if (have) {
+            char *argv1[] = {(char *)"/var/jb/usr/bin/sbreload", 0};
+            spawn_fn(0, "/var/jb/usr/bin/sbreload", 0, 0, argv1, 0);
+        } else {
+            char *argv2[] = {(char *)"/var/jb/usr/bin/killall", (char *)"SpringBoard", 0};
+            spawn_fn(0, "/var/jb/usr/bin/killall", 0, 0, argv2, 0);
+        }
+    }
 }
 @end
