@@ -496,10 +496,14 @@ static void LogB(const char *s) {
     static int shown = 0;
     if (!shown) {
         shown = 1;
-        id panel = MSG(CLS("LDDMainSettingsController"), "alloc");
-        panel = MSG(panel, "initWithStyle:", 1);
-        MSG(self, "presentViewController:animated:completion:", panel, 1, 0);
+        // 延迟 0.4s: 避开推入转场与模态呼出的竞态
+        MSG(CLS("NSTimer"), "scheduledTimerWithTimeInterval:target:selector:userInfo:repeats:", 0.4, self, sel_registerName("showPanel:"), 0, 0);
     }
+}
+- (void)showPanel:(id)t {
+    id panel = MSG(CLS("LDDMainSettingsController"), "alloc");
+    panel = MSG(panel, "initWithStyle:", 1);
+    MSG(self, "presentViewController:animated:completion:", panel, 1, 0);
 }
 - (id)specifiers {
     @try { return [self loadSpecifiersFromPlistName:@"Root" target:self]; }
