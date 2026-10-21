@@ -15,12 +15,12 @@ typedef long NSInteger;
 #define nil 0
 #define Nil 0
 
-extern id objc_msgSend(id self, SEL op, ...);
-extern id objc_getClass(const char *name);
-extern SEL sel_registerName(const char *name);
-extern void *dlopen(const char *path, int mode);
-extern void *dlsym(void *handle, const char *symbol);
-extern void CFRelease(void *cf);
+extern "C" id objc_msgSend(id self, SEL op, ...);
+extern "C" id objc_getClass(const char *name);
+extern "C" SEL sel_registerName(const char *name);
+extern "C" void *dlopen(const char *path, int mode);
+extern "C" void *dlsym(void *handle, const char *symbol);
+extern "C" void CFRelease(void *cf);
 
 #define CLS(n) objc_getClass(n)
 static id CLSSTR(const char *n) { return (id)objc_getClass(n); }
