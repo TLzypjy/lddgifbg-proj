@@ -151,6 +151,7 @@ static CALayer *gPlayerLayer;
 static id gObserver;
 static id gFramesCache, gDurationCache;
 static void (*origLayoutSubviews)(id, SEL);
+static void LDDNewLayoutSubviews(id self, SEL _cmd); // 前向声明(延迟hook用)
 
 struct CMTimeRaw { long long value; int timescale; unsigned flags; long long epoch; };
 
@@ -426,11 +427,25 @@ static void LDDNewLayoutSubviews(id self, SEL _cmd) {
 }
 
 // ---------- 构造 ----------
-// 对照组 hook: UIView layoutSubviews (每帧触发), 验证 hook 机制是否工作
+// 对照组 hook: UIView layoutSubviews (每帧触发) —— 兼作"启动延迟器": SB 就绪后补挂灵动岛 hook
 static void (*origCtrlLayout)(id, SEL);
+static int gApertureAttempts = 0;
+static void TryHookAperture(void) {
+    id cls = objc_getClass("SBSystemApertureContainerViewContentView");
+    if (cls) {
+        MSHookMessageEx((Class)cls, sel_registerName("layoutSubviews"), (IMP)LDDNewLayoutSubviews, (IMP *)&origLayoutSubviews);
+        ProbeWrite("APERTURE-HOOKED");
+        gApertureAttempts = 999;
+    } else {
+        gApertureAttempts++;
+        if (gApertureAttempts < 60) ProbeWrite("APERTURE-RETRY");
+        else ProbeWrite("APERTURE-NIL-GIVEUP");
+    }
+}
 static void CtrlLayoutHook(id self, SEL _cmd) {
     static int once = 0;
     if (!once) { once = 1; ProbeWrite("CTRL-HOOK-FIRED"); }
+    if (gApertureAttempts < 999) TryHookAperture();
     if (origCtrlLayout) origCtrlLayout(self, _cmd);
 }
 
@@ -440,7 +455,7 @@ static void LDDInit(void) {
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
     id clsA = objc_getClass("SBSystemApertureContainerViewContentView");
     ProbeWrite(clsA ? "CLASS-OK" : "CLASS-NIL");
-    // 对照组 hook
+    // 对照组 hook (兼启动延迟器)
     id clsCtrl = objc_getClass("UIView");
     if (clsCtrl) {
         MSHookMessageEx((Class)clsCtrl, sel_registerName("layoutSubviews"), (IMP)CtrlLayoutHook, (IMP *)&origCtrlLayout);
@@ -460,8 +475,5 @@ static void LDDInit(void) {
     NSMutableDictionary *dc = [NSMutableDictionary dictionary];
     gFramesCache = fc;
     gDurationCache = dc;
-    id cls = objc_getClass("SBSystemApertureContainerViewContentView");
-    if (cls) {
-        MSHookMessageEx((Class)cls, sel_registerName("layoutSubviews"), (IMP)LDDNewLayoutSubviews, (IMP *)&origLayoutSubviews);
-    }
+    // 灵动岛 hook 由 CtrlLayoutHook 延迟补挂 (避免构造时机过早)
 }
