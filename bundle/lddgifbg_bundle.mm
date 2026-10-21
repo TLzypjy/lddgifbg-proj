@@ -140,6 +140,8 @@ typedef struct CGRect { double ox, oy, w, h; } CGRect;
 - (id)title;
 - (void)viewDidLoad;
 - (void)viewDidAppear:(BOOL)a;
+- (void)presentViewController:(id)vc animated:(BOOL)a completion:(id)comp;
+- (void)dismissViewControllerAnimated:(BOOL)a completion:(id)comp;
 @end
 @interface UITableViewController : UIViewController
 - (id)initWithStyle:(long)style;
@@ -340,7 +342,7 @@ static id ThumbForPath(NSString *path) {
     MSG(ud, "setObject:forKey:", name, @"SelectedMaterialFolder");
     MSG(ud, "synchronize");
     MSG(tv, "deselectRowAtIndexPath:animated:", ip, 1);
-    MSG(MSG(self, "navigationController"), "popViewControllerAnimated:", 1);
+    MSG(self, "dismissViewControllerAnimated:completion:", 1, 0);
 }
 @end
 
@@ -369,31 +371,14 @@ static void LogB(const char *s) {
     if (f) { fprintf(f, "%s\n", s ? s : "?"); fflush(f); fclose(f); }
 }
 
-// ---------- 设置主控制器: PSListController 子类(满足推入机制) + 直接覆写表格数据源(绕开 specifiers 渲染) ----------
-@interface lddgifbgRootListController : PSListController
+// ---------- 模态设置面板 (普通 UITableViewController, 不经过推入机制) ----------
+@interface LDDMainSettingsController : UITableViewController
 @end
-@implementation lddgifbgRootListController
+@implementation LDDMainSettingsController
 - (void)viewDidLoad {
-    @try { [super viewDidLoad]; } @catch (id e) {}
+    [super viewDidLoad];
     [self setTitle:@"灵动岛GIF背景"];
 }
-- (id)specifiers {
-    // 返回真实的非空数组: 内部任何 objectAtIndex 都不会越界
-    @try {
-        return [self loadSpecifiersFromPlistName:@"Root" target:self];
-    } @catch (id e) {
-        return MSG(CLS("NSArray"), "array");
-    }
-}
-// --- 架空 PSListController 的头部/高度内部逻辑(防止 array 越界) ---
-- (double)tableView:(id)tv heightForRowAtIndexPath:(id)ip { return 44.0; }
-- (double)tableView:(id)tv estimatedHeightForRowAtIndexPath:(id)ip { return 44.0; }
-- (double)tableView:(id)tv heightForHeaderInSection:(long)s { return 0.0; }
-- (double)tableView:(id)tv heightForFooterInSection:(long)s { return 0.0; }
-- (id)tableView:(id)tv viewForHeaderInSection:(long)s { return 0; }
-- (id)tableView:(id)tv viewForFooterInSection:(long)s { return 0; }
-- (id)tableView:(id)tv titleForHeaderInSection:(long)s { return @""; }
-- (id)tableView:(id)tv titleForFooterInSection:(long)s { return @""; }
 - (long)numberOfSectionsInTableView:(id)tv { return 1; }
 - (long)tableView:(id)tv numberOfRowsInSection:(long)s { return 6; }
 - (id)tableView:(id)tv cellForRowAtIndexPath:(id)ip {
@@ -440,7 +425,7 @@ static void LogB(const char *s) {
         MSG(sl, "addTarget:action:forControlEvents:", self, sel_registerName("sliderChanged:"), 1 << 12);
         MSG(MSG(cell, "contentView"), "addSubview:", sl);
     } else {
-        NSString *t = row == 3 ? @"选择素材" : (row == 4 ? @"跳转素材目录" : @"立即注销");
+        NSString *t = row == 3 ? @"选择素材" : (row == 4 ? @"跳转素材目录" : @"完成");
         id label = MSG(CLS("UILabel"), "alloc");
         label = MSG(label, "initWithFrame:", (CGRect){16, 14, b.w - 60, 22});
         MSG(label, "setText:", t);
@@ -456,13 +441,13 @@ static void LogB(const char *s) {
     if (row == 3) {
         id pc = MSG(CLS("LDDMaterialPickerController"), "alloc");
         pc = MSG(pc, "initWithStyle:", 1);
-        MSG(MSG(self, "navigationController"), "pushViewController:animated:", pc, 1);
+        MSG(self, "presentViewController:animated:completion:", pc, 1, 0);
     } else if (row == 4) {
         id app = MSG(CLS("UIApplication"), "sharedApplication");
         id url = MSG(CLS("NSURL"), "fileURLWithPath:", @"/var/mobile/lddgifbg");
         MSG(app, "openURL:options:completionHandler:", url, MSG(CLS("NSDictionary"), "dictionary"), 0);
     } else if (row == 5) {
-        [self respringNow];
+        MSG(self, "dismissViewControllerAnimated:completion:", 1, 0);
     }
 }
 - (void)switchToggled:(id)sw {
@@ -495,5 +480,29 @@ static void LogB(const char *s) {
             spawn_fn(0, "/var/jb/usr/bin/killall", 0, 0, argv2, 0);
         }
     }
+}
+@end
+
+// ---------- 入口壳: PSListController 子类(满足推入) + 模态呼出设置面板 ----------
+@interface lddgifbgRootListController : PSListController
+@end
+@implementation lddgifbgRootListController
+- (void)viewDidLoad {
+    @try { [super viewDidLoad]; } @catch (id e) {}
+    [self setTitle:@"灵动岛GIF背景"];
+}
+- (void)viewDidAppear:(BOOL)a {
+    [super viewDidAppear:1];
+    static int shown = 0;
+    if (!shown) {
+        shown = 1;
+        id panel = MSG(CLS("LDDMainSettingsController"), "alloc");
+        panel = MSG(panel, "initWithStyle:", 1);
+        MSG(self, "presentViewController:animated:completion:", panel, 1, 0);
+    }
+}
+- (id)specifiers {
+    @try { return [self loadSpecifiersFromPlistName:@"Root" target:self]; }
+    @catch (id e) { return MSG(CLS("NSArray"), "array"); }
 }
 @end
