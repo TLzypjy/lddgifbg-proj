@@ -31,6 +31,7 @@ static id CLSSTR(const char *n) { return (id)objc_getClass(n); }
 @interface NSObject
 + (id)alloc;
 + (id)class;
+- (id)performSelector:(SEL)s;
 - (id)init;
 - (id)valueForKey:(id)k;
 - (void)setValue:(id)v forKey:(id)k;
@@ -43,6 +44,7 @@ static id CLSSTR(const char *n) { return (id)objc_getClass(n); }
 - (NSString *)pathExtension;
 - (NSString *)lowercaseString;
 - (BOOL)isEqualToString:(NSString *)s;
+- (NSUInteger)length;
 @end
 @interface NSArray : NSObject
 + (id)array;
@@ -136,6 +138,10 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (void)setFont:(id)f;
 - (void)setTextColor:(id)c;
 - (void)setTextAlignment:(NSInteger)a;
+@end
+@interface UITextField : UIView
+- (void)setPlaceholder:(NSString *)p;
+- (id)text;
 @end
 @interface UIImage : NSObject
 + (id)imageWithContentsOfFile:(NSString *)p;
@@ -461,7 +467,7 @@ static id ThumbForPath(NSString *path) {
 // 命名 + 保存
 - (void)askNameAndSave:(id)img url:(id)srcURL isVideo:(BOOL)isVideo {
     UIAlertController *al = [UIAlertController alertControllerWithTitle:@"命名素材" message:@"给这个素材起个名字" preferredStyle:1];
-    [al addTextFieldWithConfigurationHandler:^(id tf){
+    [al addTextFieldWithConfigurationHandler:^(UITextField *tf){
         [tf setPlaceholder:@"素材名称"];
     }];
     UIAlertAction *ok = [UIAlertAction actionWithTitle:@"保存" style:0 handler:^(UIAlertAction *a){
