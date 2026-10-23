@@ -6,6 +6,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 typedef struct objc_class *Class;
 typedef struct objc_object { Class isa; } *id;
