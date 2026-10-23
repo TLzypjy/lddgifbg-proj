@@ -32,6 +32,7 @@ static id CLSSTR(const char *n) { return (id)objc_getClass(n); }
 - (id)init;
 - (id)valueForKey:(id)k;
 - (void)setValue:(id)v forKey:(id)k;
+- (void)performSelector:(SEL)s withObject:(id)o afterDelay:(double)d;
 @end
 @interface NSString : NSObject
 - (id)initWithBytes:(const void *)b length:(NSUInteger)l encoding:(NSUInteger)e;
@@ -226,6 +227,12 @@ static void WritePrefsFile(NSString *key, id value) {
         NSString *p = [[NSString alloc] initWithBytes:paths[i] length:strlen(paths[i]) encoding:4];
         [d writeToFile:p atomically:YES];
     }
+}
+
+// ---------- 日志(诊断) ----------
+static void LogB(const char *s) {
+    FILE *f = fopen("/var/jb/tmp/lddgifbg-bundle.log", "a");
+    if (f) { fprintf(f, "%s\n", s ? s : "?"); fflush(f); fclose(f); }
 }
 
 // ---------- 素材缩略图 ----------
