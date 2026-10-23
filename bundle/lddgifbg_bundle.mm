@@ -485,7 +485,8 @@ static id ThumbForPath(NSString *path) {
     }];
     UIAlertAction *ok = [UIAlertAction actionWithTitle:@"保存" style:0 handler:^(UIAlertAction *a){
         id tfs = [al textFields];
-        NSString *nm = [tfs objectAtIndex:0];
+        UITextField *tf = [tfs objectAtIndex:0];
+        NSString *nm = [tf text];
         if (!nm || [nm length] == 0) nm = @"新素材";
         [self saveMaterial:nm image:img url:srcURL isVideo:isVideo];
     }];
