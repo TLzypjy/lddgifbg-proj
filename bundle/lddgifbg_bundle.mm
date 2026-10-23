@@ -313,6 +313,36 @@ static void LogB(const char *s) {
     if (f) { fprintf(f, "%s\n", s ? s : "?"); fflush(f); fclose(f); }
 }
 
+
+// ---------- 测试通知 (独立函数, 全程防护) ----------
+static void PostTestNotification(void) {
+    LogB("TN-START");
+    @try {
+        dlopen("/System/Library/Frameworks/UserNotifications.framework/UserNotifications", 2);
+        LogB("TN-DLOPEN");
+        id clsC = (id)objc_getClass("UNUserNotificationCenter");
+        if (!clsC) { LogB("TN-NO-CLASS"); return; }
+        id center = ((id(*)(id, SEL))objc_msgSend)(clsC, sel_registerName("currentNotificationCenter"));
+        if (!center) { LogB("TN-NO-CENTER"); return; }
+        LogB("TN-CENTER");
+        id content = [[(id)objc_getClass("UNMutableNotificationContent") alloc] init];
+        if (!content) { LogB("TN-NO-CONTENT"); return; }
+        ((void(*)(id, SEL, NSString *))objc_msgSend)(content, sel_registerName("setTitle:"), @"灵动岛测试");
+        ((void(*)(id, SEL, NSString *))objc_msgSend)(content, sel_registerName("setBody:"), @"查看素材显示效果");
+        LogB("TN-CONTENT");
+        id clsT = (id)objc_getClass("UNTimeIntervalNotificationTrigger");
+        id clsR = (id)objc_getClass("UNNotificationRequest");
+        if (!clsT || !clsR) { LogB("TN-NO-TRIGGER-CLS"); return; }
+        id trigger = [[clsT alloc] initWithTimeInterval:1.0 repeats:NO];
+        id req = [[clsR alloc] initWithIdentifier:@"lddgifbg-test" content:content trigger:trigger];
+        LogB("TN-REQ");
+        ((void(*)(id, SEL, id, id))objc_msgSend)(center, sel_registerName("addNotificationRequest:withCompletionHandler:"), req, 0);
+        LogB("TN-ADDED");
+    } @catch (id e) {
+        LogB("TN-EXC");
+    }
+}
+
 // ---------- 素材缩略图 ----------
 static void *gImageIO = NULL;
 static void *gAVF = NULL;
@@ -403,7 +433,8 @@ static id ThumbForPath(NSString *path) {
     [[self navigationItem] setLeftBarButtonItem:close];
     UIBarButtonItem *imp = [[UIBarButtonItem alloc] initWithTitle:@"导入" style:0 target:self action:@selector(importTapped)];
     UIBarButtonItem *del = [[UIBarButtonItem alloc] initWithTitle:@"删除" style:0 target:self action:@selector(deleteTapped)];
-    [[self navigationItem] setRightBarButtonItems:[NSArray arrayWithObjects:imp, del, nil]];
+    UIBarButtonItem *ntf = [[UIBarButtonItem alloc] initWithTitle:@"通知" style:0 target:self action:@selector(notifyTapped)];
+    [[self navigationItem] setRightBarButtonItems:[NSArray arrayWithObjects:imp, del, ntf, nil]];
     _marked = [NSMutableArray array];
     [[self view] setBackgroundColor:[UIColor colorWithWhite:0.94 alpha:1.0]];
 
@@ -476,6 +507,9 @@ static id ThumbForPath(NSString *path) {
         [self dismissViewControllerAnimated:YES completion:0];
         [self performSelector:@selector(showNaming) withObject:0 afterDelay:0.5];
     } @catch (id e) { LogB("PICK-EXC"); }
+}
+- (void)notifyTapped {
+    PostTestNotification();
 }
 - (void)deleteTapped {
     if (!_delMode) {
@@ -776,18 +810,7 @@ static id ThumbForPath(NSString *path) {
     WritePrefsFile(@"lddgifbgScale", [NSNumber numberWithDouble:dv]);
 }
 - (void)testNotification {
-    dlopen("/System/Library/Frameworks/UserNotifications.framework/UserNotifications", 2);
-    id center = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UNUserNotificationCenter"), sel_registerName("currentNotificationCenter"));
-    if (!center) return;
-    ((void(*)(id, SEL, NSUInteger, id))objc_msgSend)(center, sel_registerName("requestAuthorizationWithOptions:completionHandler:"), 3, ^(BOOL ok, id err){});
-    id content = [[(id)objc_getClass("UNMutableNotificationContent") alloc] init];
-    ((void(*)(id, SEL, NSString *))objc_msgSend)(content, sel_registerName("setTitle:"), @"灵动岛测试");
-    ((void(*)(id, SEL, NSString *))objc_msgSend)(content, sel_registerName("setBody:"), @"查看素材显示效果");
-    id snd = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UNNotificationSound"), sel_registerName("defaultSound"));
-    ((void(*)(id, SEL, id))objc_msgSend)(content, sel_registerName("setSound:"), snd);
-    id trigger = [[(id)objc_getClass("UNTimeIntervalNotificationTrigger") alloc] initWithTimeInterval:1.0 repeats:NO];
-    id req = [[(id)objc_getClass("UNNotificationRequest") alloc] initWithIdentifier:@"lddgifbg-test" content:content trigger:trigger];
-    ((void(*)(id, SEL, id, id))objc_msgSend)(center, sel_registerName("addNotificationRequest:withCompletionHandler:"), req, 0);
+    PostTestNotification();
 }
 - (void)respringNow {
     NSFileManager *fm = [NSFileManager defaultManager];
