@@ -484,20 +484,28 @@ static id ThumbForPath(NSString *path) {
 @end
 @implementation lddgifbgRootListController
 - (void)viewDidLoad {
-    @try { [super viewDidLoad]; } @catch (id e) {}
+    LogB("SHELL-VIEWDIDLOAD");
+    @try { [super viewDidLoad]; } @catch (id e) { LogB("SHELL-VD-EXC"); }
     [self setTitle:@"灵动岛GIF背景"];
 }
 - (void)viewDidAppear:(BOOL)a {
-    [super viewDidAppear:1];
+    LogB("SHELL-VIEWDIDAPPEAR");
+    @try { [super viewDidAppear:1]; } @catch (id e) { LogB("SHELL-VDA-EXC"); }
     static int shown = 0;
     if (!shown) {
         shown = 1;
-        [NSTimer scheduledTimerWithTimeInterval:0.4 target:self selector:@selector(showPanel:) userInfo:0 repeats:NO];
+        [self performSelector:@selector(showPanel:) withObject:0 afterDelay:0.3];
     }
 }
 - (void)showPanel:(id)t {
-    LDDMainSettingsController *panel = [[LDDMainSettingsController alloc] initWithStyle:1];
-    [self presentViewController:panel animated:YES completion:0];
+    LogB("SHOWPANEL-CALLED");
+    @try {
+        LDDMainSettingsController *panel = [[LDDMainSettingsController alloc] initWithStyle:1];
+        [self presentViewController:panel animated:YES completion:0];
+        LogB("PRESENT-ISSUED");
+    } @catch (id e) {
+        LogB("PRESENT-EXC");
+    }
 }
 - (id)specifiers {
     @try { return [self loadSpecifiersFromPlistName:@"Root" target:self]; }
