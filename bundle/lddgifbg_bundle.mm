@@ -51,12 +51,15 @@ static id CLSSTR(const char *n) { return (id)objc_getClass(n); }
 + (id)arrayWithObjects:(id)first, ...;
 - (NSUInteger)count;
 - (id)objectAtIndex:(NSUInteger)i;
+- (BOOL)containsObject:(id)o;
 - (id)mutableCopy;
 - (NSUInteger)countByEnumeratingWithState:(void *)state objects:(id *)buf count:(NSUInteger)len;
 @end
 @interface NSMutableArray : NSArray
 + (id)array;
 - (void)addObject:(id)obj;
+- (void)removeObject:(id)o;
+- (void)removeAllObjects;
 @end
 @interface NSDictionary : NSObject
 + (id)dictionary;
@@ -87,6 +90,7 @@ static id CLSSTR(const char *n) { return (id)objc_getClass(n); }
 - (BOOL)fileExistsAtPath:(NSString *)p isDirectory:(BOOL *)d;
 - (BOOL)createDirectoryAtPath:(NSString *)p withIntermediateDirectories:(BOOL)b attributes:(id)a error:(id *)e;
 - (BOOL)copyItemAtURL:(id)src toURL:(id)dst error:(id *)e;
+- (BOOL)removeItemAtPath:(NSString *)p error:(id *)e;
 - (id)contentsOfDirectoryAtPath:(NSString *)p error:(id *)e;
 @end
 @interface NSUserDefaults : NSObject
@@ -184,6 +188,7 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (id)navigationItem;
 - (void)setLeftBarButtonItem:(id)b;
 - (void)setRightBarButtonItem:(id)b;
+- (void)setRightBarButtonItems:(id)items;
 - (void)setTitle:(NSString *)t;
 - (void)viewDidLoad;
 - (void)viewDidAppear:(BOOL)a;
@@ -231,6 +236,15 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 @interface UIDocumentPickerViewController : UIViewController
 - (id)initForOpeningContentTypes:(id)types;
 - (void)setDelegate:(id)d;
+@end
+@interface UNTimeIntervalNotificationTrigger : NSObject
+- (id)initWithTimeInterval:(double)t repeats:(BOOL)r;
+@end
+@interface UNMutableNotificationContent : NSObject
+- (id)init;
+@end
+@interface UNNotificationRequest : NSObject
+- (id)initWithIdentifier:(NSString *)i content:(id)c trigger:(id)t;
 @end
 @interface UIAlertAction : NSObject
 + (id)actionWithTitle:(NSString *)t style:(NSInteger)s handler:(id)h;
@@ -379,6 +393,8 @@ static id ThumbForPath(NSString *path) {
     id _pendImg;
     id _pendURL;
     BOOL _pendVideo;
+    BOOL _delMode;
+    id _marked;
 }
 - (void)viewDidLoad {
     [super viewDidLoad];
@@ -386,7 +402,9 @@ static id ThumbForPath(NSString *path) {
     UIBarButtonItem *close = [[UIBarButtonItem alloc] initWithTitle:@"关闭" style:0 target:self action:@selector(closeTapped)];
     [[self navigationItem] setLeftBarButtonItem:close];
     UIBarButtonItem *imp = [[UIBarButtonItem alloc] initWithTitle:@"导入" style:0 target:self action:@selector(importTapped)];
-    [[self navigationItem] setRightBarButtonItem:imp];
+    UIBarButtonItem *del = [[UIBarButtonItem alloc] initWithTitle:@"删除" style:0 target:self action:@selector(deleteTapped)];
+    [[self navigationItem] setRightBarButtonItems:[NSArray arrayWithObjects:imp, del, nil]];
+    _marked = [NSMutableArray array];
     [[self view] setBackgroundColor:[UIColor colorWithWhite:0.94 alpha:1.0]];
 
     NSFileManager *fm = [NSFileManager defaultManager];
@@ -458,6 +476,40 @@ static id ThumbForPath(NSString *path) {
         [self dismissViewControllerAnimated:YES completion:0];
         [self performSelector:@selector(showNaming) withObject:0 afterDelay:0.5];
     } @catch (id e) { LogB("PICK-EXC"); }
+}
+- (void)deleteTapped {
+    if (!_delMode) {
+        _delMode = YES;
+        [_marked removeAllObjects];
+        [self setTitle:@"删除模式: 点选素材"];
+        [(UICollectionView *)_cv reloadData];
+        return;
+    }
+    // 已在删除模式: 有标记则确认删除, 无则退出
+    if ([_marked count] == 0) {
+        _delMode = NO;
+        [self setTitle:[NSString stringWithFormat:@"素材库 (%lu)", (unsigned long)[_folders count]]];
+        [(UICollectionView *)_cv reloadData];
+        return;
+    }
+    UIAlertController *cf = [UIAlertController alertControllerWithTitle:@"确认删除"
+        message:[NSString stringWithFormat:@"删除 %lu 个素材?", (unsigned long)[_marked count]] preferredStyle:1];
+    UIAlertAction *yes = [UIAlertAction actionWithTitle:@"删除" style:2 handler:^(UIAlertAction *a){
+        NSFileManager *fm = [NSFileManager defaultManager];
+        for (NSString *nm in _marked) {
+            [fm removeItemAtPath:[@"/var/mobile/lddgifbg" stringByAppendingPathComponent:nm] error:0];
+        }
+        [_marked removeAllObjects];
+        _delMode = NO;
+        _folders = [fm contentsOfDirectoryAtPath:@"/var/mobile/lddgifbg" error:nil];
+        [self setTitle:[NSString stringWithFormat:@"素材库 (%lu)", (unsigned long)[_folders count]]];
+        [(UICollectionView *)_cv reloadData];
+    }];
+    UIAlertAction *no = [UIAlertAction actionWithTitle:@"取消" style:1 handler:^(UIAlertAction *a){
+    }];
+    [cf addAction:yes];
+    [cf addAction:no];
+    [self presentViewController:cf animated:YES completion:0];
 }
 - (void)showNaming {
     [self askNameAndSave:_pendImg url:_pendURL isVideo:_pendVideo];
@@ -580,10 +632,12 @@ static id ThumbForPath(NSString *path) {
     [[cell contentView] addSubview:pill];
     // 选中圆点
     BOOL on = _sel && [_sel isEqualToString:name];
+    BOOL mk = [_marked containsObject:name];
     UIView *dot = [[UIView alloc] initWithFrame:MakeRect(cb.w / 2 - 11, imgH + 38, 22, 22)];
     [[dot layer] setCornerRadius:11.0];
     [[dot layer] setMasksToBounds:YES];
-    [dot setBackgroundColor:on ? [UIColor systemBlueColor] : [UIColor colorWithWhite:0.80 alpha:1.0]];
+    [dot setBackgroundColor:(_delMode ? (mk ? [UIColor redColor] : [UIColor colorWithWhite:0.85 alpha:1.0])
+                                       : (on ? [UIColor systemBlueColor] : [UIColor colorWithWhite:0.80 alpha:1.0]))];
     [[cell contentView] addSubview:dot];
     return cell;
 }
@@ -591,6 +645,12 @@ static id ThumbForPath(NSString *path) {
     NSInteger row = [ip row];
     if (!_folders || row >= (NSInteger)[_folders count]) return;
     NSString *name = [_folders objectAtIndex:(NSUInteger)row];
+    if (_delMode) {
+        if ([_marked containsObject:name]) [_marked removeObject:name];
+        else [_marked addObject:name];
+        [(UICollectionView *)cv reloadData];
+        return;
+    }
     _sel = name;
     NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
     [ud setObject:name forKey:@"SelectedMaterialFolder"];
@@ -619,7 +679,7 @@ static id ThumbForPath(NSString *path) {
     return [NSArray array];
 }
 - (NSInteger)numberOfSectionsInTableView:(id)tv { return 1; }
-- (NSInteger)tableView:(id)tv numberOfRowsInSection:(NSInteger)s { return 6; }
+- (NSInteger)tableView:(id)tv numberOfRowsInSection:(NSInteger)s { return 7; }
 - (double)tableView:(id)tv heightForRowAtIndexPath:(id)ip { return 60.0; }
 - (double)tableView:(id)tv estimatedHeightForRowAtIndexPath:(id)ip { return 60.0; }
 - (double)tableView:(id)tv heightForHeaderInSection:(NSInteger)s { return 0.0; }
@@ -668,11 +728,11 @@ static id ThumbForPath(NSString *path) {
         [sl addTarget:self action:@selector(sliderChanged:) forControlEvents:1 << 12];
         [[cell contentView] addSubview:sl];
     } else {
-        NSString *t = (row == 3 ? @"选择素材" : (row == 4 ? @"跳转素材目录" : @"立即注销"));
+        NSString *t = (row == 3 ? @"选择素材" : (row == 4 ? @"跳转素材目录" : (row == 5 ? @"测试通知" : @"立即注销")));
         UILabel *label = [[UILabel alloc] initWithFrame:MakeRect(16, 19, b.w - 60, 22)];
         [label setText:t];
         [label setFont:[UIFont systemFontOfSize:16.0]];
-        if (row == 5) [label setTextColor:[UIColor redColor]];
+        if (row == 6) [label setTextColor:[UIColor redColor]];
         [[cell contentView] addSubview:label];
         [cell setSelectionStyle:1];
     }
@@ -695,6 +755,8 @@ static id ThumbForPath(NSString *path) {
             }
         }];
     } else if (row == 5) {
+        [self testNotification];
+    } else if (row == 6) {
         [self respringNow];
     }
 }
@@ -712,6 +774,20 @@ static id ThumbForPath(NSString *path) {
     [ud setObject:[NSNumber numberWithDouble:dv] forKey:@"lddgifbgScale"];
     [ud synchronize];
     WritePrefsFile(@"lddgifbgScale", [NSNumber numberWithDouble:dv]);
+}
+- (void)testNotification {
+    dlopen("/System/Library/Frameworks/UserNotifications.framework/UserNotifications", 2);
+    id center = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UNUserNotificationCenter"), sel_registerName("currentNotificationCenter"));
+    if (!center) return;
+    ((void(*)(id, SEL, NSUInteger, id))objc_msgSend)(center, sel_registerName("requestAuthorizationWithOptions:completionHandler:"), 3, ^(BOOL ok, id err){});
+    id content = [[(id)objc_getClass("UNMutableNotificationContent") alloc] init];
+    ((void(*)(id, SEL, NSString *))objc_msgSend)(content, sel_registerName("setTitle:"), @"灵动岛测试");
+    ((void(*)(id, SEL, NSString *))objc_msgSend)(content, sel_registerName("setBody:"), @"查看素材显示效果");
+    id snd = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UNNotificationSound"), sel_registerName("defaultSound"));
+    ((void(*)(id, SEL, id))objc_msgSend)(content, sel_registerName("setSound:"), snd);
+    id trigger = [[(id)objc_getClass("UNTimeIntervalNotificationTrigger") alloc] initWithTimeInterval:1.0 repeats:NO];
+    id req = [[(id)objc_getClass("UNNotificationRequest") alloc] initWithIdentifier:@"lddgifbg-test" content:content trigger:trigger];
+    ((void(*)(id, SEL, id, id))objc_msgSend)(center, sel_registerName("addNotificationRequest:withCompletionHandler:"), req, 0);
 }
 - (void)respringNow {
     NSFileManager *fm = [NSFileManager defaultManager];
