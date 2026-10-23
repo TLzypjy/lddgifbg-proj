@@ -105,6 +105,7 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 
 @interface UIColor : NSObject
 + (id)clearColor;
++ (id)whiteColor;
 + (id)redColor;
 + (id)colorWithWhite:(double)w alpha:(double)a;
 + (id)systemBlueColor;
@@ -170,6 +171,8 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 @interface UIViewController : NSObject
 - (id)initWithNibName:(id)n bundle:(id)b;
 - (id)view;
+- (id)navigationItem;
+- (void)setLeftBarButtonItem:(id)b;
 - (void)setTitle:(NSString *)t;
 - (void)viewDidLoad;
 - (void)viewDidAppear:(BOOL)a;
@@ -190,6 +193,7 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (CGRect)bounds;
 @end
 @interface UICollectionViewCell : UIView
+- (id)contentView;
 @end
 @interface UICollectionViewFlowLayout : NSObject
 - (id)init;
