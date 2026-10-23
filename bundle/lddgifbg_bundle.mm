@@ -2,6 +2,7 @@
 // 架构: 入口壳(PSListController) -> 模态面板(UITableViewController 自绘) -> 素材选择器(模态)
 // 关键: 全部使用 [obj method:] 标准语法, 由编译器生成 arm64e 正确的 objc_msgSend
 #include <stdio.h>
+#include <string.h>
 
 typedef struct objc_class *Class;
 typedef struct objc_object { Class isa; } *id;
@@ -33,6 +34,7 @@ static id CLSSTR(const char *n) { return (id)objc_getClass(n); }
 - (void)setValue:(id)v forKey:(id)k;
 @end
 @interface NSString : NSObject
+- (id)initWithBytes:(const void *)b length:(NSUInteger)l encoding:(NSUInteger)e;
 - (NSString *)stringByAppendingPathComponent:(NSString *)s;
 - (NSString *)pathExtension;
 - (NSString *)lowercaseString;
@@ -40,6 +42,7 @@ static id CLSSTR(const char *n) { return (id)objc_getClass(n); }
 @end
 @interface NSArray : NSObject
 + (id)array;
++ (id)arrayWithObjects:(id)first, ...;
 - (NSUInteger)count;
 - (id)objectAtIndex:(NSUInteger)i;
 - (id)mutableCopy;
@@ -51,7 +54,11 @@ static id CLSSTR(const char *n) { return (id)objc_getClass(n); }
 @end
 @interface NSDictionary : NSObject
 + (id)dictionary;
++ (id)dictionaryWithContentsOfFile:(NSString *)p;
+- (NSUInteger)count;
 - (id)objectForKeyedSubscript:(id)k;
+- (id)objectForKey:(id)k;
+- (BOOL)writeToFile:(NSString *)p atomically:(BOOL)a;
 @end
 @interface NSMutableDictionary : NSDictionary
 + (id)dictionary;
