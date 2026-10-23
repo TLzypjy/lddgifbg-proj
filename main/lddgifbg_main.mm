@@ -152,8 +152,6 @@ static id gPlayerItem;
 static CALayer *gPlayerLayer;
 static id gObserver;
 static id gFramesCache, gDurationCache;
-static void (*origLayoutSubviews)(id, SEL);
-static void LDDNewLayoutSubviews(id self, SEL _cmd); // 前向声明(延迟hook用)
 
 struct CMTimeRaw { long long value; int timescale; unsigned flags; long long epoch; };
 
@@ -368,10 +366,9 @@ static void ShowBlock(id self, int colorIsRed) {
 }
 
 // ---------- layoutSubviews hook ----------
-static void LDDNewLayoutSubviews(id self, SEL _cmd) {
+static void LDDIslandLayout(id self) {
     static int first = 0;
-    if (!first) { first = 1; ProbeWrite("HOOK-FIRED"); }
-    origLayoutSubviews(self, _cmd);
+    if (!first) { first = 1; ProbeWrite("ISLAND-LAYOUT-ENTERED"); }
     void *pool = objc_autoreleasePoolPush();
 
     BOOL show = IsLddGifBgEnabled();
@@ -429,45 +426,25 @@ static void LDDNewLayoutSubviews(id self, SEL _cmd) {
 }
 
 // ---------- 构造 ----------
-// 对照组 hook: UIView layoutSubviews (每帧触发) —— 兼作"启动延迟器": SB 就绪后补挂灵动岛 hook
+// 全局 UIView hook: 在每次布局时识别"灵动岛容器视图"(类名含 Aperture)并接管
 static void (*origCtrlLayout)(id, SEL);
-static int gApertureAttempts = 0;
-static void DumpIslandClasses(void);
-static void TryHookAperture(void) {
-    id cls = objc_getClass("SBSystemApertureContainerViewContentView");
-    if (cls) {
-        MSHookMessageEx((Class)cls, sel_registerName("layoutSubviews"), (IMP)LDDNewLayoutSubviews, (IMP *)&origLayoutSubviews);
-        ProbeWrite("APERTURE-HOOKED");
-        gApertureAttempts = 999;
-    } else {
-        gApertureAttempts++;
-        if (gApertureAttempts % 20 == 1) DumpIslandClasses();
-        if (gApertureAttempts < 60) ProbeWrite("APERTURE-RETRY");
-        else ProbeWrite("APERTURE-NIL-GIVEUP");
-    }
-}
-static void DumpIslandClasses(void) {
-    int n = objc_getClassList(0, 0);
-    if (n <= 0 || n > 20000) return;
-    void *buf[4096];
-    int got = objc_getClassList(buf, n > 4096 ? 4096 : n);
-    if (got <= 0) return;
-    FILE *f = fopen("/var/mobile/lddgifbg/__island_classes__.txt", "w");
-    if (!f) return;
-    for (int i = 0; i < got; i++) {
-        const char *nm = class_getName(buf[i]);
-        if (!nm) continue;
-        if (strstr(nm, "Aperture") || strstr(nm, "Island") || strstr(nm, "island")) {
-            fprintf(f, "%s\n", nm);
-        }
-    }
-    fclose(f);
-    ProbeWrite("ISLAND-CLASSES-DUMPED");
-}
+static void LDDIslandLayout(id self);
+extern "C" const char *object_getClassName(id obj);
+
 static void CtrlLayoutHook(id self, SEL _cmd) {
     static int once = 0;
     if (!once) { once = 1; ProbeWrite("CTRL-HOOK-FIRED"); }
-    if (gApertureAttempts < 999) TryHookAperture();
+    const char *cn = object_getClassName(self);
+    if (cn && (strstr(cn, "Aperture") || strstr(cn, "Island"))) {
+        static int logged = 0;
+        if (!logged) {
+            logged = 1;
+            char line[160];
+            snprintf(line, sizeof(line), "MATCH-CLASS: %s", cn);
+            ProbeWrite(line);
+        }
+        LDDIslandLayout(self);
+    }
     if (origCtrlLayout) origCtrlLayout(self, _cmd);
 }
 
@@ -475,8 +452,6 @@ __attribute__((constructor))
 static void LDDInit(void) {
     ProbeWrite("CONSTRUCTOR-RAN");
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
-    id clsA = objc_getClass("SBSystemApertureContainerViewContentView");
-    ProbeWrite(clsA ? "CLASS-OK" : "CLASS-NIL");
     // 对照组 hook (兼启动延迟器)
     id clsCtrl = objc_getClass("UIView");
     if (clsCtrl) {
