@@ -55,6 +55,7 @@ static id CLSSTR(const char *n) { return (id)objc_getClass(n); }
 @end
 @interface NSMutableDictionary : NSDictionary
 + (id)dictionary;
+- (void)addEntriesFromDictionary:(NSDictionary *)other;
 - (void)setObject:(id)obj forKeyedSubscript:(id)k;
 @end
 @interface NSData : NSObject
@@ -190,6 +191,34 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 + (id)mainBundle;
 - (NSString *)pathForResource:(NSString *)n ofType:(NSString *)t;
 @end
+
+
+// ---------- prefs 文件直写 (保证 SB 文件优先读取到最新值) ----------
+static void WritePrefsFile(NSString *key, id value) {
+    const char *paths[] = {
+        "/var/jb/User/Library/Preferences/lddgifbg.plist",
+        "/var/mobile/Library/Preferences/lddgifbg.plist",
+        0
+    };
+    NSMutableDictionary *d = [NSMutableDictionary dictionary];
+    for (int i = 0; paths[i]; i++) {
+        NSString *p = [[NSString alloc] initWithBytes:paths[i] length:strlen(paths[i]) encoding:4];
+        NSDictionary *cur = [NSDictionary dictionaryWithContentsOfFile:p];
+        if (cur) { [d addEntriesFromDictionary:cur]; break; }
+    }
+    if ([d count] == 0) {
+        NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
+        for (NSString *k in [NSArray arrayWithObjects:@"Enablelddgifbg", @"Enablezxhlddgifbg", @"lddgifbgScale", @"SelectedMaterialFolder", nil]) {
+            id v = [ud objectForKey:k];
+            if (v) [d setObject:v forKey:k];
+        }
+    }
+    [d setObject:value forKey:key];
+    for (int i = 0; paths[i]; i++) {
+        NSString *p = [[NSString alloc] initWithBytes:paths[i] length:strlen(paths[i]) encoding:4];
+        [d writeToFile:p atomically:YES];
+    }
+}
 
 // ---------- 素材缩略图 ----------
 static void *gImageIO = NULL;
@@ -345,6 +374,7 @@ static id ThumbForPath(NSString *path) {
     NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
     [ud setObject:name forKey:@"SelectedMaterialFolder"];
     [ud synchronize];
+    WritePrefsFile(@"SelectedMaterialFolder", name);
     [self dismissViewControllerAnimated:YES completion:0];
 }
 @end
@@ -430,12 +460,14 @@ static id ThumbForPath(NSString *path) {
     NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
     [ud setObject:[NSNumber numberWithBool:on] forKey:key];
     [ud synchronize];
+    WritePrefsFile(key, [NSNumber numberWithBool:on]);
 }
 - (void)sliderChanged:(UISlider *)sl {
     double dv = [sl value];
     NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
     [ud setObject:[NSNumber numberWithDouble:dv] forKey:@"lddgifbgScale"];
     [ud synchronize];
+    WritePrefsFile(@"lddgifbgScale", [NSNumber numberWithDouble:dv]);
 }
 @end
 
