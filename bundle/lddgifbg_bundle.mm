@@ -394,26 +394,43 @@ static id ThumbForPath(NSString *path) {
 }
 @end
 
-// ---------- 模态设置面板 ----------
-@interface LDDMainSettingsController : UITableViewController
-- (NSInteger)numberOfSectionsInTableView:(UITableView *)tv;
-- (NSInteger)tableView:(UITableView *)tv numberOfRowsInSection:(NSInteger)s;
-- (UITableViewCell *)tableView:(UITableView *)tv cellForRowAtIndexPath:(NSIndexPath *)ip;
-- (void)tableView:(UITableView *)tv didSelectRowAtIndexPath:(NSIndexPath *)ip;
+// ---------- 设置主控制器: PSListController 子类 + 直接自绘 6 行 (无模态无延迟) ----------
+@interface lddgifbgRootListController : PSListController
+- (NSInteger)numberOfSectionsInTableView:(id)tv;
+- (NSInteger)tableView:(id)tv numberOfRowsInSection:(NSInteger)s;
+- (id)tableView:(id)tv cellForRowAtIndexPath:(id)ip;
+- (void)tableView:(id)tv didSelectRowAtIndexPath:(id)ip;
 @end
-@implementation LDDMainSettingsController
+@implementation lddgifbgRootListController
 - (void)viewDidLoad {
-    [super viewDidLoad];
+    LogB("ROOT-VIEWDIDLOAD");
+    @try { [super viewDidLoad]; } @catch (id e) { LogB("ROOT-VD-EXC"); }
     [self setTitle:@"灵动岛GIF背景"];
 }
-- (NSInteger)numberOfSectionsInTableView:(UITableView *)tv { return 1; }
-- (NSInteger)tableView:(UITableView *)tv numberOfRowsInSection:(NSInteger)s { return 6; }
-- (UITableViewCell *)tableView:(UITableView *)tv cellForRowAtIndexPath:(NSIndexPath *)ip {
+- (id)specifiers {
+    @try { return [self loadSpecifiersFromPlistName:@"Root" target:self]; }
+    @catch (id e) { LogB("ROOT-SPEC-EXC"); }
+    return [NSArray array];
+}
+- (NSInteger)numberOfSectionsInTableView:(id)tv { return 1; }
+- (NSInteger)tableView:(id)tv numberOfRowsInSection:(NSInteger)s { return 6; }
+- (double)tableView:(id)tv heightForRowAtIndexPath:(id)ip { return 44.0; }
+- (double)tableView:(id)tv estimatedHeightForRowAtIndexPath:(id)ip { return 44.0; }
+- (double)tableView:(id)tv heightForHeaderInSection:(NSInteger)s { return 0.0; }
+- (double)tableView:(id)tv heightForFooterInSection:(NSInteger)s { return 0.0; }
+- (id)tableView:(id)tv viewForHeaderInSection:(NSInteger)s { return nil; }
+- (id)tableView:(id)tv viewForFooterInSection:(NSInteger)s { return nil; }
+- (id)tableView:(id)tv titleForHeaderInSection:(NSInteger)s { return @""; }
+- (id)tableView:(id)tv titleForFooterInSection:(NSInteger)s { return @""; }
+- (id)tableView:(id)tv cellForRowAtIndexPath:(id)ip {
     NSInteger row = [ip row];
-    UITableViewCell *cell = [tv dequeueReusableCellWithIdentifier:@"c"];
+    static int logged = 0;
+    if (!logged) { logged = 1; LogB("ROOT-CELL-RENDERED"); }
+    UITableView *table = (UITableView *)tv;
+    UITableViewCell *cell = [table dequeueReusableCellWithIdentifier:@"c"];
     if (!cell) cell = [[UITableViewCell alloc] initWithStyle:1 reuseIdentifier:@"c"];
-    for (UIView *v in [[cell contentView] subviews]) { if (v) [v removeFromSuperview]; }
     CGRect b = [[cell contentView] bounds];
+    for (UIView *v in [[cell contentView] subviews]) { if (v) [v removeFromSuperview]; }
     [cell setSelectionStyle:0];
     [cell setAccessoryType:0];
     if (row == 0 || row == 1) {
@@ -427,7 +444,7 @@ static id ThumbForPath(NSString *path) {
         id v = [ud objectForKey:(row == 0 ? @"Enablelddgifbg" : @"Enablezxhlddgifbg")];
         BOOL on = v ? [v boolValue] : YES;
         [sw setOn:on animated:NO];
-        [sw addTarget:(id)self action:@selector(switchToggled:) forControlEvents:1 << 12];
+        [sw addTarget:self action:@selector(switchToggled:) forControlEvents:1 << 12];
         [[cell contentView] addSubview:sw];
     } else if (row == 2) {
         UILabel *label = [[UILabel alloc] initWithFrame:MakeRect(16, 10, b.w - 32, 20)];
@@ -442,10 +459,10 @@ static id ThumbForPath(NSString *path) {
         double dv = v ? [v doubleValue] : 1.0;
         if (dv <= 0) dv = 1.0;
         [sl setValue:dv];
-        [sl addTarget:(id)self action:@selector(sliderChanged:) forControlEvents:1 << 12];
+        [sl addTarget:self action:@selector(sliderChanged:) forControlEvents:1 << 12];
         [[cell contentView] addSubview:sl];
     } else {
-        NSString *t = (row == 3 ? @"选择素材" : (row == 4 ? @"跳转素材目录" : @"完成"));
+        NSString *t = (row == 3 ? @"选择素材" : (row == 4 ? @"跳转素材目录" : @"立即注销"));
         UILabel *label = [[UILabel alloc] initWithFrame:MakeRect(16, 14, b.w - 60, 22)];
         [label setText:t];
         [label setFont:[UIFont systemFontOfSize:16.0]];
@@ -455,9 +472,9 @@ static id ThumbForPath(NSString *path) {
     }
     return cell;
 }
-- (void)tableView:(UITableView *)tv didSelectRowAtIndexPath:(NSIndexPath *)ip {
+- (void)tableView:(id)tv didSelectRowAtIndexPath:(id)ip {
     NSInteger row = [ip row];
-    [tv deselectRowAtIndexPath:ip animated:YES];
+    [(UITableView *)tv deselectRowAtIndexPath:ip animated:YES];
     if (row == 3) {
         LDDMaterialPickerController *pc = [[LDDMaterialPickerController alloc] initWithStyle:1];
         [self presentViewController:pc animated:YES completion:0];
@@ -466,7 +483,7 @@ static id ThumbForPath(NSString *path) {
         NSURL *url = [NSURL fileURLWithPath:@"/var/mobile/lddgifbg"];
         [app openURL:url options:[NSDictionary dictionary] completionHandler:0];
     } else if (row == 5) {
-        [self dismissViewControllerAnimated:YES completion:0];
+        [self respringNow];
     }
 }
 - (void)switchToggled:(UISwitch *)sw {
@@ -484,38 +501,22 @@ static id ThumbForPath(NSString *path) {
     [ud synchronize];
     WritePrefsFile(@"lddgifbgScale", [NSNumber numberWithDouble:dv]);
 }
-@end
-
-// ---------- 入口壳 ----------
-@interface lddgifbgRootListController : PSListController
-@end
-@implementation lddgifbgRootListController
-- (void)viewDidLoad {
-    LogB("SHELL-VIEWDIDLOAD");
-    @try { [super viewDidLoad]; } @catch (id e) { LogB("SHELL-VD-EXC"); }
-    [self setTitle:@"灵动岛GIF背景"];
-}
-- (void)viewDidAppear:(BOOL)a {
-    LogB("SHELL-VIEWDIDAPPEAR");
-    @try { [super viewDidAppear:1]; } @catch (id e) { LogB("SHELL-VDA-EXC"); }
-    static int shown = 0;
-    if (!shown) {
-        shown = 1;
-        [self performSelector:@selector(showPanel:) withObject:0 afterDelay:0.3];
+- (void)respringNow {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    BOOL have = [fm fileExistsAtPath:@"/var/jb/usr/bin/sbreload"];
+    static int (*spawn_fn)(void *, const char *, void *, void *, char *const[], char *const[]);
+    if (!spawn_fn) {
+        void *h = dlopen(0, 1);
+        if (h) spawn_fn = (int (*)(void *, const char *, void *, void *, char *const[], char *const[]))dlsym(h, "posix_spawn");
     }
-}
-- (void)showPanel:(id)t {
-    LogB("SHOWPANEL-CALLED");
-    @try {
-        LDDMainSettingsController *panel = [[LDDMainSettingsController alloc] initWithStyle:1];
-        [self presentViewController:panel animated:YES completion:0];
-        LogB("PRESENT-ISSUED");
-    } @catch (id e) {
-        LogB("PRESENT-EXC");
+    if (spawn_fn) {
+        if (have) {
+            char *argv1[] = {(char *)"/var/jb/usr/bin/sbreload", 0};
+            spawn_fn(0, "/var/jb/usr/bin/sbreload", 0, 0, argv1, 0);
+        } else {
+            char *argv2[] = {(char *)"/var/jb/usr/bin/killall", (char *)"SpringBoard", 0};
+            spawn_fn(0, "/var/jb/usr/bin/killall", 0, 0, argv2, 0);
+        }
     }
-}
-- (id)specifiers {
-    @try { return [self loadSpecifiersFromPlistName:@"Root" target:self]; }
-    @catch (id e) { return [NSArray array]; }
 }
 @end
