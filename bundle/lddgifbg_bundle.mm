@@ -337,8 +337,15 @@ static void PostTestNotification(void) {
         id req = ((id(*)(id, SEL, NSString *, id, id))objc_msgSend)(clsR, sel_registerName("requestWithIdentifier:content:trigger:"), @"lddgifbg-test", content, trigger);
         if (!req) { LogB("TN-NO-REQ"); return; }
         LogB("TN-REQ");
-        ((void(*)(id, SEL, id, id))objc_msgSend)(center, sel_registerName("addNotificationRequest:withCompletionHandler:"), req, 0);
-        LogB("TN-ADDED");
+        // 先请求权限, 授权通过后再发 (未授权时系统静默丢弃)
+        ((void(*)(id, SEL, NSUInteger, id))objc_msgSend)(center, sel_registerName("requestAuthorizationWithOptions:completionHandler:"), (NSUInteger)3, ^(BOOL granted, id err){
+            if (granted) {
+                ((void(*)(id, SEL, id, id))objc_msgSend)(center, sel_registerName("addNotificationRequest:withCompletionHandler:"), req, 0);
+                LogB("TN-ADDED");
+            } else {
+                LogB("TN-AUTH-DENIED");
+            }
+        });
     } @catch (id e) {
         LogB("TN-EXC");
     }
