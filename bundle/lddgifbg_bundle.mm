@@ -101,6 +101,7 @@ static id CLSSTR(const char *n) { return (id)objc_getClass(n); }
 
 typedef struct CGRect { double ox, oy, w, h; } CGRect;
 typedef struct CGSize { double w, h; } CGSize;
+typedef struct UIEdgeInsets { double top, left, bottom, right; } UIEdgeInsets;
 static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, y, w, h}; return r; }
 
 @interface UIColor : NSObject
@@ -200,6 +201,7 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (void)setMinimumInteritemSpacing:(double)s;
 - (void)setMinimumLineSpacing:(double)s;
 - (void)setItemSize:(CGSize)s;
+- (void)setSectionInset:(UIEdgeInsets)i;
 @end
 @interface UICollectionView : UIView
 - (id)initWithFrame:(CGRect)f collectionViewLayout:(id)layout;
@@ -363,8 +365,10 @@ static id ThumbForPath(NSString *path) {
     _sel = [ud objectForKey:@"SelectedMaterialFolder"];
 
     UICollectionViewFlowLayout *flow = [[UICollectionViewFlowLayout alloc] init];
-    [flow setMinimumInteritemSpacing:12];
-    [flow setMinimumLineSpacing:26];
+    [flow setMinimumInteritemSpacing:10];
+    [flow setMinimumLineSpacing:22];
+    UIEdgeInsets ins; ins.top = 14; ins.left = 14; ins.bottom = 20; ins.right = 14;
+    [flow setSectionInset:ins];
     CGRect vb = [[self view] bounds];
     UICollectionView *cv = [[UICollectionView alloc] initWithFrame:vb collectionViewLayout:flow];
     [cv setBackgroundColor:[UIColor clearColor]];
@@ -384,8 +388,8 @@ static id ThumbForPath(NSString *path) {
 }
 - (CGSize)collectionView:(id)cv layout:(id)layout sizeForItemAtIndexPath:(id)ip {
     CGRect sb = [[UIScreen mainScreen] bounds];
-    double w = (sb.w - 32.0 - 24.0) / 3.0;
-    CGSize sz; sz.w = w; sz.h = w * 1.55 + 74.0;
+    double w = (sb.w - 28.0 - 20.0) / 3.0;
+    CGSize sz; sz.w = w; sz.h = w * 1.0 + 62.0;
     return sz;
 }
 - (id)collectionView:(id)cv cellForItemAtIndexPath:(id)ip {
@@ -395,7 +399,7 @@ static id ThumbForPath(NSString *path) {
     if (!_folders || row >= (NSInteger)[_folders count]) return cell;
     NSString *name = [_folders objectAtIndex:(NSUInteger)row];
     CGRect cb = [[cell contentView] bounds];
-    double imgH = cb.w * 1.15;
+    double imgH = cb.w * 1.0;
     // 白色圆角卡片 + 图
     UIView *card = [[UIView alloc] initWithFrame:MakeRect(0, 0, cb.w, imgH)];
     [card setBackgroundColor:[UIColor whiteColor]];
@@ -421,19 +425,19 @@ static id ThumbForPath(NSString *path) {
     [card addSubview:iv];
     [[cell contentView] addSubview:card];
     // 名字胶囊
-    UILabel *pill = [[UILabel alloc] initWithFrame:MakeRect(6, imgH + 10, cb.w - 12, 26)];
+    UILabel *pill = [[UILabel alloc] initWithFrame:MakeRect(4, imgH + 8, cb.w - 8, 24)];
     [pill setText:name];
-    [pill setFont:[UIFont systemFontOfSize:12.0]];
+    [pill setFont:[UIFont systemFontOfSize:11.0]];
     [pill setTextAlignment:1];
     [pill setBackgroundColor:[UIColor colorWithWhite:0.62 alpha:0.85]];
     [pill setTextColor:[UIColor whiteColor]];
-    [[pill layer] setCornerRadius:13.0];
+    [[pill layer] setCornerRadius:12.0];
     [[pill layer] setMasksToBounds:YES];
     [[cell contentView] addSubview:pill];
     // 选中圆点
     BOOL on = _sel && [_sel isEqualToString:name];
-    UIView *dot = [[UIView alloc] initWithFrame:MakeRect(cb.w / 2 - 12, imgH + 44, 24, 24)];
-    [[dot layer] setCornerRadius:12.0];
+    UIView *dot = [[UIView alloc] initWithFrame:MakeRect(cb.w / 2 - 11, imgH + 38, 22, 22)];
+    [[dot layer] setCornerRadius:11.0];
     [[dot layer] setMasksToBounds:YES];
     [dot setBackgroundColor:on ? [UIColor systemBlueColor] : [UIColor colorWithWhite:0.80 alpha:1.0]];
     [[cell contentView] addSubview:dot];
