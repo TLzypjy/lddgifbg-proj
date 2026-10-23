@@ -30,6 +30,7 @@ extern "C" const char *class_getName(void *cls);
 extern "C" void *objc_autoreleasePoolPush(void);
 extern "C" void objc_autoreleasePoolPop(void *pool);
 extern "C" void CFRelease(void *cf);
+extern "C" long time(void *t);
 extern "C" const char *object_getClassName(id obj);
 extern "C" CGImageRef CGImageSourceCreateImageAtIndex(void *src, NSUInteger idx, void *opts);
 extern "C" NSUInteger CGImageSourceGetCount(void *src);
@@ -144,6 +145,7 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (void)removeFromSuperlayer;
 - (void)setFrame:(CGRect)r;
 - (void)setCornerRadius:(double)r;
+- (id)superlayer;
 - (void)setMasksToBounds:(BOOL)b;
 @end
 
@@ -321,7 +323,7 @@ static void LoadVideoWithPathIntoView(NSString *path, UIView *view) {
     }
     CGRect b = [view bounds];
     [gPlayerLayer setFrame:b];
-    [[view layer] addSublayer:gPlayerLayer];
+    if ([gPlayerLayer superlayer] != [view layer]) [[view layer] addSublayer:gPlayerLayer];
     [gPlayer play];
 }
 static void StopVideo(void) {
@@ -348,6 +350,22 @@ static void LoadMediaWithPathIntoImageView(NSString *path, UIImageView *iv) {
         [iv setAnimationImages:nil];
         [iv setImage:[UIImage imageWithContentsOfFile:path]];
     }
+}
+
+
+// ---------- prefs 缓存 (1秒节流, 避免每帧读文件/扫目录) ----------
+static long gCacheSec = 0;
+static BOOL cEnabled, cZxh;
+static double cScale;
+static NSString *cPath;
+static void RefreshPrefsCache(void) {
+    long t = time(0);
+    if (t == gCacheSec) return;
+    gCacheSec = t;
+    cEnabled = IsLddGifBgEnabled();
+    cZxh = IsZxhLddGifBgEnabled();
+    cScale = GetLddGifBgScale();
+    cPath = GetSelectedImagePath();
 }
 
 // ---------- 诊断占位 (红=无素材, 蓝=加载失败) ----------
@@ -389,11 +407,12 @@ static void LDDIslandLayout(id self) {
         ProbeWrite(al);
     }
 
-    BOOL mainOn = IsLddGifBgEnabled();
+    RefreshPrefsCache();
+    BOOL mainOn = cEnabled;
     BOOL show = NO;
     if (mainOn) {
         CGRect b0 = [self bounds];
-        if (IsZxhLddGifBgEnabled()) show = YES;          // 小岛开: 常显
+        if (cZxh) show = YES;          // 小岛开: 常显
         else if (b0.h >= 65.0) show = YES;               // 小岛关: 仅展开时
     }
     if (!show) {
@@ -403,7 +422,7 @@ static void LDDIslandLayout(id self) {
         return;
     }
 
-    NSString *path = GetSelectedImagePath();
+    NSString *path = cPath;
     if (!path) {
         ShowBlock(self, 1);   // 红: 没读到素材(可能是 prefs 问题)
         objc_autoreleasePoolPop(pool);
@@ -427,7 +446,7 @@ static void LDDIslandLayout(id self) {
         [self insertSubview:view atIndex:0];
     }
 
-    double scale = GetLddGifBgScale();
+    double scale = cScale;
     CGRect b = [self bounds];
     double w = b.w * scale, h = b.h * scale;
     [view setFrame:MakeRect((b.w - w) / 2.0, (b.h - h) / 2.0, w, h)];
