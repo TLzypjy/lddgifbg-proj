@@ -30,7 +30,6 @@ extern "C" const char *class_getName(void *cls);
 extern "C" void *objc_autoreleasePoolPush(void);
 extern "C" void objc_autoreleasePoolPop(void *pool);
 extern "C" void CFRelease(void *cf);
-extern "C" long time(void *t);
 extern "C" const char *object_getClassName(id obj);
 extern "C" CGImageRef CGImageSourceCreateImageAtIndex(void *src, NSUInteger idx, void *opts);
 extern "C" NSUInteger CGImageSourceGetCount(void *src);
