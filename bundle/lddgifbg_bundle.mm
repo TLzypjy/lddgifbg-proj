@@ -210,17 +210,17 @@ static void WritePrefsFile(NSString *key, id value) {
         0
     };
     NSMutableDictionary *d = [NSMutableDictionary dictionary];
+    // 底: NSUserDefaults 全键 (面板写过的一定在)
+    NSUserDefaults *ud0 = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
+    for (NSString *k in [NSArray arrayWithObjects:@"Enablelddgifbg", @"Enablezxhlddgifbg", @"lddgifbgScale", @"SelectedMaterialFolder", nil]) {
+        id v = [ud0 objectForKey:k];
+        if (v) [d setObject:v forKey:k];
+    }
+    // 叠加: 已有文件值
     for (int i = 0; paths[i]; i++) {
         NSString *p = [[NSString alloc] initWithBytes:paths[i] length:strlen(paths[i]) encoding:4];
         NSDictionary *cur = [NSDictionary dictionaryWithContentsOfFile:p];
         if (cur) { [d addEntriesFromDictionary:cur]; break; }
-    }
-    if ([d count] == 0) {
-        NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
-        for (NSString *k in [NSArray arrayWithObjects:@"Enablelddgifbg", @"Enablezxhlddgifbg", @"lddgifbgScale", @"SelectedMaterialFolder", nil]) {
-            id v = [ud objectForKey:k];
-            if (v) [d setObject:v forKey:k];
-        }
     }
     [d setObject:value forKey:key];
     for (int i = 0; paths[i]; i++) {
@@ -353,7 +353,7 @@ static id ThumbForPath(NSString *path) {
         if (thumb) [_thumbs setObject:thumb forKeyedSubscript:name];
     }
     if (thumb) {
-        UIImageView *iv = [[UIImageView alloc] initWithFrame:MakeRect(8, 8, 44, 44)];
+        UIImageView *iv = [[UIImageView alloc] initWithFrame:MakeRect(10, 6, 56, 42)];
         [iv setImage:thumb];
         [iv setContentMode:1];
         [iv setClipsToBounds:YES];
@@ -362,11 +362,11 @@ static id ThumbForPath(NSString *path) {
         [[cell contentView] addSubview:iv];
     }
     CGRect b = [[cell contentView] bounds];
-    UILabel *label = [[UILabel alloc] initWithFrame:MakeRect(60, 10, b.w - 70, 22)];
+    UILabel *label = [[UILabel alloc] initWithFrame:MakeRect(74, 8, b.w - 84, 22)];
     [label setText:name];
     [label setFont:[UIFont boldSystemFontOfSize:16.0]];
     [[cell contentView] addSubview:label];
-    UILabel *sub = [[UILabel alloc] initWithFrame:MakeRect(60, 33, b.w - 70, 16)];
+    UILabel *sub = [[UILabel alloc] initWithFrame:MakeRect(74, 32, b.w - 84, 16)];
     NSString *typeDesc = @"GIF";
     NSFileManager *fm2 = [NSFileManager defaultManager];
     NSArray *files2 = [fm2 contentsOfDirectoryAtPath:full error:nil];
@@ -414,8 +414,8 @@ static id ThumbForPath(NSString *path) {
 }
 - (NSInteger)numberOfSectionsInTableView:(id)tv { return 1; }
 - (NSInteger)tableView:(id)tv numberOfRowsInSection:(NSInteger)s { return 6; }
-- (double)tableView:(id)tv heightForRowAtIndexPath:(id)ip { return 44.0; }
-- (double)tableView:(id)tv estimatedHeightForRowAtIndexPath:(id)ip { return 44.0; }
+- (double)tableView:(id)tv heightForRowAtIndexPath:(id)ip { return 60.0; }
+- (double)tableView:(id)tv estimatedHeightForRowAtIndexPath:(id)ip { return 60.0; }
 - (double)tableView:(id)tv heightForHeaderInSection:(NSInteger)s { return 0.0; }
 - (double)tableView:(id)tv heightForFooterInSection:(NSInteger)s { return 0.0; }
 - (id)tableView:(id)tv viewForHeaderInSection:(NSInteger)s { return nil; }
@@ -434,11 +434,11 @@ static id ThumbForPath(NSString *path) {
     [cell setSelectionStyle:0];
     [cell setAccessoryType:0];
     if (row == 0 || row == 1) {
-        UILabel *label = [[UILabel alloc] initWithFrame:MakeRect(16, 14, b.w - 110, 22)];
+        UILabel *label = [[UILabel alloc] initWithFrame:MakeRect(16, 19, b.w - 110, 22)];
         [label setText:(row == 0 ? @"启用总开关" : @"启用小岛")];
         [label setFont:[UIFont systemFontOfSize:16.0]];
         [[cell contentView] addSubview:label];
-        UISwitch *sw = [[UISwitch alloc] initWithFrame:MakeRect(b.w - 66, 9, 50, 30)];
+        UISwitch *sw = [[UISwitch alloc] initWithFrame:MakeRect(b.w - 67, 14, 51, 31)];
         [sw setTag:(row == 0 ? 1001 : 1002)];
         NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
         id v = [ud objectForKey:(row == 0 ? @"Enablelddgifbg" : @"Enablezxhlddgifbg")];
@@ -447,11 +447,11 @@ static id ThumbForPath(NSString *path) {
         [sw addTarget:self action:@selector(switchToggled:) forControlEvents:1 << 12];
         [[cell contentView] addSubview:sw];
     } else if (row == 2) {
-        UILabel *label = [[UILabel alloc] initWithFrame:MakeRect(16, 10, b.w - 32, 20)];
+        UILabel *label = [[UILabel alloc] initWithFrame:MakeRect(16, 8, b.w - 32, 20)];
         [label setText:@"缩放比例"];
         [label setFont:[UIFont systemFontOfSize:15.0]];
         [[cell contentView] addSubview:label];
-        UISlider *sl = [[UISlider alloc] initWithFrame:MakeRect(16, 34, b.w - 32, 30)];
+        UISlider *sl = [[UISlider alloc] initWithFrame:MakeRect(16, 30, b.w - 32, 28)];
         [sl setMinimumValue:0.1];
         [sl setMaximumValue:2.0];
         NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
@@ -463,7 +463,7 @@ static id ThumbForPath(NSString *path) {
         [[cell contentView] addSubview:sl];
     } else {
         NSString *t = (row == 3 ? @"选择素材" : (row == 4 ? @"跳转素材目录" : @"立即注销"));
-        UILabel *label = [[UILabel alloc] initWithFrame:MakeRect(16, 14, b.w - 60, 22)];
+        UILabel *label = [[UILabel alloc] initWithFrame:MakeRect(16, 19, b.w - 60, 22)];
         [label setText:t];
         [label setFont:[UIFont systemFontOfSize:16.0]];
         if (row == 5) [label setTextColor:[UIColor redColor]];
