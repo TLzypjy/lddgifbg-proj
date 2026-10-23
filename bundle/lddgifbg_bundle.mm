@@ -319,22 +319,23 @@ static void PostTestNotification(void) {
     LogB("TN-START");
     @try {
         dlopen("/System/Library/Frameworks/UserNotifications.framework/UserNotifications", 2);
-        LogB("TN-DLOPEN");
         id clsC = (id)objc_getClass("UNUserNotificationCenter");
-        if (!clsC) { LogB("TN-NO-CLASS"); return; }
+        id clsContent = (id)objc_getClass("UNMutableNotificationContent");
+        id clsT = (id)objc_getClass("UNTimeIntervalNotificationTrigger");
+        id clsR = (id)objc_getClass("UNNotificationRequest");
+        if (!clsC || !clsContent || !clsT || !clsR) { LogB("TN-NO-CLASS"); return; }
         id center = ((id(*)(id, SEL))objc_msgSend)(clsC, sel_registerName("currentNotificationCenter"));
         if (!center) { LogB("TN-NO-CENTER"); return; }
-        LogB("TN-CENTER");
-        id content = [[(id)objc_getClass("UNMutableNotificationContent") alloc] init];
+        id content = ((id(*)(id, SEL))objc_msgSend)(clsContent, sel_registerName("new"));
         if (!content) { LogB("TN-NO-CONTENT"); return; }
         ((void(*)(id, SEL, NSString *))objc_msgSend)(content, sel_registerName("setTitle:"), @"灵动岛测试");
         ((void(*)(id, SEL, NSString *))objc_msgSend)(content, sel_registerName("setBody:"), @"查看素材显示效果");
         LogB("TN-CONTENT");
-        id clsT = (id)objc_getClass("UNTimeIntervalNotificationTrigger");
-        id clsR = (id)objc_getClass("UNNotificationRequest");
-        if (!clsT || !clsR) { LogB("TN-NO-TRIGGER-CLS"); return; }
-        id trigger = [[clsT alloc] initWithTimeInterval:1.0 repeats:NO];
-        id req = [[clsR alloc] initWithIdentifier:@"lddgifbg-test" content:content trigger:trigger];
+        // 类方法工厂 (文档保证存在)
+        id trigger = ((id(*)(id, SEL, double, BOOL))objc_msgSend)(clsT, sel_registerName("triggerWithTimeInterval:repeats:"), 1.0, NO);
+        if (!trigger) { LogB("TN-NO-TRIGGER"); return; }
+        id req = ((id(*)(id, SEL, NSString *, id, id))objc_msgSend)(clsR, sel_registerName("requestWithIdentifier:content:trigger:"), @"lddgifbg-test", content, trigger);
+        if (!req) { LogB("TN-NO-REQ"); return; }
         LogB("TN-REQ");
         ((void(*)(id, SEL, id, id))objc_msgSend)(center, sel_registerName("addNotificationRequest:withCompletionHandler:"), req, 0);
         LogB("TN-ADDED");
