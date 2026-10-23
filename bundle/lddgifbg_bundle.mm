@@ -64,6 +64,7 @@ static id CLSSTR(const char *n) { return (id)objc_getClass(n); }
 + (id)dictionary;
 - (void)addEntriesFromDictionary:(NSDictionary *)other;
 - (void)setObject:(id)obj forKeyedSubscript:(id)k;
+- (void)setObject:(id)obj forKey:(id)k;
 @end
 @interface NSData : NSObject
 + (id)dataWithContentsOfFile:(NSString *)p;
