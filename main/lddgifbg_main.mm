@@ -141,6 +141,8 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (void)addSublayer:(id)l;
 - (void)removeFromSuperlayer;
 - (void)setFrame:(CGRect)r;
+- (void)setCornerRadius:(double)r;
+- (void)setMasksToBounds:(BOOL)b;
 @end
 
 // ---------- 全局 ----------
@@ -370,6 +372,21 @@ static void LDDIslandLayout(id self) {
     static int first = 0;
     if (!first) { first = 1; ProbeWrite("ISLAND-LAYOUT-ENTERED"); }
     void *pool = objc_autoreleasePoolPush();
+    // 过滤: 只处理挂在真实窗口、且尺寸接近灵动岛的视图 (排除整屏容器)
+    UIView *selfv = (UIView *)self;
+    id w = [selfv window];
+    if (!w) { objc_autoreleasePoolPop(pool); return; }
+    CGRect bb = [selfv bounds];
+    if (bb.w > 460.0 || bb.h > 150.0 || bb.w < 40.0 || bb.h < 10.0) {
+        objc_autoreleasePoolPop(pool); return;
+    }
+    static int aclog = 0;
+    if (aclog < 8) {
+        aclog++;
+        char al[128];
+        snprintf(al, sizeof(al), "ACCEPT-VIEW: %s %.0fx%.0f", object_getClassName(self), bb.w, bb.h);
+        ProbeWrite(al);
+    }
 
     BOOL show = IsLddGifBgEnabled();
     if (!show && IsZxhLddGifBgEnabled()) show = YES;
@@ -412,6 +429,10 @@ static void LDDIslandLayout(id self) {
     CGRect b = [self bounds];
     double w = b.w * scale, h = b.h * scale;
     [view setFrame:MakeRect((b.w - w) / 2.0, (b.h - h) / 2.0, w, h)];
+    // 药丸圆角, 贴合灵动岛形状
+    id vlay = [view layer];
+    [vlay setCornerRadius:h / 2.0];
+    [vlay setMasksToBounds:YES];
 
     BOOL needReload = YES;
     if (gLoadedPath && [gLoadedPath isEqualToString:path]) {
