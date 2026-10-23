@@ -177,9 +177,7 @@ struct CMTimeRaw { long long value; int timescale; unsigned flags; long long epo
 
 // ---------- prefs (NSUserDefaults + plist 多路径兜底) ----------
 static id LoadPrefsValue(NSString *key) {
-    NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
-    id v = [ud objectForKey:key];
-    if (v) return v;
+    // 文件优先: 与原版一致, 跨进程永远新鲜
     const char *paths[] = {
         "/var/jb/User/Library/Preferences/lddgifbg.plist",
         "/var/mobile/Library/Preferences/lddgifbg.plist",
@@ -195,7 +193,8 @@ static id LoadPrefsValue(NSString *key) {
             if (x) return x;
         }
     }
-    return nil;
+    NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
+    return [ud objectForKey:key];
 }
 static BOOL IsLddGifBgEnabled(void) {
     id v = LoadPrefsValue(gPrefsKeyEnable);
@@ -390,11 +389,12 @@ static void LDDIslandLayout(id self) {
         ProbeWrite(al);
     }
 
-    BOOL show = IsLddGifBgEnabled();
-    if (!show && IsZxhLddGifBgEnabled()) show = YES;
-    if (!show) {
-        CGRect b = [self bounds];
-        if (b.h >= 65.0) show = YES;
+    BOOL mainOn = IsLddGifBgEnabled();
+    BOOL show = NO;
+    if (mainOn) {
+        CGRect b0 = [self bounds];
+        if (IsZxhLddGifBgEnabled()) show = YES;          // 小岛开: 常显
+        else if (b0.h >= 65.0) show = YES;               // 小岛关: 仅展开时
     }
     if (!show) {
         RemoveTagged(self, 9999);
