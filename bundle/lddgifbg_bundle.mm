@@ -448,14 +448,19 @@ static id ThumbForPath(NSString *path) {
 }
 // 相册回调
 - (void)imagePickerController:(id)picker didFinishPickingMediaWithInfo:(id)info {
-    NSString *mt = [info objectForKeyedSubscript:@"UIImagePickerControllerMediaType"];
-    _pendImg = [info objectForKeyedSubscript:@"UIImagePickerControllerOriginalImage"];
-    _pendURL = [info objectForKeyedSubscript:@"UIImagePickerControllerMediaURL"];
-    _pendVideo = mt && [mt isEqualToString:@"public.movie"];
-    // 关键: 等选择器完全关闭后再弹命名框, 避免呈现冲突崩溃
-    [self dismissViewControllerAnimated:YES completion:^{
-        [self askNameAndSave:_pendImg url:_pendURL isVideo:_pendVideo];
-    }];
+    LogB("PICK-DIDFINISH");
+    @try {
+        NSString *mt = [info objectForKeyedSubscript:@"UIImagePickerControllerMediaType"];
+        _pendImg = [info objectForKeyedSubscript:@"UIImagePickerControllerOriginalImage"];
+        _pendURL = [info objectForKeyedSubscript:@"UIImagePickerControllerMediaURL"];
+        _pendVideo = mt && [mt isEqualToString:@"public.movie"];
+        LogB(_pendImg ? "PICK-HAS-IMAGE" : "PICK-NO-IMAGE");
+        [self dismissViewControllerAnimated:YES completion:0];
+        [self performSelector:@selector(showNaming) withObject:0 afterDelay:0.5];
+    } @catch (id e) { LogB("PICK-EXC"); }
+}
+- (void)showNaming {
+    [self askNameAndSave:_pendImg url:_pendURL isVideo:_pendVideo];
 }
 - (void)imagePickerControllerDidCancel:(id)picker {
     [self dismissViewControllerAnimated:YES completion:0];
@@ -465,15 +470,15 @@ static id ThumbForPath(NSString *path) {
     _pendImg = 0;
     _pendURL = [urls objectAtIndex:0];
     _pendVideo = NO;
-    [self dismissViewControllerAnimated:YES completion:^{
-        [self askNameAndSave:_pendImg url:_pendURL isVideo:_pendVideo];
-    }];
+    [self dismissViewControllerAnimated:YES completion:0];
+    [self performSelector:@selector(showNaming) withObject:0 afterDelay:0.5];
 }
 - (void)documentPickerWasCancelled:(id)controller {
     [self dismissViewControllerAnimated:YES completion:0];
 }
 // 命名 + 保存
 - (void)askNameAndSave:(id)img url:(id)srcURL isVideo:(BOOL)isVideo {
+    LogB("ASKNAME");
     UIAlertController *al = [UIAlertController alertControllerWithTitle:@"命名素材" message:@"给这个素材起个名字" preferredStyle:1];
     [al addTextFieldWithConfigurationHandler:^(UITextField *tf){
         [tf setPlaceholder:@"素材名称"];
@@ -490,6 +495,8 @@ static id ThumbForPath(NSString *path) {
     [self presentViewController:al animated:YES completion:0];
 }
 - (void)saveMaterial:(NSString *)nm image:(id)img url:(id)srcURL isVideo:(BOOL)isVideo {
+    LogB("SAVE-START");
+    @try {
     NSFileManager *fm = [NSFileManager defaultManager];
     NSString *dir = [@"/var/mobile/lddgifbg" stringByAppendingPathComponent:nm];
     [fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:0 error:0];
@@ -501,12 +508,15 @@ static id ThumbForPath(NSString *path) {
         NSString *ext = isVideo ? @"mov" : @"jpg";
         ok = [fm copyItemAtURL:srcURL toURL:[NSURL fileURLWithPath:[dir stringByAppendingPathComponent:[NSString stringWithFormat:@"imported.%@", ext]]] error:0];
     }
+    LogB(ok ? "SAVE-OK" : "SAVE-FAIL");
     // 刷新列表
     _folders = [fm contentsOfDirectoryAtPath:@"/var/mobile/lddgifbg" error:nil];
     NSString *cnt = [NSString stringWithFormat:@"素材库 (%lu)", (unsigned long)[_folders count]];
     [self setTitle:cnt];
     [(UICollectionView *)_cv reloadData];
+    LogB("SAVE-RELOADED");
     (void)ok;
+    } @catch (id e) { LogB("SAVE-EXC"); }
 }
 - (NSInteger)collectionView:(id)cv numberOfItemsInSection:(NSInteger)s {
     return _folders ? (NSInteger)[_folders count] : 0;
