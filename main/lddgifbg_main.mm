@@ -30,6 +30,7 @@ extern "C" const char *class_getName(void *cls);
 extern "C" void *objc_autoreleasePoolPush(void);
 extern "C" void objc_autoreleasePoolPop(void *pool);
 extern "C" void CFRelease(void *cf);
+extern "C" const char *object_getClassName(id obj);
 extern "C" CGImageRef CGImageSourceCreateImageAtIndex(void *src, NSUInteger idx, void *opts);
 extern "C" NSUInteger CGImageSourceGetCount(void *src);
 extern "C" void *CGImageSourceCreateWithData(void *data, void *opts);
@@ -111,6 +112,7 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (void)removeFromSuperview;
 - (id)viewWithTag:(NSInteger)t;
 - (id)layer;
+- (id)window;
 - (void)setBackgroundColor:(id)c;
 - (void)setTag:(NSInteger)t;
 @end
@@ -374,8 +376,8 @@ static void LDDIslandLayout(id self) {
     void *pool = objc_autoreleasePoolPush();
     // 过滤: 只处理挂在真实窗口、且尺寸接近灵动岛的视图 (排除整屏容器)
     UIView *selfv = (UIView *)self;
-    id w = [selfv window];
-    if (!w) { objc_autoreleasePoolPop(pool); return; }
+    id win = [selfv window];
+    if (!win) { objc_autoreleasePoolPop(pool); return; }
     CGRect bb = [selfv bounds];
     if (bb.w > 460.0 || bb.h > 150.0 || bb.w < 40.0 || bb.h < 10.0) {
         objc_autoreleasePoolPop(pool); return;
@@ -450,8 +452,6 @@ static void LDDIslandLayout(id self) {
 // 全局 UIView hook: 在每次布局时识别"灵动岛容器视图"(类名含 Aperture)并接管
 static void (*origCtrlLayout)(id, SEL);
 static void LDDIslandLayout(id self);
-extern "C" const char *object_getClassName(id obj);
-
 static void CtrlLayoutHook(id self, SEL _cmd) {
     static int once = 0;
     if (!once) { once = 1; ProbeWrite("CTRL-HOOK-FIRED"); }
