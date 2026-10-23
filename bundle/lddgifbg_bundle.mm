@@ -437,8 +437,8 @@ static id ThumbForPath(NSString *path) {
     [self presentViewController:pc animated:YES completion:0];
 }
 - (void)openFiles {
-    id utImage = [(id)objc_getClass("UTType") performSelector:sel_registerName("image")];
-    id utMovie = [(id)objc_getClass("UTType") performSelector:sel_registerName("movie")];
+    id utImage = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UTType"), sel_registerName("image"));
+    id utMovie = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UTType"), sel_registerName("movie"));
     UIDocumentPickerViewController *dp = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:[NSArray arrayWithObjects:utImage, utMovie, nil]];
     [dp setDelegate:self];
     [self presentViewController:dp animated:YES completion:0];
