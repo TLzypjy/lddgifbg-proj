@@ -22,7 +22,7 @@ extern "C" SEL sel_registerName(const char *name);
 extern "C" void *dlopen(const char *path, int mode);
 extern "C" void *dlsym(void *handle, const char *symbol);
 extern "C" void CFRelease(void *cf);
-extern "C" id UIImagePNGRepresentation(id img);
+extern "C" id UIImageJPEGRepresentation(id img, double q);
 
 #define CLS(n) objc_getClass(n)
 static id CLSSTR(const char *n) { return (id)objc_getClass(n); }
@@ -376,6 +376,9 @@ static id ThumbForPath(NSString *path) {
     id _thumbs;
     NSString *_sel;
     id _cv;
+    id _pendImg;
+    id _pendURL;
+    BOOL _pendVideo;
 }
 - (void)viewDidLoad {
     [super viewDidLoad];
@@ -445,21 +448,26 @@ static id ThumbForPath(NSString *path) {
 }
 // 相册回调
 - (void)imagePickerController:(id)picker didFinishPickingMediaWithInfo:(id)info {
-    [self dismissViewControllerAnimated:YES completion:0];
     NSString *mt = [info objectForKeyedSubscript:@"UIImagePickerControllerMediaType"];
-    id img = [info objectForKeyedSubscript:@"UIImagePickerControllerOriginalImage"];
-    id mediaURL = [info objectForKeyedSubscript:@"UIImagePickerControllerMediaURL"];
-    BOOL isVideo = mt && [mt isEqualToString:@"public.movie"];
-    [self askNameAndSave:img url:mediaURL isVideo:isVideo];
+    _pendImg = [info objectForKeyedSubscript:@"UIImagePickerControllerOriginalImage"];
+    _pendURL = [info objectForKeyedSubscript:@"UIImagePickerControllerMediaURL"];
+    _pendVideo = mt && [mt isEqualToString:@"public.movie"];
+    // 关键: 等选择器完全关闭后再弹命名框, 避免呈现冲突崩溃
+    [self dismissViewControllerAnimated:YES completion:^{
+        [self askNameAndSave:_pendImg url:_pendURL isVideo:_pendVideo];
+    }];
 }
 - (void)imagePickerControllerDidCancel:(id)picker {
     [self dismissViewControllerAnimated:YES completion:0];
 }
 // 文件回调
 - (void)documentPicker:(id)controller didPickDocumentsAtURLs:(id)urls {
-    [self dismissViewControllerAnimated:YES completion:0];
-    id url = [urls objectAtIndex:0];
-    [self askNameAndSave:0 url:url isVideo:NO];
+    _pendImg = 0;
+    _pendURL = [urls objectAtIndex:0];
+    _pendVideo = NO;
+    [self dismissViewControllerAnimated:YES completion:^{
+        [self askNameAndSave:_pendImg url:_pendURL isVideo:_pendVideo];
+    }];
 }
 - (void)documentPickerWasCancelled:(id)controller {
     [self dismissViewControllerAnimated:YES completion:0];
@@ -487,10 +495,10 @@ static id ThumbForPath(NSString *path) {
     [fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:0 error:0];
     BOOL ok = NO;
     if (img) {
-        id data = UIImagePNGRepresentation(img);
-        ok = [data writeToFile:[dir stringByAppendingPathComponent:@"imported.png"] atomically:YES];
+        id data = UIImageJPEGRepresentation(img, 0.85);
+        ok = [data writeToFile:[dir stringByAppendingPathComponent:@"imported.jpg"] atomically:YES];
     } else if (srcURL) {
-        NSString *ext = isVideo ? @"mov" : @"png";
+        NSString *ext = isVideo ? @"mov" : @"jpg";
         ok = [fm copyItemAtURL:srcURL toURL:[NSURL fileURLWithPath:[dir stringByAppendingPathComponent:[NSString stringWithFormat:@"imported.%@", ext]]] error:0];
     }
     // 刷新列表
