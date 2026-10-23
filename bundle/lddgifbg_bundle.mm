@@ -22,6 +22,7 @@ extern "C" SEL sel_registerName(const char *name);
 extern "C" void *dlopen(const char *path, int mode);
 extern "C" void *dlsym(void *handle, const char *symbol);
 extern "C" void CFRelease(void *cf);
+extern "C" id UIImagePNGRepresentation(id img);
 
 #define CLS(n) objc_getClass(n)
 static id CLSSTR(const char *n) { return (id)objc_getClass(n); }
@@ -82,6 +83,8 @@ static id CLSSTR(const char *n) { return (id)objc_getClass(n); }
 + (id)defaultManager;
 - (BOOL)fileExistsAtPath:(NSString *)p;
 - (BOOL)fileExistsAtPath:(NSString *)p isDirectory:(BOOL *)d;
+- (BOOL)createDirectoryAtPath:(NSString *)p withIntermediateDirectories:(BOOL)b attributes:(id)a error:(id *)e;
+- (BOOL)copyItemAtURL:(id)src toURL:(id)dst error:(id *)e;
 - (id)contentsOfDirectoryAtPath:(NSString *)p error:(id *)e;
 @end
 @interface NSUserDefaults : NSObject
@@ -174,6 +177,7 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (id)view;
 - (id)navigationItem;
 - (void)setLeftBarButtonItem:(id)b;
+- (void)setRightBarButtonItem:(id)b;
 - (void)setTitle:(NSString *)t;
 - (void)viewDidLoad;
 - (void)viewDidAppear:(BOOL)a;
@@ -211,6 +215,25 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (void)registerClass:(id)cls forCellWithReuseIdentifier:(NSString *)ri;
 - (id)dequeueReusableCellWithReuseIdentifier:(NSString *)ri forIndexPath:(id)ip;
 - (void)reloadData;
+@end
+@interface UIImagePickerController : UIViewController
+- (void)setSourceType:(NSInteger)t;
+- (void)setMediaTypes:(id)types;
+- (void)setDelegate:(id)d;
+- (void)setAllowsEditing:(BOOL)b;
+@end
+@interface UIDocumentPickerViewController : UIViewController
+- (id)initForOpeningContentTypes:(id)types;
+- (void)setDelegate:(id)d;
+@end
+@interface UIAlertAction : NSObject
++ (id)actionWithTitle:(NSString *)t style:(NSInteger)s handler:(id)h;
+@end
+@interface UIAlertController : UIViewController
++ (id)alertControllerWithTitle:(NSString *)t message:(NSString *)m preferredStyle:(NSInteger)s;
+- (void)addAction:(id)a;
+- (void)addTextFieldWithConfigurationHandler:(id)h;
+- (id)textFields;
 @end
 @interface UIBarButtonItem : NSObject
 - (id)initWithTitle:(NSString *)t style:(NSInteger)s target:(id)tgt action:(SEL)a;
@@ -353,6 +376,8 @@ static id ThumbForPath(NSString *path) {
     [self setTitle:@"素材库"];
     UIBarButtonItem *close = [[UIBarButtonItem alloc] initWithTitle:@"关闭" style:0 target:self action:@selector(closeTapped)];
     [[self navigationItem] setLeftBarButtonItem:close];
+    UIBarButtonItem *imp = [[UIBarButtonItem alloc] initWithTitle:@"导入" style:0 target:self action:@selector(importTapped)];
+    [[self navigationItem] setRightBarButtonItem:imp];
     [[self view] setBackgroundColor:[UIColor colorWithWhite:0.94 alpha:1.0]];
 
     NSFileManager *fm = [NSFileManager defaultManager];
@@ -367,7 +392,7 @@ static id ThumbForPath(NSString *path) {
     UICollectionViewFlowLayout *flow = [[UICollectionViewFlowLayout alloc] init];
     [flow setMinimumInteritemSpacing:10];
     [flow setMinimumLineSpacing:22];
-    UIEdgeInsets ins; ins.top = 14; ins.left = 14; ins.bottom = 20; ins.right = 14;
+    UIEdgeInsets ins; ins.top = 14; ins.left = 14; ins.bottom = 70; ins.right = 14;
     [flow setSectionInset:ins];
     CGRect vb = [[self view] bounds];
     UICollectionView *cv = [[UICollectionView alloc] initWithFrame:vb collectionViewLayout:flow];
@@ -382,6 +407,92 @@ static id ThumbForPath(NSString *path) {
 }
 - (void)closeTapped {
     [self dismissViewControllerAnimated:YES completion:0];
+}
+- (void)importTapped {
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"导入素材" message:@"选择来源" preferredStyle:0];
+    UIAlertAction *a1 = [UIAlertAction actionWithTitle:@"从相册" style:0 handler:^(UIAlertAction *a){
+        [self openPhotos];
+    }];
+    UIAlertAction *a2 = [UIAlertAction actionWithTitle:@"从文件" style:0 handler:^(UIAlertAction *a){
+        [self openFiles];
+    }];
+    UIAlertAction *a3 = [UIAlertAction actionWithTitle:@"取消" style:1 handler:0];
+    [sheet addAction:a1];
+    [sheet addAction:a2];
+    [sheet addAction:a3];
+    [self presentViewController:sheet animated:YES completion:0];
+}
+- (void)openPhotos {
+    UIImagePickerController *pc = [[UIImagePickerController alloc] init];
+    [pc setSourceType:0];
+    [pc setMediaTypes:[NSArray arrayWithObjects:@"public.image", @"public.movie", nil]];
+    [pc setDelegate:self];
+    [pc setAllowsEditing:NO];
+    [self presentViewController:pc animated:YES completion:0];
+}
+- (void)openFiles {
+    id utImage = [(id)objc_getClass("UTType") performSelector:sel_registerName("image")];
+    id utMovie = [(id)objc_getClass("UTType") performSelector:sel_registerName("movie")];
+    UIDocumentPickerViewController *dp = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:[NSArray arrayWithObjects:utImage, utMovie, nil]];
+    [dp setDelegate:self];
+    [self presentViewController:dp animated:YES completion:0];
+}
+// 相册回调
+- (void)imagePickerController:(id)picker didFinishPickingMediaWithInfo:(id)info {
+    [self dismissViewControllerAnimated:YES completion:0];
+    NSString *mt = [info objectForKeyedSubscript:@"UIImagePickerControllerMediaType"];
+    id img = [info objectForKeyedSubscript:@"UIImagePickerControllerOriginalImage"];
+    id mediaURL = [info objectForKeyedSubscript:@"UIImagePickerControllerMediaURL"];
+    BOOL isVideo = mt && [mt isEqualToString:@"public.movie"];
+    [self askNameAndSave:img url:mediaURL isVideo:isVideo];
+}
+- (void)imagePickerControllerDidCancel:(id)picker {
+    [self dismissViewControllerAnimated:YES completion:0];
+}
+// 文件回调
+- (void)documentPicker:(id)controller didPickDocumentsAtURLs:(id)urls {
+    [self dismissViewControllerAnimated:YES completion:0];
+    id url = [urls objectAtIndex:0];
+    [self askNameAndSave:0 url:url isVideo:NO];
+}
+- (void)documentPickerWasCancelled:(id)controller {
+    [self dismissViewControllerAnimated:YES completion:0];
+}
+// 命名 + 保存
+- (void)askNameAndSave:(id)img url:(id)srcURL isVideo:(BOOL)isVideo {
+    UIAlertController *al = [UIAlertController alertControllerWithTitle:@"命名素材" message:@"给这个素材起个名字" preferredStyle:1];
+    [al addTextFieldWithConfigurationHandler:^(id tf){
+        [tf setPlaceholder:@"素材名称"];
+    }];
+    UIAlertAction *ok = [UIAlertAction actionWithTitle:@"保存" style:0 handler:^(UIAlertAction *a){
+        id tfs = [al textFields];
+        NSString *nm = [tfs objectAtIndex:0];
+        if (!nm || [nm length] == 0) nm = @"新素材";
+        [self saveMaterial:nm image:img url:srcURL isVideo:isVideo];
+    }];
+    UIAlertAction *cc = [UIAlertAction actionWithTitle:@"取消" style:1 handler:0];
+    [al addAction:ok];
+    [al addAction:cc];
+    [self presentViewController:al animated:YES completion:0];
+}
+- (void)saveMaterial:(NSString *)nm image:(id)img url:(id)srcURL isVideo:(BOOL)isVideo {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *dir = [@"/var/mobile/lddgifbg" stringByAppendingPathComponent:nm];
+    [fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:0 error:0];
+    BOOL ok = NO;
+    if (img) {
+        id data = UIImagePNGRepresentation(img);
+        ok = [data writeToFile:[dir stringByAppendingPathComponent:@"imported.png"] atomically:YES];
+    } else if (srcURL) {
+        NSString *ext = isVideo ? @"mov" : @"png";
+        ok = [fm copyItemAtURL:srcURL toURL:[NSURL fileURLWithPath:[dir stringByAppendingPathComponent:[NSString stringWithFormat:@"imported.%@", ext]]] error:0];
+    }
+    // 刷新列表
+    _folders = [fm contentsOfDirectoryAtPath:@"/var/mobile/lddgifbg" error:nil];
+    NSString *cnt = [NSString stringWithFormat:@"素材库 (%lu)", (unsigned long)[_folders count]];
+    [self setTitle:cnt];
+    [(UICollectionView *)_cv reloadData];
+    (void)ok;
 }
 - (NSInteger)collectionView:(id)cv numberOfItemsInSection:(NSInteger)s {
     return _folders ? (NSInteger)[_folders count] : 0;
@@ -406,16 +517,15 @@ static id ThumbForPath(NSString *path) {
     [[card layer] setCornerRadius:14.0];
     [[card layer] setMasksToBounds:YES];
     UIImage *thumb = [_thumbs objectForKeyedSubscript:name];
-    if (!thumb) {
+    NSString *typeTag = @"图片";
+    {
         NSString *full = [@"/var/mobile/lddgifbg" stringByAppendingPathComponent:name];
         NSArray *files = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:full error:nil];
         for (NSString *f in files) {
             NSString *ext = [[f pathExtension] lowercaseString];
-            if ([ext isEqualToString:@"gif"] || [ext isEqualToString:@"mp4"] || [ext isEqualToString:@"mov"] ||
-                [ext isEqualToString:@"png"] || [ext isEqualToString:@"jpg"] || [ext isEqualToString:@"jpeg"]) {
-                thumb = ThumbForPath([full stringByAppendingPathComponent:f]);
-                break;
-            }
+            if ([ext isEqualToString:@"gif"]) { typeTag = @"GIF"; if (!thumb) thumb = ThumbForPath([full stringByAppendingPathComponent:f]); break; }
+            if ([ext isEqualToString:@"mp4"] || [ext isEqualToString:@"mov"]) { typeTag = @"视频"; if (!thumb) thumb = ThumbForPath([full stringByAppendingPathComponent:f]); break; }
+            if ([ext isEqualToString:@"png"] || [ext isEqualToString:@"jpg"] || [ext isEqualToString:@"jpeg"]) { typeTag = @"图片"; if (!thumb) thumb = ThumbForPath([full stringByAppendingPathComponent:f]); }
         }
         if (thumb) [_thumbs setObject:thumb forKeyedSubscript:name];
     }
@@ -423,6 +533,15 @@ static id ThumbForPath(NSString *path) {
     [iv setImage:thumb];
     [iv setContentMode:2];
     [card addSubview:iv];
+    UILabel *badge = [[UILabel alloc] initWithFrame:MakeRect(6, 6, 34, 16)];
+    [badge setText:typeTag];
+    [badge setFont:[UIFont systemFontOfSize:9.0]];
+    [badge setTextAlignment:1];
+    [badge setBackgroundColor:[UIColor colorWithWhite:0.0 alpha:0.55]];
+    [badge setTextColor:[UIColor whiteColor]];
+    [[badge layer] setCornerRadius:8.0];
+    [[badge layer] setMasksToBounds:YES];
+    [card addSubview:badge];
     [[cell contentView] addSubview:card];
     // 名字胶囊
     UILabel *pill = [[UILabel alloc] initWithFrame:MakeRect(4, imgH + 8, cb.w - 8, 24)];
@@ -543,7 +662,7 @@ static id ThumbForPath(NSString *path) {
         [self presentViewController:nav animated:YES completion:0];
     } else if (row == 4) {
         UIApplication *app = [UIApplication sharedApplication];
-        NSURL *fz = [NSURL URLWithString:@"filza://view/var/mobile/lddgifbg"];
+        NSURL *fz = [NSURL URLWithString:@"filza://view/var/mobile/lddgifbg/"];
         [app openURL:fz options:[NSDictionary dictionary] completionHandler:^(BOOL ok){
             if (!ok) {
                 NSURL *url = [NSURL fileURLWithPath:@"/var/mobile/lddgifbg"];
