@@ -29,6 +29,7 @@ static id CLSSTR(const char *n) { return (id)objc_getClass(n); }
 // ---------- ObjC 存根 (标准声明, 供编译期检查) ----------
 @interface NSObject
 + (id)alloc;
++ (id)class;
 - (id)init;
 - (id)valueForKey:(id)k;
 - (void)setValue:(id)v forKey:(id)k;
@@ -36,6 +37,7 @@ static id CLSSTR(const char *n) { return (id)objc_getClass(n); }
 @end
 @interface NSString : NSObject
 - (id)initWithBytes:(const void *)b length:(NSUInteger)l encoding:(NSUInteger)e;
++ (id)stringWithFormat:(NSString *)f, ...;
 - (NSString *)stringByAppendingPathComponent:(NSString *)s;
 - (NSString *)pathExtension;
 - (NSString *)lowercaseString;
@@ -90,6 +92,7 @@ static id CLSSTR(const char *n) { return (id)objc_getClass(n); }
 @end
 @interface NSURL : NSObject
 + (id)fileURLWithPath:(NSString *)p;
++ (id)URLWithString:(NSString *)s;
 @end
 @interface NSIndexPath : NSObject
 - (NSInteger)row;
@@ -103,6 +106,8 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 @interface UIColor : NSObject
 + (id)clearColor;
 + (id)redColor;
++ (id)colorWithWhite:(double)w alpha:(double)a;
++ (id)systemBlueColor;
 @end
 @interface UIFont : NSObject
 + (id)systemFontOfSize:(double)s;
@@ -179,6 +184,30 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (id)initWithRootViewController:(id)rvc;
 - (void)pushViewController:(id)vc animated:(BOOL)a;
 - (void)popViewControllerAnimated:(BOOL)a;
+@end
+@interface UIScreen : NSObject
++ (id)mainScreen;
+- (CGRect)bounds;
+@end
+@interface UICollectionViewCell : UIView
+@end
+@interface UICollectionViewFlowLayout : NSObject
+- (id)init;
+- (void)setMinimumInteritemSpacing:(double)s;
+- (void)setMinimumLineSpacing:(double)s;
+- (void)setItemSize:(CGSize)s;
+@end
+@interface UICollectionView : UIView
+- (id)initWithFrame:(CGRect)f collectionViewLayout:(id)layout;
+- (void)setBackgroundColor:(id)c;
+- (void)setDelegate:(id)d;
+- (void)setDataSource:(id)d;
+- (void)registerClass:(id)cls forCellWithReuseIdentifier:(NSString *)ri;
+- (id)dequeueReusableCellWithReuseIdentifier:(NSString *)ri forIndexPath:(id)ip;
+- (void)reloadData;
+@end
+@interface UIBarButtonItem : NSObject
+- (id)initWithTitle:(NSString *)t style:(NSInteger)s target:(id)tgt action:(SEL)a;
 @end
 @interface UIApplication : NSObject
 + (id)sharedApplication;
@@ -298,99 +327,124 @@ static id ThumbForPath(NSString *path) {
     return [UIImage imageWithContentsOfFile:path];
 }
 
-// ---------- 素材选择器 ----------
-@interface LDDMaterialPickerController : UITableViewController
-- (NSInteger)numberOfSectionsInTableView:(UITableView *)tv;
-- (NSInteger)tableView:(UITableView *)tv numberOfRowsInSection:(NSInteger)s;
-- (UITableViewCell *)tableView:(UITableView *)tv cellForRowAtIndexPath:(NSIndexPath *)ip;
-- (void)tableView:(UITableView *)tv didSelectRowAtIndexPath:(NSIndexPath *)ip;
+// ---------- 素材选择器: 卡片网格 ----------
+@interface LDDMaterialPickerController : UIViewController
+- (NSInteger)collectionView:(id)cv numberOfItemsInSection:(NSInteger)s;
+- (id)collectionView:(id)cv cellForItemAtIndexPath:(id)ip;
+- (void)collectionView:(id)cv didSelectItemAtIndexPath:(id)ip;
+- (CGSize)collectionView:(id)cv layout:(id)layout sizeForItemAtIndexPath:(id)ip;
+- (void)closeTapped;
 @end
 @implementation LDDMaterialPickerController
 {
     id _folders;
     id _thumbs;
     NSString *_sel;
+    id _cv;
 }
 - (void)viewDidLoad {
     [super viewDidLoad];
-    [self setTitle:@"选择素材"];
+    [self setTitle:@"素材库"];
+    UIBarButtonItem *close = [[UIBarButtonItem alloc] initWithTitle:@"关闭" style:0 target:self action:@selector(closeTapped)];
+    [[self navigationItem] setLeftBarButtonItem:close];
+    [[self view] setBackgroundColor:[UIColor colorWithWhite:0.94 alpha:1.0]];
+
     NSFileManager *fm = [NSFileManager defaultManager];
     BOOL isDir = NO;
-    _folders = nil;
     if ([fm fileExistsAtPath:@"/var/mobile/lddgifbg" isDirectory:&isDir] && isDir) {
         _folders = [fm contentsOfDirectoryAtPath:@"/var/mobile/lddgifbg" error:nil];
     }
     _thumbs = [NSMutableDictionary dictionary];
     NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
     _sel = [ud objectForKey:@"SelectedMaterialFolder"];
+
+    UICollectionViewFlowLayout *flow = [[UICollectionViewFlowLayout alloc] init];
+    [flow setMinimumInteritemSpacing:12];
+    [flow setMinimumLineSpacing:26];
+    CGRect vb = [[self view] bounds];
+    UICollectionView *cv = [[UICollectionView alloc] initWithFrame:vb collectionViewLayout:flow];
+    [cv setBackgroundColor:[UIColor clearColor]];
+    [cv setDelegate:self];
+    [cv setDataSource:self];
+    [cv registerClass:[UICollectionViewCell class] forCellWithReuseIdentifier:@"m"];
+    [[self view] addSubview:cv];
+    _cv = cv;
+    NSString *cnt = [NSString stringWithFormat:@"素材库 (%lu)", (unsigned long)[_folders count]];
+    [self setTitle:cnt];
 }
-- (NSInteger)numberOfSectionsInTableView:(UITableView *)tv { return 1; }
-- (NSInteger)tableView:(UITableView *)tv numberOfRowsInSection:(NSInteger)s {
+- (void)closeTapped {
+    [self dismissViewControllerAnimated:YES completion:0];
+}
+- (NSInteger)collectionView:(id)cv numberOfItemsInSection:(NSInteger)s {
     return _folders ? (NSInteger)[_folders count] : 0;
 }
-- (UITableViewCell *)tableView:(UITableView *)tv cellForRowAtIndexPath:(NSIndexPath *)ip {
+- (CGSize)collectionView:(id)cv layout:(id)layout sizeForItemAtIndexPath:(id)ip {
+    CGRect sb = [[UIScreen mainScreen] bounds];
+    double w = (sb.w - 32.0 - 24.0) / 3.0;
+    CGSize sz; sz.w = w; sz.h = w * 1.55 + 74.0;
+    return sz;
+}
+- (id)collectionView:(id)cv cellForItemAtIndexPath:(id)ip {
     NSInteger row = [ip row];
-    if (!_folders || row >= (NSInteger)[_folders count]) return nil;
-    NSString *name = [_folders objectAtIndex:(NSUInteger)row];
-    UITableViewCell *cell = [tv dequeueReusableCellWithIdentifier:@"mat"];
-    if (!cell) cell = [[UITableViewCell alloc] initWithStyle:1 reuseIdentifier:@"mat"];
+    UICollectionViewCell *cell = [(UICollectionView *)cv dequeueReusableCellWithReuseIdentifier:@"m" forIndexPath:ip];
     for (UIView *v in [[cell contentView] subviews]) { if (v) [v removeFromSuperview]; }
-
-    NSString *full = [@"/var/mobile/lddgifbg" stringByAppendingPathComponent:name];
+    if (!_folders || row >= (NSInteger)[_folders count]) return cell;
+    NSString *name = [_folders objectAtIndex:(NSUInteger)row];
+    CGRect cb = [[cell contentView] bounds];
+    double imgH = cb.w * 1.15;
+    // 白色圆角卡片 + 图
+    UIView *card = [[UIView alloc] initWithFrame:MakeRect(0, 0, cb.w, imgH)];
+    [card setBackgroundColor:[UIColor whiteColor]];
+    [[card layer] setCornerRadius:14.0];
+    [[card layer] setMasksToBounds:YES];
     UIImage *thumb = [_thumbs objectForKeyedSubscript:name];
     if (!thumb) {
-        NSFileManager *fm = [NSFileManager defaultManager];
-        NSArray *files = [fm contentsOfDirectoryAtPath:full error:nil];
+        NSString *full = [@"/var/mobile/lddgifbg" stringByAppendingPathComponent:name];
+        NSArray *files = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:full error:nil];
         for (NSString *f in files) {
             NSString *ext = [[f pathExtension] lowercaseString];
             if ([ext isEqualToString:@"gif"] || [ext isEqualToString:@"mp4"] || [ext isEqualToString:@"mov"] ||
                 [ext isEqualToString:@"png"] || [ext isEqualToString:@"jpg"] || [ext isEqualToString:@"jpeg"]) {
-                NSString *media = [full stringByAppendingPathComponent:f];
-                thumb = ThumbForPath(media);
+                thumb = ThumbForPath([full stringByAppendingPathComponent:f]);
                 break;
             }
         }
         if (thumb) [_thumbs setObject:thumb forKeyedSubscript:name];
     }
-    if (thumb) {
-        UIImageView *iv = [[UIImageView alloc] initWithFrame:MakeRect(10, 6, 56, 42)];
-        [iv setImage:thumb];
-        [iv setContentMode:1];
-        [iv setClipsToBounds:YES];
-        [[iv layer] setCornerRadius:6.0];
-        [[iv layer] setMasksToBounds:YES];
-        [[cell contentView] addSubview:iv];
-    }
-    CGRect b = [[cell contentView] bounds];
-    UILabel *label = [[UILabel alloc] initWithFrame:MakeRect(74, 8, b.w - 84, 22)];
-    [label setText:name];
-    [label setFont:[UIFont boldSystemFontOfSize:16.0]];
-    [[cell contentView] addSubview:label];
-    UILabel *sub = [[UILabel alloc] initWithFrame:MakeRect(74, 32, b.w - 84, 16)];
-    NSString *typeDesc = @"GIF";
-    NSFileManager *fm2 = [NSFileManager defaultManager];
-    NSArray *files2 = [fm2 contentsOfDirectoryAtPath:full error:nil];
-    for (NSString *f in files2) {
-        NSString *ext = [[f pathExtension] lowercaseString];
-        if ([ext isEqualToString:@"mp4"] || [ext isEqualToString:@"mov"]) { typeDesc = @"视频"; break; }
-        if ([ext isEqualToString:@"png"] || [ext isEqualToString:@"jpg"] || [ext isEqualToString:@"jpeg"]) typeDesc = @"静态图";
-    }
-    [sub setText:typeDesc];
-    [sub setFont:[UIFont systemFontOfSize:12.0]];
-    [[cell contentView] addSubview:sub];
-    if (_sel && [_sel isEqualToString:name]) [cell setAccessoryType:3];
-    else [cell setAccessoryType:0];
+    UIImageView *iv = [[UIImageView alloc] initWithFrame:MakeRect(0, 0, cb.w, imgH)];
+    [iv setImage:thumb];
+    [iv setContentMode:2];
+    [card addSubview:iv];
+    [[cell contentView] addSubview:card];
+    // 名字胶囊
+    UILabel *pill = [[UILabel alloc] initWithFrame:MakeRect(6, imgH + 10, cb.w - 12, 26)];
+    [pill setText:name];
+    [pill setFont:[UIFont systemFontOfSize:12.0]];
+    [pill setTextAlignment:1];
+    [pill setBackgroundColor:[UIColor colorWithWhite:0.62 alpha:0.85]];
+    [pill setTextColor:[UIColor whiteColor]];
+    [[pill layer] setCornerRadius:13.0];
+    [[pill layer] setMasksToBounds:YES];
+    [[cell contentView] addSubview:pill];
+    // 选中圆点
+    BOOL on = _sel && [_sel isEqualToString:name];
+    UIView *dot = [[UIView alloc] initWithFrame:MakeRect(cb.w / 2 - 12, imgH + 44, 24, 24)];
+    [[dot layer] setCornerRadius:12.0];
+    [[dot layer] setMasksToBounds:YES];
+    [dot setBackgroundColor:on ? [UIColor systemBlueColor] : [UIColor colorWithWhite:0.80 alpha:1.0]];
+    [[cell contentView] addSubview:dot];
     return cell;
 }
-- (void)tableView:(UITableView *)tv didSelectRowAtIndexPath:(NSIndexPath *)ip {
+- (void)collectionView:(id)cv didSelectItemAtIndexPath:(id)ip {
     NSInteger row = [ip row];
     if (!_folders || row >= (NSInteger)[_folders count]) return;
     NSString *name = [_folders objectAtIndex:(NSUInteger)row];
+    _sel = name;
     NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
     [ud setObject:name forKey:@"SelectedMaterialFolder"];
     [ud synchronize];
     WritePrefsFile(@"SelectedMaterialFolder", name);
-    [self dismissViewControllerAnimated:YES completion:0];
+    [(UICollectionView *)cv reloadData];
 }
 @end
 
@@ -476,12 +530,18 @@ static id ThumbForPath(NSString *path) {
     NSInteger row = [ip row];
     [(UITableView *)tv deselectRowAtIndexPath:ip animated:YES];
     if (row == 3) {
-        LDDMaterialPickerController *pc = [[LDDMaterialPickerController alloc] initWithStyle:1];
-        [self presentViewController:pc animated:YES completion:0];
+        LDDMaterialPickerController *pc = [[LDDMaterialPickerController alloc] init];
+        UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:pc];
+        [self presentViewController:nav animated:YES completion:0];
     } else if (row == 4) {
         UIApplication *app = [UIApplication sharedApplication];
-        NSURL *url = [NSURL fileURLWithPath:@"/var/mobile/lddgifbg"];
-        [app openURL:url options:[NSDictionary dictionary] completionHandler:0];
+        NSURL *fz = [NSURL URLWithString:@"filza://view/var/mobile/lddgifbg"];
+        [app openURL:fz options:[NSDictionary dictionary] completionHandler:^(BOOL ok){
+            if (!ok) {
+                NSURL *url = [NSURL fileURLWithPath:@"/var/mobile/lddgifbg"];
+                [app openURL:url options:[NSDictionary dictionary] completionHandler:0];
+            }
+        }];
     } else if (row == 5) {
         [self respringNow];
     }
