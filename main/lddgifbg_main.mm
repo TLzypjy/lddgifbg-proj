@@ -380,9 +380,11 @@ static void SBPostTestNotification(void) {
     ProbeWrite("SBB-START");
     @try {
         dlopen("/System/Library/PrivateFrameworks/BulletinBoard.framework/BulletinBoard", 2);
+        ProbeWrite("SBB-DL");
         id clsB = (id)objc_getClass("BBBulletin");
         id clsS = (id)objc_getClass("BBServer");
         if (!clsB || !clsS) { ProbeWrite("SBB-NO-CLASS"); return; }
+        ProbeWrite("SBB-PRE");
         id bulletin = ((id(*)(id, SEL))objc_msgSend)(clsB, sel_registerName("bulletin"));
         if (!bulletin) { ProbeWrite("SBB-NO-BULLETIN"); return; }
         ProbeWrite("SBB-B1");
@@ -407,7 +409,15 @@ static void SBPostTestNotification(void) {
         ProbeWrite("SBB-B4");
         ((void(*)(id, SEL, id, NSUInteger, BOOL))objc_msgSend)(server, sel_registerName("publishBulletin:destinations:alwaysToLockScreen:"), bulletin, (NSUInteger)7, YES);
         ProbeWrite("SBB-PUBLISHED");
-    } @catch (id e) { ProbeWrite("SBB-EXC"); }
+    } @catch (id e) {
+        @try {
+            id r = ((id(*)(id, SEL))objc_msgSend)(e, sel_registerName("reason"));
+            const char *c = r ? ((const char *(*)(id, SEL))objc_msgSend)(r, sel_registerName("UTF8String")) : 0;
+            char buf[300];
+            snprintf(buf, sizeof(buf), "SBB-EXC: %.240s", c ? c : "?");
+            ProbeWrite(buf);
+        } @catch (id e2) { ProbeWrite("SBB-EXC"); }
+    }
 }
 
 static void CheckTestNotifFlag(void) {
