@@ -144,6 +144,7 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (void)setClipsToBounds:(BOOL)b;
 - (void)setAlpha:(double)a;
 - (id)window;
+- (void)setUserInteractionEnabled:(BOOL)e;
 @end
 
 @interface UIWindow : UIView
@@ -249,6 +250,7 @@ extern "C" void UIGraphicsEndImageContext(void);
 @interface UIScreen : NSObject
 + (id)mainScreen;
 - (CGRect)bounds;
+- (double)scale;
 @end
 @interface UICollectionViewCell : UIView
 - (id)contentView;
@@ -788,13 +790,15 @@ static id ThumbForPath(NSString *path) {
         UIImageView *bg = [[UIImageView alloc] initWithFrame:MakeRect(0, 0, exp.w, exp.h)];
         [bg setContentMode:2];
         [bg setAlpha:0.0];
-        id frames = GIFFramesForPath(path, 24, exp.w);
+        [bg setUserInteractionEnabled:NO];
+        id frames = GIFFramesForPath(path, 16, exp.w);
         if (frames) { [bg setAnimationImages:frames]; [bg setAnimationDuration:2.0]; [bg setAnimationRepeatCount:0]; [bg startAnimating]; }
         else { NSString *dir = [@"/var/mobile/lddgifbg" stringByAppendingPathComponent:[path lastPathComponent]]; (void)dir; [bg setImage:ThumbForPath(path)]; }
         [banner addSubview:bg];
         UIView *mk = [[UIView alloc] initWithFrame:MakeRect(0, 0, exp.w, exp.h)];
         [mk setBackgroundColor:[UIColor colorWithWhite:0.0 alpha:0.4]];
         [mk setAlpha:0.0];
+        [mk setUserInteractionEnabled:NO];
         [banner addSubview:mk];
         UIImageView *icon = [[UIImageView alloc] initWithFrame:MakeRect(4, 4, 29, 29)];
         [icon setImage:ThumbForPath(path)];
@@ -804,37 +808,47 @@ static id ThumbForPath(NSString *path) {
         [icl setMasksToBounds:YES];
         [banner addSubview:icon];
         UILabel *nowL = [[UILabel alloc] initWithFrame:MakeRect(72, 10, 120, 16)];
-        [nowL setText:@"现在"];
+        [nowL setText:@"灵动岛GIF背景"];
         [nowL setFont:[UIFont systemFontOfSize:12.0]];
         [nowL setTextColor:[UIColor colorWithWhite:1.0 alpha:0.65]];
         [nowL setAlpha:0.0];
+        [nowL setUserInteractionEnabled:NO];
         [banner addSubview:nowL];
         UILabel *tagL = [[UILabel alloc] initWithFrame:MakeRect(exp.w - 92, 10, 76, 16)];
-        [tagL setText:@"灵动通知"];
+        [tagL setText:@"现在"];
         [tagL setFont:[UIFont systemFontOfSize:12.0]];
         [tagL setTextColor:[UIColor colorWithWhite:1.0 alpha:0.65]];
         [tagL setTextAlignment:2];
         [tagL setAlpha:0.0];
+        [tagL setUserInteractionEnabled:NO];
         [banner addSubview:tagL];
         UILabel *ti = [[UILabel alloc] initWithFrame:MakeRect(72, 30, exp.w - 88, 20)];
-        [ti setText:@"灵动岛GIF背景给您发来的"];
+        [ti setText:@"预览通知"];
         [ti setFont:[UIFont boldSystemFontOfSize:15.0]];
         [ti setTextColor:[UIColor whiteColor]];
         [ti setAlpha:0.0];
+        [ti setUserInteractionEnabled:NO];
         [banner addSubview:ti];
         UILabel *bo = [[UILabel alloc] initWithFrame:MakeRect(72, 52, exp.w - 88, 48)];
-        [bo setText:@"这是一条GIF背景预览通知，非常完美的展示出来了。您可以实时预览选择的窗口样式！"];
+        [bo setText:@"这是一条GIF背景预览通知"];
         [bo setFont:[UIFont systemFontOfSize:14.0]];
         [bo setTextColor:[UIColor whiteColor]];
         [bo setNumberOfLines:2];
         [bo setAlpha:0.0];
+        [bo setUserInteractionEnabled:NO];
         [banner addSubview:bo];
         __block id bBanner = banner;
         void (^collapse)(void) = ^{
             [UIView animateWithDuration:0.35 delay:0 usingSpringWithDamping:0.8 initialSpringVelocity:0.5 options:0 animations:^{
                 [bBanner setFrame:pill];
                 [[bBanner layer] setCornerRadius:20.0];
-                [bg setAlpha:0.0]; [mk setAlpha:0.0]; [nowL setAlpha:0.0]; [tagL setAlpha:0.0]; [ti setAlpha:0.0]; [bo setAlpha:0.0];
+                [bg setAlpha:0.0];
+        [bg setUserInteractionEnabled:NO]; [mk setAlpha:0.0];
+        [mk setUserInteractionEnabled:NO]; [nowL setAlpha:0.0];
+        [nowL setUserInteractionEnabled:NO]; [tagL setAlpha:0.0];
+        [tagL setUserInteractionEnabled:NO]; [ti setAlpha:0.0];
+        [ti setUserInteractionEnabled:NO]; [bo setAlpha:0.0];
+        [bo setUserInteractionEnabled:NO];
             } completion:^(BOOL f) {
                 [bBanner removeFromSuperview];
             }];
@@ -847,7 +861,7 @@ static id ThumbForPath(NSString *path) {
             [icl setCornerRadius:16.0];
             [bg setAlpha:1.0]; [mk setAlpha:1.0]; [nowL setAlpha:1.0]; [tagL setAlpha:1.0]; [ti setAlpha:1.0]; [bo setAlpha:1.0];
         } completion:^(BOOL f) {
-            [NSTimer scheduledTimerWithTimeInterval:3.5 target:self selector:@selector(previewAuto:) userInfo:0 repeats:NO];
+            [NSTimer scheduledTimerWithTimeInterval:10.0 target:self selector:@selector(previewAuto:) userInfo:0 repeats:NO];
         }];
         objc_setAssociatedObject(self, "pvbanner", banner, 1);
         objc_setAssociatedObject(self, "pvcollapse", collapse, 1);
