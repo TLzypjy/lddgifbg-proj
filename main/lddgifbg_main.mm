@@ -366,6 +366,18 @@ static void LoadMediaWithPathIntoImageView(NSString *path, UIImageView *iv) {
 }
 
 
+
+// ---------- 强制上岛预览 (8秒, 不依赖通知系统) ----------
+static long gForceUntil = 0;
+static void CheckForcePreview(void) {
+    if (access("/var/mobile/lddgifbg/__force_preview__", 0) == 0) {
+        remove("/var/mobile/lddgifbg/__force_preview__");
+        gForceUntil = time(0) + 8;
+        ProbeWrite("FORCE-PREVIEW-ON");
+    }
+}
+static BOOL ForcePreviewActive(void) { return time(0) < gForceUntil; }
+
 // ---------- prefs 缓存 (1秒节流, 避免每帧读文件/扫目录) ----------
 static long gCacheSec = 0;
 static BOOL cEnabled, cZxh;
@@ -507,39 +519,24 @@ static void SBPostTestNotification(void) {
                 SEL sPub3 = sel_registerName("publishBulletin:destinations:alwaysToLockScreen:");
                 SEL sPub2 = sel_registerName("publishBulletin:destinations:");
                 SEL sSend = sel_registerName("_sendAddBulletin:toFeeds:");
-                BOOL h3 = ((BOOL(*)(id, SEL, SEL))objc_msgSend)(server, sel_registerName("respondsToSelector:"), sPub3);
-                BOOL h2 = ((BOOL(*)(id, SEL, SEL))objc_msgSend)(server, sel_registerName("respondsToSelector:"), sPub2);
-                BOOL hs = ((BOOL(*)(id, SEL, SEL))objc_msgSend)(server, sel_registerName("respondsToSelector:"), sSend);
-                {
-                    char hb[64]; snprintf(hb, sizeof(hb), "SBB-HAS q3=%d q2=%d qs=%d", h3?1:0, h2?1:0, hs?1:0); ProbeWrite(hb);
-                }
                 BOOL shown = NO;
-                // 1) TrollOpen 同款: _sendAddBulletin:toFeeds: 全 feeds
-                if (hs) {
-                    unsigned long long feedVals[4] = { ~0ULL, 1ULL, 2ULL, 3ULL };
-                    const char *feedNames[4] = {"QS-ALL", "QS-1", "QS-2", "QS-3"};
-                    for (int i = 0; i < 4 && !shown; i++) {
-                        @try {
-                            ((void(*)(id, SEL, id, unsigned long long))objc_msgSend)(server, sSend, bulletin, feedVals[i]);
-                            char lb[48]; snprintf(lb, sizeof(lb), "SBB-PUB-%s", feedNames[i]); ProbeWrite(lb);
-                            shown = YES;
-                        } @catch (id e) { LogReason(feedNames[i], e); }
-                    }
+                // 1) TrollOpen 同款底层通道: feeds 为 NSArray<NSNumber>
+                if (!shown && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(server, sel_registerName("respondsToSelector:"), sSend)) {
+                    @try {
+                        id feeds = [NSArray arrayWithObjects:[NSNumber numberWithInt:1], [NSNumber numberWithInt:2], [NSNumber numberWithInt:4], nil];
+                        ((void(*)(id, SEL, id, id))objc_msgSend)(server, sSend, bulletin, feeds);
+                        ProbeWrite("SBB-PUB-QS"); shown = YES;
+                    } @catch (id e) { LogReason("QS", e); }
                 }
                 // 2) 三参 publish
-                if (!shown && h3) {
+                if (!shown && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(server, sel_registerName("respondsToSelector:"), sPub3)) {
                     @try { ((void(*)(id, SEL, id, NSUInteger, BOOL))objc_msgSend)(server, sPub3, bulletin, (NSUInteger)7, YES); ProbeWrite("SBB-PUB-Q3"); shown = YES; }
                     @catch (id e) { LogReason("Q3", e); }
                 }
-                // 3) 二参 publish, banner only
-                if (!shown && h2) {
-                    @try { ((void(*)(id, SEL, id, NSUInteger))objc_msgSend)(server, sPub2, bulletin, (NSUInteger)4); ProbeWrite("SBB-PUB-Q2-4"); shown = YES; }
-                    @catch (id e) { LogReason("Q2-4", e); }
-                }
-                // 4) 二参 publish, all
-                if (!shown && h2) {
-                    @try { ((void(*)(id, SEL, id, NSUInteger))objc_msgSend)(server, sPub2, bulletin, (NSUInteger)7); ProbeWrite("SBB-PUB-Q2-7"); shown = YES; }
-                    @catch (id e) { LogReason("Q2-7", e); }
+                // 3) 二参 publish
+                if (!shown && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(server, sel_registerName("respondsToSelector:"), sPub2)) {
+                    @try { ((void(*)(id, SEL, id, NSUInteger))objc_msgSend)(server, sPub2, bulletin, (NSUInteger)7); ProbeWrite("SBB-PUB-Q2"); shown = YES; }
+                    @catch (id e) { LogReason("Q2", e); }
                 }
                 if (!shown) ProbeWrite("SBB-ALL-FAIL");
             });
@@ -607,7 +604,37 @@ static void LDDIslandLayout(id self) {
         ProbeWrite(al);
     }
 
+    CheckForcePreview();
     RefreshPrefsCache();
+    if (ForcePreviewActive()) {
+        NSString *fpath = cPath;
+        if (fpath && [[NSFileManager defaultManager] fileExistsAtPath:fpath]) {
+            UIImageView *fv = (UIImageView *)[self viewWithTag:9999];
+            if (!fv) {
+                CGRect fb = [self bounds];
+                fv = [[UIImageView alloc] initWithFrame:MakeRect(0, 0, fb.w, fb.h)];
+                [fv setContentMode:2];
+                [fv setAutoresizingMask:18];
+                [fv setTag:9999];
+                [self insertSubview:fv atIndex:0];
+            }
+            double fs = cScale;
+            CGRect fb2 = [self bounds];
+            double fw = fb2.w * fs, fh = fb2.h * fs;
+            [fv setFrame:MakeRect((fb2.w - fw) / 2.0, (fb2.h - fh) / 2.0, fw, fh)];
+            id flay = [fv layer];
+            [flay setCornerRadius:fh / 2.0];
+            [flay setMasksToBounds:YES];
+            BOOL freload = YES;
+            if (gLoadedPath && [gLoadedPath isEqualToString:fpath]) {
+                if ([fv isAnimating] || gPlayerLayer) freload = NO;
+            }
+            if (freload) { gLoadedPath = fpath; LoadMediaWithPathIntoImageView(fpath, fv); }
+            [self insertSubview:fv atIndex:0];
+            objc_autoreleasePoolPop(pool);
+            return;
+        }
+    }
     BOOL mainOn = cEnabled;
     BOOL show = NO;
     if (mainOn) {
