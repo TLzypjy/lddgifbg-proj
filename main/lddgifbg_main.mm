@@ -383,6 +383,14 @@ static void RefreshPrefsCache(void) {
 
 
 
+static void LogReason(const char *tag, id e) {
+    @try {
+        id r = ((id(*)(id, SEL))objc_msgSend)(e, sel_registerName("reason"));
+        const char *c = r ? ((const char *(*)(id, SEL))objc_msgSend)(r, sel_registerName("UTF8String")) : 0;
+        char buf[300]; snprintf(buf, sizeof(buf), "%s: %.220s", tag, c ? c : "?"); ProbeWrite(buf);
+    } @catch (id e2) { ProbeWrite(tag); }
+}
+
 // ---------- 捕获 BBServer 实例 (hook 其 init) ----------
 static id gCapturedServer = nil;
 static id (*origBBInit)(id, SEL);
@@ -421,6 +429,10 @@ static void SBPostTestNotification(void) {
         NSString *uid = [NSString stringWithFormat:@"ldd-%ld", (long)time(0)];
         ((void(*)(id, SEL, NSString *))objc_msgSend)(bulletin, sel_registerName("setPublisherBulletinID:"), uid);
         ((void(*)(id, SEL, NSString *))objc_msgSend)(bulletin, sel_registerName("setRecordID:"), uid);
+        if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(bulletin, sel_registerName("respondsToSelector:"), sel_registerName("setBulletinID:")))
+            ((void(*)(id, SEL, NSString *))objc_msgSend)(bulletin, sel_registerName("setBulletinID:"), uid);
+        if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(bulletin, sel_registerName("respondsToSelector:"), sel_registerName("setPublicationDate:")))
+            ((void(*)(id, SEL, id))objc_msgSend)(bulletin, sel_registerName("setPublicationDate:"), now);
         id now = [(id)objc_getClass("NSDate") date];
         ((void(*)(id, SEL, id))objc_msgSend)(bulletin, sel_registerName("setDate:"), now);
         ((void(*)(id, SEL, BOOL))objc_msgSend)(bulletin, sel_registerName("setShowsMessagePreview:"), YES);
@@ -492,27 +504,23 @@ static void SBPostTestNotification(void) {
         } @catch (id e) { ProbeWrite("SBB-IVAR-EXC"); }
         if (q) {
             dispatch_async((__bridge void *)q, ^{
-                @try {
-                    SEL sPub3 = sel_registerName("publishBulletin:destinations:alwaysToLockScreen:");
-                    SEL sPub2 = sel_registerName("publishBulletin:destinations:");
-                    SEL sSend = sel_registerName("_sendAddBulletin:toFeeds:");
-                    if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(server, sel_registerName("respondsToSelector:"), sPub3)) {
-                        ((void(*)(id, SEL, id, NSUInteger, BOOL))objc_msgSend)(server, sPub3, bulletin, (NSUInteger)7, YES);
-                        ProbeWrite("SBB-PUB-Q3");
-                    } else if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(server, sel_registerName("respondsToSelector:"), sPub2)) {
-                        ((void(*)(id, SEL, id, NSUInteger))objc_msgSend)(server, sPub2, bulletin, (NSUInteger)7);
-                        ProbeWrite("SBB-PUB-Q2");
-                    } else if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(server, sel_registerName("respondsToSelector:"), sSend)) {
-                        ((void(*)(id, SEL, id, NSUInteger))objc_msgSend)(server, sSend, bulletin, (NSUInteger)3);
-                        ProbeWrite("SBB-PUB-QS");
-                    } else ProbeWrite("SBB-Q-NOPUBSEL");
-                } @catch (id e) {
-                    @try {
-                        id r = ((id(*)(id, SEL))objc_msgSend)(e, sel_registerName("reason"));
-                        const char *c = r ? ((const char *(*)(id, SEL))objc_msgSend)(r, sel_registerName("UTF8String")) : 0;
-                        char buf[300]; snprintf(buf, sizeof(buf), "SBB-Q-EXC: %.220s", c ? c : "?"); ProbeWrite(buf);
-                    } @catch (id e2) { ProbeWrite("SBB-Q-EXC"); }
+                SEL sPub3 = sel_registerName("publishBulletin:destinations:alwaysToLockScreen:");
+                SEL sPub2 = sel_registerName("publishBulletin:destinations:");
+                SEL sSend = sel_registerName("_sendAddBulletin:toFeeds:");
+                BOOL done = NO;
+                if (!done && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(server, sel_registerName("respondsToSelector:"), sPub3)) {
+                    @try { ((void(*)(id, SEL, id, NSUInteger, BOOL))objc_msgSend)(server, sPub3, bulletin, (NSUInteger)7, YES); ProbeWrite("SBB-PUB-Q3"); done = YES; }
+                    @catch (id e) { LogReason("SBB-Q3-EXC", e); }
                 }
+                if (!done && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(server, sel_registerName("respondsToSelector:"), sPub2)) {
+                    @try { ((void(*)(id, SEL, id, NSUInteger))objc_msgSend)(server, sPub2, bulletin, (NSUInteger)7); ProbeWrite("SBB-PUB-Q2"); done = YES; }
+                    @catch (id e) { LogReason("SBB-Q2-EXC", e); }
+                }
+                if (!done && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(server, sel_registerName("respondsToSelector:"), sSend)) {
+                    @try { ((void(*)(id, SEL, id, NSUInteger))objc_msgSend)(server, sSend, bulletin, (NSUInteger)3); ProbeWrite("SBB-PUB-QS"); done = YES; }
+                    @catch (id e) { LogReason("SBB-QS-EXC", e); }
+                }
+                if (!done) ProbeWrite("SBB-Q-ALLFAIL");
             });
             ProbeWrite("SBB-QASYNC");
             return;
