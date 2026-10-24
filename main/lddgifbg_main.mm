@@ -125,6 +125,7 @@ typedef struct UIEdgeInsets { double top, left, bottom, right; } UIEdgeInsets;
 typedef struct CGAffineTransform { double a, b, c, d, tx, ty; } CGAffineTransform;
 static CGAffineTransform CGMakeScale(double s) { CGAffineTransform t = {s, 0, 0, s, 0, 0}; return t; }
 static void ShowPreviewWindow(void);
+static void PreviewAutoClose(void);
 @interface UIApplication : NSObject
 + (id)sharedApplication;
 - (id)keyWindow;
@@ -783,6 +784,10 @@ static void CtrlLayoutHook(id self, SEL _cmd) {
     if (origCtrlLayout) origCtrlLayout(self, _cmd);
 }
 
+static BOOL gPreviewing = NO;
+static double gShowTime = 0;
+static id gAutoTimer = nil;
+static void PreviewAutoClose(void);
 static id gPreviewWinHolder = nil;
 static id gPreviewBanner = nil;
 static id gPreviewIcon = nil;
@@ -873,10 +878,6 @@ static UIImage *FirstImageForPath(NSString *path) {
     return img;
 }
 static double gLastShow = 0;
-static BOOL gPreviewing = NO;
-static double gShowTime = 0;
-static id gAutoTimer = nil;
-static void PreviewAutoClose(void);
 static void ShowPreviewWindow(void) {
     @try {
         double nowT = ((double(*)(id, SEL))objc_msgSend)((id)[(id)objc_getClass("NSDate") date], sel_registerName("timeIntervalSince1970"));
