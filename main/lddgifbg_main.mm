@@ -870,35 +870,50 @@ static void ShowPreviewWindow(void) {
         NSString *path = cPath;
         if (!path) { ProbeWrite("PREV-NOPATH"); return; }
         id app = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIApplication"), sel_registerName("sharedApplication"));
-        id scenes = ((id(*)(id, SEL))objc_msgSend)(app, sel_registerName("connectedScenes"));
-        id sceneArr = scenes ? ((id(*)(id, SEL))objc_msgSend)(scenes, sel_registerName("allObjects")) : nil;
+        id wins = ((id(*)(id, SEL))objc_msgSend)(app, sel_registerName("windows"));
+        NSUInteger wn = wins ? ((NSUInteger(*)(id, SEL))objc_msgSend)(wins, sel_registerName("count")) : 0;
         id scene = nil;
-        NSUInteger scn = sceneArr ? ((NSUInteger(*)(id, SEL))objc_msgSend)(sceneArr, sel_registerName("count")) : 0;
-        for (NSUInteger i = 0; i < scn; i++) {
-            id s = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(sceneArr, sel_registerName("objectAtIndex:"), i);
-            const char *cn = object_getClassName(s);
-            if (cn && strstr(cn, "UIWindowScene")) { scene = s; break; }
+        id hostWin = nil;
+        double best = 0;
+        // 路线1: 从 SB 窗口取 scene (1.9.57 验证过可见)
+        for (NSUInteger i = 0; i < wn && !scene; i++) {
+            id wv = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(wins, sel_registerName("objectAtIndex:"), i);
+            id s = ((id(*)(id, SEL))objc_msgSend)(wv, sel_registerName("scene"));
+            if (s && strstr(object_getClassName(s), "UIWindowScene")) scene = s;
         }
+        if (scene) ProbeWrite("PREV-SCENE-WINPATH");
+        // 路线2: connectedScenes
         if (!scene) {
-            id wins = ((id(*)(id, SEL))objc_msgSend)(app, sel_registerName("windows"));
-            NSUInteger wn = wins ? ((NSUInteger(*)(id, SEL))objc_msgSend)(wins, sel_registerName("count")) : 0;
-            double best = 0;
-            for (NSUInteger i = 0; i < wn; i++) {
-                id wv = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(wins, sel_registerName("objectAtIndex:"), i);
-                if (((BOOL(*)(id, SEL))objc_msgSend)(wv, sel_registerName("isHidden"))) continue;
-                CGRect wf = ((CGRect(*)(id, SEL))objc_msgSend)(wv, sel_registerName("bounds"));
-                if (wf.w * wf.h > best) { best = wf.w * wf.h; scene = wv; }
+            id scenes = ((id(*)(id, SEL))objc_msgSend)(app, sel_registerName("connectedScenes"));
+            id sceneArr = scenes ? ((id(*)(id, SEL))objc_msgSend)(scenes, sel_registerName("allObjects")) : nil;
+            NSUInteger scn = sceneArr ? ((NSUInteger(*)(id, SEL))objc_msgSend)(sceneArr, sel_registerName("count")) : 0;
+            for (NSUInteger i = 0; i < scn && !scene; i++) {
+                id s = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(sceneArr, sel_registerName("objectAtIndex:"), i);
+                if (strstr(object_getClassName(s), "UIWindowScene")) scene = s;
             }
-            ProbeWrite("PREV-SCENE-FALLBACK");
+            if (scene) ProbeWrite("PREV-SCENE-CONN");
+        }
+        // 路线3 宿主: 最大可见窗口 (兜底直接挂载用)
+        for (NSUInteger i = 0; i < wn; i++) {
+            id wv = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(wins, sel_registerName("objectAtIndex:"), i);
+            if (((BOOL(*)(id, SEL))objc_msgSend)(wv, sel_registerName("isHidden"))) continue;
+            CGRect wf = ((CGRect(*)(id, SEL))objc_msgSend)(wv, sel_registerName("bounds"));
+            if (wf.w * wf.h > best) { best = wf.w * wf.h; hostWin = wv; }
         }
         id scr = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIScreen"), sel_registerName("mainScreen"));
         CGRect sb = ((CGRect(*)(id, SEL))objc_msgSend)(scr, sel_registerName("bounds"));
-        UIWindow *win = [[UIWindow alloc] initWithFrame:sb];
-        if (scene && strstr(object_getClassName(scene), "UIWindowScene")) [win setWindowScene:scene];
-        ProbeWrite("PREV-W1");
-        [win setWindowLevel:2001];
-        [win setBackgroundColor:[UIColor clearColor]];
-        [win setHidden:NO];
+        id win = nil;
+        if (scene) {
+            win = [[UIWindow alloc] initWithFrame:sb];
+            [win setWindowScene:scene];
+            [win setWindowLevel:2001];
+            [win setBackgroundColor:[UIColor clearColor]];
+            [win setHidden:NO];
+            ProbeWrite("PREV-W1-SCENE");
+        } else if (hostWin) {
+            win = hostWin;
+            ProbeWrite("PREV-W1-HOST");
+        } else { ProbeWrite("PREV-NOWIN"); return; }
         double W = sb.w;
         gPillR = MakeRect((W - 126.0) / 2.0, 11.0, 126.0, 37.0);
         gExpR = MakeRect(12.0, 11.0, W - 24.0, 110.0);
@@ -957,7 +972,7 @@ static void ShowPreviewWindow(void) {
         [banner addSubview:bo];
         if (!gPreviewDismissTarget) gPreviewDismissTarget = [[LDDPreviewDismiss alloc] init];
         [banner addTarget:gPreviewDismissTarget action:@selector(dismissPreview) forControlEvents:1 << 6];
-        gPreviewWinHolder = win;
+        gPreviewWinHolder = (scene ? win : nil);
         gPreviewBanner = banner;
         gPreviewIcon = icon;
         gPreviewFade = [NSArray arrayWithObjects:bg, mk, nowL, tagL, ti, bo, nil];
