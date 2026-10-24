@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 
 typedef struct objc_class *Class;
 typedef struct objc_object { Class isa; } *id;
@@ -368,6 +369,41 @@ static void RefreshPrefsCache(void) {
     cPath = GetSelectedImagePath();
 }
 
+
+// ---------- SpringBoard 代发测试通知 (设置端写触发文件) ----------
+static long gNotifSec = 0;
+static void SBPostTestNotification(void) {
+    ProbeWrite("SBN-START");
+    @try {
+        dlopen("/System/Library/Frameworks/UserNotifications.framework/UserNotifications", 2);
+        id clsC = (id)objc_getClass("UNUserNotificationCenter");
+        id clsContent = (id)objc_getClass("UNMutableNotificationContent");
+        id clsT = (id)objc_getClass("UNTimeIntervalNotificationTrigger");
+        id clsR = (id)objc_getClass("UNNotificationRequest");
+        if (!clsC || !clsContent || !clsT || !clsR) { ProbeWrite("SBN-NO-CLASS"); return; }
+        id center = ((id(*)(id, SEL))objc_msgSend)(clsC, sel_registerName("currentNotificationCenter"));
+        if (!center) { ProbeWrite("SBN-NO-CENTER"); return; }
+        id content = ((id(*)(id, SEL))objc_msgSend)(clsContent, sel_registerName("new"));
+        ((void(*)(id, SEL, NSString *))objc_msgSend)(content, sel_registerName("setTitle:"), @"灵动岛测试");
+        ((void(*)(id, SEL, NSString *))objc_msgSend)(content, sel_registerName("setBody:"), @"查看素材显示效果");
+        id trigger = ((id(*)(id, SEL, double, BOOL))objc_msgSend)(clsT, sel_registerName("triggerWithTimeInterval:repeats:"), 1.0, NO);
+        id req = ((id(*)(id, SEL, NSString *, id, id))objc_msgSend)(clsR, sel_registerName("requestWithIdentifier:content:trigger:"), @"lddgifbg-test", content, trigger);
+        ((void(*)(id, SEL, NSUInteger, id))objc_msgSend)(center, sel_registerName("requestAuthorizationWithOptions:completionHandler:"), (NSUInteger)7, ^(BOOL granted, id err){
+            ((void(*)(id, SEL, id, id))objc_msgSend)(center, sel_registerName("addNotificationRequest:withCompletionHandler:"), req, 0);
+            ProbeWrite(granted ? "SBN-ADDED-AUTHED" : "SBN-ADDED-NOAUTH");
+        });
+    } @catch (id e) { ProbeWrite("SBN-EXC"); }
+}
+static void CheckTestNotifFlag(void) {
+    long t = time(0);
+    if (t == gNotifSec) return;
+    gNotifSec = t;
+    if (access("/var/mobile/lddgifbg/__test_notif__", 0) == 0) {
+        remove("/var/mobile/lddgifbg/__test_notif__");
+        SBPostTestNotification();
+    }
+}
+
 // ---------- 诊断占位 (红=无素材, 蓝=加载失败) ----------
 static void RemoveTagged(id self, NSInteger tag) {
     id v = [self viewWithTag:tag];
@@ -474,6 +510,7 @@ static void LDDIslandLayout(id self);
 static void CtrlLayoutHook(id self, SEL _cmd) {
     static int once = 0;
     if (!once) { once = 1; ProbeWrite("CTRL-HOOK-FIRED"); }
+    CheckTestNotifFlag();
     const char *cn = object_getClassName(self);
     if (cn && (strstr(cn, "Aperture") || strstr(cn, "Island"))) {
         static int logged = 0;
