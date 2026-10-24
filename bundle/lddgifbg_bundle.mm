@@ -1020,7 +1020,7 @@ static UIImage *RenderFrameAtIndex(unsigned long idx, CGSize dst) {
     return [NSArray array];
 }
 - (NSInteger)numberOfSectionsInTableView:(id)tv { return 1; }
-- (NSInteger)tableView:(id)tv numberOfRowsInSection:(NSInteger)s { return 7; }
+- (NSInteger)tableView:(id)tv numberOfRowsInSection:(NSInteger)s { return 8; }
 - (double)tableView:(id)tv heightForRowAtIndexPath:(id)ip { return 60.0; }
 - (double)tableView:(id)tv estimatedHeightForRowAtIndexPath:(id)ip { return 60.0; }
 - (double)tableView:(id)tv heightForHeaderInSection:(NSInteger)s { return 0.0; }
@@ -1040,15 +1040,15 @@ static UIImage *RenderFrameAtIndex(unsigned long idx, CGSize dst) {
     for (UIView *v in [[cell contentView] subviews]) { if (v) [v removeFromSuperview]; }
     [cell setSelectionStyle:0];
     [cell setAccessoryType:0];
-    if (row == 0 || row == 1) {
+    if (row == 0 || row == 1 || row == 6) {
         UILabel *label = [[UILabel alloc] initWithFrame:MakeRect(16, 19, b.w - 110, 22)];
-        [label setText:(row == 0 ? @"启用总开关" : @"启用小岛")];
+        [label setText:(row == 0 ? @"启用总开关" : (row == 1 ? @"启用小岛" : @"播放时跳舞"))];
         [label setFont:[UIFont systemFontOfSize:16.0]];
         [[cell contentView] addSubview:label];
         UISwitch *sw = [[UISwitch alloc] initWithFrame:MakeRect(b.w - 67, 14, 51, 31)];
-        [sw setTag:(row == 0 ? 1001 : 1002)];
+        [sw setTag:(row == 0 ? 1001 : (row == 1 ? 1002 : 1003))];
         NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
-        id v = [ud objectForKey:(row == 0 ? @"Enablelddgifbg" : @"Enablezxhlddgifbg")];
+        id v = [ud objectForKey:(row == 0 ? @"Enablelddgifbg" : (row == 1 ? @"Enablezxhlddgifbg" : @"EnableDance"))];
         BOOL on = v ? [v boolValue] : YES;
         [sw setOn:on animated:NO];
         [sw addTarget:self action:@selector(switchToggled:) forControlEvents:1 << 12];
@@ -1073,7 +1073,7 @@ static UIImage *RenderFrameAtIndex(unsigned long idx, CGSize dst) {
         UILabel *label = [[UILabel alloc] initWithFrame:MakeRect(16, 19, b.w - 60, 22)];
         [label setText:t];
         [label setFont:[UIFont systemFontOfSize:16.0]];
-        if (row == 6) [label setTextColor:[UIColor redColor]];
+        if (row == 7) [label setTextColor:[UIColor redColor]];
         [[cell contentView] addSubview:label];
         [cell setSelectionStyle:1];
     }
@@ -1097,12 +1097,12 @@ static UIImage *RenderFrameAtIndex(unsigned long idx, CGSize dst) {
         }];
     } else if (row == 5) {
         [self showBannerPreview];
-    } else if (row == 6) {
+    } else if (row == 7) {
         [self respringNow];
     }
 }
 - (void)switchToggled:(UISwitch *)sw {
-    NSString *key = ([sw tag] == 1001 ? @"Enablelddgifbg" : @"Enablezxhlddgifbg");
+    NSString *key = ([sw tag] == 1001 ? @"Enablelddgifbg" : ([sw tag] == 1002 ? @"Enablezxhlddgifbg" : @"EnableDance"));
     BOOL on = [sw isOn];
     NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
     [ud setObject:[NSNumber numberWithBool:on] forKey:key];
