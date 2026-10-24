@@ -47,6 +47,7 @@ extern "C" { extern void *kCGImagePropertyGIFDictionary; extern void *kCGImagePr
 @end
 @interface NSString : NSObject
 - (id)initWithBytes:(const void *)b length:(NSUInteger)l encoding:(NSUInteger)e;
++ (id)stringWithFormat:(NSString *)f, ...;
 - (NSString *)stringByAppendingPathComponent:(NSString *)s;
 - (NSString *)pathExtension;
 - (NSString *)lowercaseString;
@@ -93,6 +94,9 @@ extern "C" { extern void *kCGImagePropertyGIFDictionary; extern void *kCGImagePr
 @interface NSNotificationCenter : NSObject
 + (id)defaultCenter;
 - (void)addObserver:(id)o selector:(SEL)s name:(NSString *)n object:(id)obj;
+@end
+@interface NSDate : NSObject
++ (id)date;
 @end
 @interface NSURL : NSObject
 + (id)fileURLWithPath:(NSString *)p;
@@ -373,27 +377,33 @@ static void RefreshPrefsCache(void) {
 // ---------- SpringBoard 代发测试通知 (设置端写触发文件) ----------
 static long gNotifSec = 0;
 static void SBPostTestNotification(void) {
-    ProbeWrite("SBN-START");
+    ProbeWrite("SBB-START");
     @try {
-        dlopen("/System/Library/Frameworks/UserNotifications.framework/UserNotifications", 2);
-        id clsC = (id)objc_getClass("UNUserNotificationCenter");
-        id clsContent = (id)objc_getClass("UNMutableNotificationContent");
-        id clsT = (id)objc_getClass("UNTimeIntervalNotificationTrigger");
-        id clsR = (id)objc_getClass("UNNotificationRequest");
-        if (!clsC || !clsContent || !clsT || !clsR) { ProbeWrite("SBN-NO-CLASS"); return; }
-        id center = ((id(*)(id, SEL))objc_msgSend)(clsC, sel_registerName("currentNotificationCenter"));
-        if (!center) { ProbeWrite("SBN-NO-CENTER"); return; }
-        id content = ((id(*)(id, SEL))objc_msgSend)(clsContent, sel_registerName("new"));
-        ((void(*)(id, SEL, NSString *))objc_msgSend)(content, sel_registerName("setTitle:"), @"灵动岛测试");
-        ((void(*)(id, SEL, NSString *))objc_msgSend)(content, sel_registerName("setBody:"), @"查看素材显示效果");
-        id trigger = ((id(*)(id, SEL, double, BOOL))objc_msgSend)(clsT, sel_registerName("triggerWithTimeInterval:repeats:"), 1.0, NO);
-        id req = ((id(*)(id, SEL, NSString *, id, id))objc_msgSend)(clsR, sel_registerName("requestWithIdentifier:content:trigger:"), @"lddgifbg-test", content, trigger);
-        ((void(*)(id, SEL, NSUInteger, id))objc_msgSend)(center, sel_registerName("requestAuthorizationWithOptions:completionHandler:"), (NSUInteger)7, ^(BOOL granted, id err){
-            ((void(*)(id, SEL, id, id))objc_msgSend)(center, sel_registerName("addNotificationRequest:withCompletionHandler:"), req, 0);
-            ProbeWrite(granted ? "SBN-ADDED-AUTHED" : "SBN-ADDED-NOAUTH");
-        });
-    } @catch (id e) { ProbeWrite("SBN-EXC"); }
+        dlopen("/System/Library/PrivateFrameworks/BulletinBoard.framework/BulletinBoard", 2);
+        id clsB = (id)objc_getClass("BBBulletin");
+        id clsS = (id)objc_getClass("BBServer");
+        if (!clsB || !clsS) { ProbeWrite("SBB-NO-CLASS"); return; }
+        id bulletin = ((id(*)(id, SEL))objc_msgSend)(clsB, sel_registerName("bulletin"));
+        if (!bulletin) { ProbeWrite("SBB-NO-BULLETIN"); return; }
+        ((void(*)(id, SEL, NSString *))objc_msgSend)(bulletin, sel_registerName("setTitle:"), @"灵动岛测试");
+        ((void(*)(id, SEL, NSString *))objc_msgSend)(bulletin, sel_registerName("setMessage:"), @"查看素材显示效果");
+        ((void(*)(id, SEL, NSString *))objc_msgSend)(bulletin, sel_registerName("setSectionID:"), @"com.axs.lddgifbg");
+        NSString *uid = [NSString stringWithFormat:@"ldd-%ld", (long)time(0)];
+        ((void(*)(id, SEL, NSString *))objc_msgSend)(bulletin, sel_registerName("setPublisherBulletinID:"), uid);
+        ((void(*)(id, SEL, NSString *))objc_msgSend)(bulletin, sel_registerName("setRecordID:"), uid);
+        ((void(*)(id, SEL, id))objc_msgSend)(bulletin, sel_registerName("setDate:"), [(id)objc_getClass("NSDate") date]);
+        ((void(*)(id, SEL, id))objc_msgSend)(bulletin, sel_registerName("setPublicationDate:"), [(id)objc_getClass("NSDate") date]);
+        ((void(*)(id, SEL, BOOL))objc_msgSend)(bulletin, sel_registerName("setShowsMessagePreview:"), YES);
+        ProbeWrite("SBB-BULLETIN-READY");
+        id server = ((id(*)(id, SEL))objc_msgSend)(clsS, sel_registerName("sharedInstance"));
+        if (!server) server = ((id(*)(id, SEL))objc_msgSend)(clsS, sel_registerName("sharedInstanceIfExists"));
+        if (!server) { ProbeWrite("SBB-NO-SERVER"); return; }
+        // 标准发布: banner(1) | coverSheet(2) | notificationCenter(4)
+        ((void(*)(id, SEL, id, NSUInteger, BOOL))objc_msgSend)(server, sel_registerName("publishBulletin:destinations:alwaysToLockScreen:"), bulletin, (NSUInteger)7, YES);
+        ProbeWrite("SBB-PUBLISHED");
+    } @catch (id e) { ProbeWrite("SBB-EXC"); }
 }
+
 static void CheckTestNotifFlag(void) {
     long t = time(0);
     if (t == gNotifSec) return;
