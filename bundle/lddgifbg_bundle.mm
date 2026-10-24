@@ -57,6 +57,7 @@ static id CLSSTR(const char *n) { return (id)objc_getClass(n); }
 @end
 @interface NSMutableArray : NSArray
 + (id)array;
++ (id)arrayWithCapacity:(NSUInteger)n;
 - (void)addObject:(id)obj;
 - (void)removeObject:(id)o;
 - (void)removeAllObjects;
@@ -160,6 +161,11 @@ extern "C" void UIGraphicsEndImageContext(void);
 @interface UIImageView : UIView
 - (id)initWithFrame:(CGRect)r;
 - (void)setImage:(id)img;
+- (void)setAnimationImages:(id)images;
+- (void)setAnimationDuration:(double)d;
+- (void)setAnimationRepeatCount:(NSInteger)n;
+- (void)startAnimating;
+- (void)stopAnimating;
 @end
 @interface UIButton : UIView @end
 @interface UISwitch : UIView
@@ -333,13 +339,14 @@ static void PostTestNotification(void) {
 // ---------- 素材缩略图 ----------
 static void *gImageIO = NULL;
 static void *gAVF = NULL;
-static void *fnCGSrcCreate = NULL, *fnCGSrcImg = NULL;
+static void *fnCGSrcCreate = NULL, *fnCGSrcImg = NULL, *fnCGSrcCount = NULL;
 static void EnsureLibs(void) {
     if (!gImageIO) {
         gImageIO = dlopen("/System/Library/Frameworks/ImageIO.framework/ImageIO", 2);
         if (gImageIO) {
             fnCGSrcCreate = dlsym(gImageIO, "CGImageSourceCreateWithData");
             fnCGSrcImg = dlsym(gImageIO, "CGImageSourceCreateImageAtIndex");
+            fnCGSrcCount = dlsym(gImageIO, "CGImageSourceGetCount");
         }
     }
     if (!gAVF) gAVF = dlopen("/System/Library/Frameworks/AVFoundation.framework/AVFoundation", 2);
