@@ -592,9 +592,18 @@ static id ThumbForPath(NSString *path) {
     } @catch (id e) { LogB("PICK-EXC"); }
 }
 - (void)notifyTapped {
-    id host = ((id(*)(id, SEL))objc_msgSend)(self, sel_registerName("presentingViewController"));
-    if (!host) host = self;
-    ((void(*)(id, SEL))objc_msgSend)(host, sel_registerName("showBannerPreview"));
+    SEL sp = sel_registerName("showBannerPreview");
+    SEL rs = sel_registerName("respondsToSelector:");
+    id host = self;
+    for (int i = 0; i < 5; i++) {
+        if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(host, rs, sp)) break;
+        id nx = ((id(*)(id, SEL))objc_msgSend)(host, sel_registerName("presentingViewController"));
+        if (!nx) nx = ((id(*)(id, SEL))objc_msgSend)(host, sel_registerName("navigationController"));
+        if (!nx || nx == host) break;
+        host = nx;
+    }
+    if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(host, rs, sp))
+        ((void(*)(id, SEL))objc_msgSend)(host, sp);
 }
 - (void)deleteTapped {
     if (!_delMode) {
