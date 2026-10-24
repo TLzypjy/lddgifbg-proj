@@ -591,10 +591,7 @@ static id ThumbForPath(NSString *path) {
     } @catch (id e) { LogB("PICK-EXC"); }
 }
 - (void)notifyTapped {
-    [self showBannerPreview];
-}
-- (void)notifyTappedOld {
-    PostTestNotification();
+    ((void(*)(id, SEL))objc_msgSend)(self, sel_registerName("showBannerPreview"));
 }
 - (void)deleteTapped {
     if (!_delMode) {
@@ -780,44 +777,6 @@ static id ThumbForPath(NSString *path) {
 @end
 
 // ---------- 设置主控制器: PSListController 子类 + 直接自绘 6 行 (无模态无延迟) ----------
-@end
-
-// ---------- 设置主控制器: PSListController 子类 + 直接自绘 6 行 (无模态无延迟) ----------
-
-// ---- 流式 GIF 播放状态 ----
-static void *gPrevSrc = 0;
-static id gPrevDelays = nil;
-static unsigned long gPrevIdx = 0;
-static double gPrevTime = 0, gPrevLast = 0;
-static id gPrevTimer2 = nil;
-static UIColor *AvgColorOfImage(UIImage *img) {
-    unsigned char px[4] = {128, 90, 220, 255};
-    CGImageRef cg = [img CGImage];
-    if (!cg) return [UIColor colorWithRed:0.55 green:0.4 blue:0.95 alpha:1.0];
-    void *cs = CGColorSpaceCreateDeviceRGB();
-    void *ctx = CGBitmapContextCreate(px, 1, 1, 8, 4, cs, 1);
-    if (ctx) { CGContextDrawImage(ctx, MakeRect(0, 0, 1, 1), cg); CGContextRelease(ctx); }
-    CGColorSpaceRelease(cs);
-    return [UIColor colorWithRed:px[0]/255.0 green:px[1]/255.0 blue:px[2]/255.0 alpha:1.0];
-}
-static UIImage *RenderFrameAtIndex(unsigned long idx, CGSize dst) {
-    if (!gPrevSrc) return nil;
-    CGImageRef cg = ((CGImageRef(*)(void *, NSUInteger, void *))fnCGSrcImg)(gPrevSrc, idx, 0);
-    if (!cg) return nil;
-    UIImage *tmp = [UIImage imageWithCGImage:cg];
-    CFRelease((void *)cg);
-    if (!tmp) return nil;
-    CGSize isz = [tmp size];
-    if (isz.w <= 0 || isz.h <= 0) return tmp;
-    double r = (dst.w / isz.w) > (dst.h / isz.h) ? (dst.w / isz.w) : (dst.h / isz.h);
-    double dw = isz.w * r, dh = isz.h * r;
-    UIGraphicsBeginImageContextWithOptions(dst, NO, 0.0);
-    [tmp drawInRect:MakeRect((dst.w - dw) / 2.0, (dst.h - dh) / 2.0, dw, dh)];
-    UIImage *out = UIGraphicsGetImageFromCurrentImageContext();
-    UIGraphicsEndImageContext();
-    return out;
-}
-
 @interface lddgifbgRootListController : PSListController
 - (NSInteger)numberOfSectionsInTableView:(id)tv;
 - (NSInteger)tableView:(id)tv numberOfRowsInSection:(NSInteger)s;
