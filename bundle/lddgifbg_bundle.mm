@@ -771,17 +771,10 @@ static id ThumbForPath(NSString *path) {
             }
         }
         if (!path) return;
-        id app = [UIApplication sharedApplication];
-        id kw = [app keyWindow];
-        id scene = kw ? [kw scene] : nil;
-        id scr = [UIScreen mainScreen];
-        CGRect sb = [scr bounds];
-        UIWindow *win = [[UIWindow alloc] initWithFrame:sb];
-        if (scene) [win setWindowScene:scene];
-        [win setWindowLevel:2001];
-        [win setBackgroundColor:[UIColor clearColor]];
-        [win setHidden:NO];
-        [win makeKeyAndVisible];
+        id win = [[self view] window];
+        if (!win) win = [[UIApplication sharedApplication] keyWindow];
+        if (!win) return;
+        CGRect sb = [win bounds];
         double W = sb.w;
         CGRect pill = MakeRect((W - 126.0) / 2.0, 11.0, 126.0, 37.0);
         CGRect exp = MakeRect(12.0, 11.0, W - 24.0, 110.0);
@@ -844,7 +837,6 @@ static id ThumbForPath(NSString *path) {
                 [bg setAlpha:0.0]; [mk setAlpha:0.0]; [nowL setAlpha:0.0]; [tagL setAlpha:0.0]; [ti setAlpha:0.0]; [bo setAlpha:0.0];
             } completion:^(BOOL f) {
                 [bBanner removeFromSuperview];
-                [bWin setHidden:YES];
             }];
         };
         [banner addTarget:self action:@selector(previewTap:) forControlEvents:1 << 6];
