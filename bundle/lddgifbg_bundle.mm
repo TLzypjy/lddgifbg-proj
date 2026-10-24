@@ -401,7 +401,7 @@ __attribute__((unused)) static id GIFFramesForPath(NSString *path, int maxFrames
         double sc = maxW / osz.w;
         if (sc > 1.0) sc = 1.0;
         CGSize nsz; nsz.w = osz.w * sc; nsz.h = osz.h * sc;
-        UIGraphicsBeginImageContextWithOptions(nsz, NO, 1.0);
+        UIGraphicsBeginImageContextWithOptions(nsz, NO, 0.0);
         [full drawInRect:MakeRect(0, 0, nsz.w, nsz.h)];
         UIImage *small = UIGraphicsGetImageFromCurrentImageContext();
         UIGraphicsEndImageContext();
