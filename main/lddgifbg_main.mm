@@ -507,20 +507,41 @@ static void SBPostTestNotification(void) {
                 SEL sPub3 = sel_registerName("publishBulletin:destinations:alwaysToLockScreen:");
                 SEL sPub2 = sel_registerName("publishBulletin:destinations:");
                 SEL sSend = sel_registerName("_sendAddBulletin:toFeeds:");
-                BOOL done = NO;
-                if (!done && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(server, sel_registerName("respondsToSelector:"), sPub3)) {
-                    @try { ((void(*)(id, SEL, id, NSUInteger, BOOL))objc_msgSend)(server, sPub3, bulletin, (NSUInteger)7, YES); ProbeWrite("SBB-PUB-Q3"); done = YES; }
-                    @catch (id e) { LogReason("SBB-Q3-EXC", e); }
+                BOOL h3 = ((BOOL(*)(id, SEL, SEL))objc_msgSend)(server, sel_registerName("respondsToSelector:"), sPub3);
+                BOOL h2 = ((BOOL(*)(id, SEL, SEL))objc_msgSend)(server, sel_registerName("respondsToSelector:"), sPub2);
+                BOOL hs = ((BOOL(*)(id, SEL, SEL))objc_msgSend)(server, sel_registerName("respondsToSelector:"), sSend);
+                {
+                    char hb[64]; snprintf(hb, sizeof(hb), "SBB-HAS q3=%d q2=%d qs=%d", h3?1:0, h2?1:0, hs?1:0); ProbeWrite(hb);
                 }
-                if (!done && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(server, sel_registerName("respondsToSelector:"), sPub2)) {
-                    @try { ((void(*)(id, SEL, id, NSUInteger))objc_msgSend)(server, sPub2, bulletin, (NSUInteger)7); ProbeWrite("SBB-PUB-Q2"); done = YES; }
-                    @catch (id e) { LogReason("SBB-Q2-EXC", e); }
+                BOOL shown = NO;
+                // 1) TrollOpen 同款: _sendAddBulletin:toFeeds: 全 feeds
+                if (hs) {
+                    unsigned long long feedVals[4] = { ~0ULL, 1ULL, 2ULL, 3ULL };
+                    const char *feedNames[4] = {"QS-ALL", "QS-1", "QS-2", "QS-3"};
+                    for (int i = 0; i < 4 && !shown; i++) {
+                        @try {
+                            ((void(*)(id, SEL, id, unsigned long long))objc_msgSend)(server, sSend, bulletin, feedVals[i]);
+                            char lb[48]; snprintf(lb, sizeof(lb), "SBB-PUB-%s", feedNames[i]); ProbeWrite(lb);
+                            shown = YES;
+                        } @catch (id e) { LogReason(feedNames[i], e); }
+                    }
                 }
-                if (!done && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(server, sel_registerName("respondsToSelector:"), sSend)) {
-                    @try { ((void(*)(id, SEL, id, NSUInteger))objc_msgSend)(server, sSend, bulletin, (NSUInteger)3); ProbeWrite("SBB-PUB-QS"); done = YES; }
-                    @catch (id e) { LogReason("SBB-QS-EXC", e); }
+                // 2) 三参 publish
+                if (!shown && h3) {
+                    @try { ((void(*)(id, SEL, id, NSUInteger, BOOL))objc_msgSend)(server, sPub3, bulletin, (NSUInteger)7, YES); ProbeWrite("SBB-PUB-Q3"); shown = YES; }
+                    @catch (id e) { LogReason("Q3", e); }
                 }
-                if (!done) ProbeWrite("SBB-Q-ALLFAIL");
+                // 3) 二参 publish, banner only
+                if (!shown && h2) {
+                    @try { ((void(*)(id, SEL, id, NSUInteger))objc_msgSend)(server, sPub2, bulletin, (NSUInteger)4); ProbeWrite("SBB-PUB-Q2-4"); shown = YES; }
+                    @catch (id e) { LogReason("Q2-4", e); }
+                }
+                // 4) 二参 publish, all
+                if (!shown && h2) {
+                    @try { ((void(*)(id, SEL, id, NSUInteger))objc_msgSend)(server, sPub2, bulletin, (NSUInteger)7); ProbeWrite("SBB-PUB-Q2-7"); shown = YES; }
+                    @catch (id e) { LogReason("Q2-7", e); }
+                }
+                if (!shown) ProbeWrite("SBB-ALL-FAIL");
             });
             ProbeWrite("SBB-QASYNC");
             return;
