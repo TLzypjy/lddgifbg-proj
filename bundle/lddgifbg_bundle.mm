@@ -151,7 +151,12 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 @interface UIImage : NSObject
 + (id)imageWithContentsOfFile:(NSString *)p;
 + (id)imageWithCGImage:(CGImageRef)cg scale:(double)s orientation:(NSInteger)o;
+- (CGSize)size;
+- (void)drawInRect:(CGRect)r;
 @end
+extern "C" void UIGraphicsBeginImageContextWithOptions(CGSize sz, BOOL opaque, double scale);
+extern "C" id UIGraphicsGetImageFromCurrentImageContext(void);
+extern "C" void UIGraphicsEndImageContext(void);
 @interface UIImageView : UIView
 - (id)initWithFrame:(CGRect)r;
 - (void)setImage:(id)img;
@@ -339,6 +344,38 @@ static void EnsureLibs(void) {
     }
     if (!gAVF) gAVF = dlopen("/System/Library/Frameworks/AVFoundation.framework/AVFoundation", 2);
 }
+// GIF 低分辨率帧序列 (动态预览用): 最多 maxFrames 帧, 缩到 maxW 宽
+static id GIFFramesForPath(NSString *path, int maxFrames, double maxW) {
+    EnsureLibs();
+    if (!gImageIO || !fnCGSrcCreate || !fnCGSrcImg) return nil;
+    NSData *data = [NSData dataWithContentsOfFile:path];
+    if (!data) return nil;
+    void *src = ((void *(*)(void *, void *))fnCGSrcCreate)((__bridge void *)data, 0);
+    if (!src) return nil;
+    NSUInteger count = ((NSUInteger(*)(void *))fnCGSrcCount)(src);
+    if (count == 0) { CFRelease(src); return nil; }
+    if ((int)count > maxFrames) count = (NSUInteger)maxFrames;
+    NSMutableArray *arr = [NSMutableArray arrayWithCapacity:count];
+    for (NSUInteger i = 0; i < count; i++) {
+        CGImageRef cg = ((CGImageRef(*)(void *, NSUInteger, void *))fnCGSrcImg)(src, i, 0);
+        if (!cg) continue;
+        UIImage *full = [UIImage imageWithCGImage:cg scale:1.0 orientation:0];
+        CFRelease((void *)cg);
+        if (!full) continue;
+        // 缩放到 maxW
+        CGSize osz; osz.w = [full size].w; osz.h = [full size].h;
+        double sc = maxW / osz.w;
+        if (sc > 1.0) sc = 1.0;
+        CGSize nsz; nsz.w = osz.w * sc; nsz.h = osz.h * sc;
+        UIGraphicsBeginImageContextWithOptions(nsz, NO, 1.0);
+        [full drawInRect:MakeRect(0, 0, nsz.w, nsz.h)];
+        UIImage *small = UIGraphicsGetImageFromCurrentImageContext();
+        UIGraphicsEndImageContext();
+        if (small) [arr addObject:small];
+    }
+    CFRelease(src);
+    return [arr count] > 1 ? arr : nil;
+}
 static id ThumbForPath(NSString *path) {
     EnsureLibs();
     NSString *ext = [[path pathExtension] lowercaseString];
@@ -400,6 +437,7 @@ static id ThumbForPath(NSString *path) {
 {
     id _folders;
     id _thumbs;
+    id _anims;
     NSString *_sel;
     id _cv;
     id _pendImg;
@@ -426,6 +464,7 @@ static id ThumbForPath(NSString *path) {
         _folders = [fm contentsOfDirectoryAtPath:@"/var/mobile/lddgifbg" error:nil];
     }
     _thumbs = [NSMutableDictionary dictionary];
+    _anims = [NSMutableDictionary dictionary];
     NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
     _sel = [ud objectForKey:@"SelectedMaterialFolder"];
 
@@ -623,7 +662,26 @@ static id ThumbForPath(NSString *path) {
         if (thumb) [_thumbs setObject:thumb forKeyedSubscript:name];
     }
     UIImageView *iv = [[UIImageView alloc] initWithFrame:MakeRect(0, 0, cb.w, imgH)];
-    [iv setImage:thumb];
+    id frames = [_anims objectForKeyedSubscript:name];
+    if (!frames && thumb) {
+        NSString *full0 = [@"/var/mobile/lddgifbg" stringByAppendingPathComponent:name];
+        NSArray *fs0 = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:full0 error:nil];
+        for (NSString *f0 in fs0) {
+            if ([[[f0 pathExtension] lowercaseString] isEqualToString:@"gif"]) {
+                frames = GIFFramesForPath([full0 stringByAppendingPathComponent:f0], 24, cb.w);
+                break;
+            }
+        }
+        if (frames) [_anims setObject:frames forKeyedSubscript:name];
+    }
+    if (frames) {
+        [iv setAnimationImages:frames];
+        [iv setAnimationDuration:2.0];
+        [iv setAnimationRepeatCount:0];
+        [iv startAnimating];
+    } else {
+        [iv setImage:thumb];
+    }
     [iv setContentMode:2];
     [card addSubview:iv];
     UILabel *badge = [[UILabel alloc] initWithFrame:MakeRect(6, 6, 34, 16)];
@@ -763,7 +821,7 @@ static id ThumbForPath(NSString *path) {
         [self presentViewController:nav animated:YES completion:0];
     } else if (row == 4) {
         UIApplication *app = [UIApplication sharedApplication];
-        NSURL *fz = [NSURL URLWithString:@"filza://view/var/mobile/lddgifbg/"];
+        NSURL *fz = [NSURL URLWithString:@"filza://view/var/mobile/lddgifbg"];
         [app openURL:fz options:[NSDictionary dictionary] completionHandler:^(BOOL ok){
             if (!ok) {
                 NSURL *url = [NSURL fileURLWithPath:@"/var/mobile/lddgifbg"];
