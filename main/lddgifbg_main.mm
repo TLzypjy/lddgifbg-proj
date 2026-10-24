@@ -117,6 +117,10 @@ extern "C" { extern void *kCGImagePropertyGIFDictionary; extern void *kCGImagePr
 typedef struct CGRect { double ox, oy, w, h; } CGRect;
 static void LogReason(const char *tag, id e);
 static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, y, w, h}; return r; }
+@interface UIApplication : NSObject
++ (id)sharedApplication;
+- (id)keyWindow;
+@end
 @interface UIScreen : NSObject
 + (id)mainScreen;
 - (CGRect)bounds;
@@ -134,6 +138,8 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (void)setFrame:(CGRect)r;
 - (void)insertSubview:(id)v atIndex:(NSInteger)i;
 - (void)addSubview:(id)v;
+- (void)bringSubviewToFront:(id)v;
+- (void)removeFromSuperview;
 - (void)removeFromSuperview;
 - (id)viewWithTag:(NSInteger)t;
 - (id)layer;
@@ -387,45 +393,36 @@ static void LoadMediaWithPathIntoImageView(NSString *path, UIImageView *iv) {
 
 // ---------- 强制上岛预览 (8秒, 不依赖通知系统) ----------
 static long gForceUntil = 0;
-static id gPreviewWin = nil;
+static id gPreviewOverlay = nil;
 static void ShowPreviewWindow(void) {
     @try {
         NSString *path = GetSelectedImagePath();
         if (!path) { ProbeWrite("PREV-NOPATH"); return; }
+        id app = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIApplication"), sel_registerName("sharedApplication"));
+        id kw = ((id(*)(id, SEL))objc_msgSend)(app, sel_registerName("keyWindow"));
+        if (!kw) { ProbeWrite("PREV-NOKEYWIN"); return; }
         id scr = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIScreen"), sel_registerName("mainScreen"));
         CGRect sb = ((CGRect(*)(id, SEL))objc_msgSend)(scr, sel_registerName("bounds"));
         double w = sb.w - 60.0; if (w > 380.0) w = 380.0;
         double h = 84.0;
-        CGRect r = MakeRect((sb.w - w) / 2.0, 10.0, w, h);
-        if (gPreviewWin) { ((void(*)(id, SEL, BOOL))objc_msgSend)(gPreviewWin, sel_registerName("setHidden:"), YES); gPreviewWin = nil; }
-        UIWindow *win = [[UIWindow alloc] initWithFrame:r];
-        [win setWindowLevel:2000];
-        [win setBackgroundColor:[UIColor clearColor]];
-        id wl = [win layer];
-        [wl setCornerRadius:h / 2.0];
-        [wl setMasksToBounds:YES];
+        if (gPreviewOverlay) { ((void(*)(id, SEL))objc_msgSend)(gPreviewOverlay, sel_registerName("removeFromSuperview")); gPreviewOverlay = nil; }
+        UIView *ov = [[UIView alloc] initWithFrame:MakeRect((sb.w - w) / 2.0, 10.0, w, h)];
+        [ov setBackgroundColor:[UIColor clearColor]];
+        id ol = [ov layer];
+        [ol setCornerRadius:h / 2.0];
+        [ol setMasksToBounds:YES];
         UIImageView *iv = [[UIImageView alloc] initWithFrame:MakeRect(0, 0, w, h)];
         [iv setContentMode:2];
-        [win addSubview:iv];
+        [ov addSubview:iv];
+        [kw addSubview:ov];
+        [kw bringSubviewToFront:ov];
         LoadMediaWithPathIntoImageView(path, iv);
-        [win setHidden:NO];
-        gPreviewWin = win;
-        ProbeWrite("PREV-WINDOW-ON");
+        gPreviewOverlay = ov;
+        ProbeWrite("PREV-OVERLAY-ON");
         dispatch_after(dispatch_time(0, 8LL * 1000000000LL), (void *)&_dispatch_main_q, ^{
-            if (gPreviewWin) { ((void(*)(id, SEL, BOOL))objc_msgSend)(gPreviewWin, sel_registerName("setHidden:"), YES); gPreviewWin = nil; ProbeWrite("PREV-WINDOW-OFF"); }
+            if (gPreviewOverlay) { ((void(*)(id, SEL))objc_msgSend)(gPreviewOverlay, sel_registerName("removeFromSuperview")); gPreviewOverlay = nil; ProbeWrite("PREV-OVERLAY-OFF"); }
         });
     } @catch (id e) { LogReason("PREV-EXC", e); }
-}
-
-static long gForceSec = 0;
-static void CheckForcePreviewTick(void) {
-    long t = time(0);
-    if (t == gForceSec) return;
-    gForceSec = t;
-    if (access("/var/mobile/lddgifbg/__force_preview__", 0) == 0) {
-        remove("/var/mobile/lddgifbg/__force_preview__");
-        ShowPreviewWindow();
-    }
 }
 
 static void CheckForcePreview(void) {
