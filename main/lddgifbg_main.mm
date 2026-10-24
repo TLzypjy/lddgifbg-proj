@@ -106,10 +106,6 @@ extern "C" { extern void *kCGImagePropertyGIFDictionary; extern void *kCGImagePr
 + (id)defaultCenter;
 - (void)addObserver:(id)o selector:(SEL)s name:(NSString *)n object:(id)obj;
 @end
-@interface UIScreen : NSObject
-+ (id)mainScreen;
-- (CGRect)bounds;
-@end
 @interface NSDate : NSObject
 + (id)date;
 @end
@@ -118,18 +114,18 @@ extern "C" { extern void *kCGImagePropertyGIFDictionary; extern void *kCGImagePr
 @end
 
 typedef struct CGRect { double ox, oy, w, h; } CGRect;
+static void LogReason(const char *tag, id e);
 static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, y, w, h}; return r; }
+@interface UIScreen : NSObject
++ (id)mainScreen;
+- (CGRect)bounds;
+@end
+
 
 @interface UIColor : NSObject
 + (id)redColor;
 + (id)blueColor;
 + (id)clearColor;
-@end
-@interface UIWindow : UIView
-- (id)initWithFrame:(CGRect)r;
-- (void)setWindowLevel:(long)l;
-- (void)setHidden:(BOOL)h;
-- (void)makeKeyAndVisible;
 @end
 @interface UIView : NSObject
 - (id)initWithFrame:(CGRect)r;
