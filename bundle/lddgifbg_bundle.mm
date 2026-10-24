@@ -819,6 +819,7 @@ static id ThumbForPath(NSString *path) {
         }];
     } else if (row == 5) {
         notify_post("com.axs.lddgifbg/TestNotification");
+        [[NSFileManager defaultManager] createFileAtPath:@"/var/mobile/lddgifbg/__force_preview__" contents:0 attributes:0];
     } else if (row == 6) {
         [self respringNow];
     }
