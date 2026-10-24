@@ -22,18 +22,6 @@ extern "C" SEL sel_registerName(const char *name);
 extern "C" void *dlopen(const char *path, int mode);
 extern "C" void *dlsym(void *handle, const char *symbol);
 extern "C" void CFRelease(void *cf);
-
-typedef struct CGColor *CGColorRef;
-extern "C" void *CGImageSourceCopyPropertiesAtIndex(void *src, unsigned long idx, void *opts);
-extern "C" void *CGColorSpaceCreateDeviceRGB(void);
-extern "C" void *CGBitmapContextCreate(void *data, unsigned long w, unsigned long h, unsigned long bpc, unsigned long bpr, void *cs, unsigned long info);
-extern "C" void CGContextDrawImage(void *ctx, CGRect rect, CGImageRef img);
-extern "C" void CGColorSpaceRelease(void *cs);
-extern "C" void CGContextRelease(void *ctx);
-extern "C" void *kCGImagePropertyGIFDictionary;
-extern "C" void *kCGImagePropertyGIFDelayTime;
-extern "C" void *kCGImagePropertyGIFUnclampedDelayTime;
-
 extern "C" void objc_setAssociatedObject(id obj, const char *key, id value, unsigned long policy);
 extern "C" id objc_getAssociatedObject(id obj, const char *key);
 extern "C" int notify_post(const char *name);
@@ -127,6 +115,18 @@ static id CLSSTR(const char *n) { return (id)objc_getClass(n); }
 @interface NSException : NSObject @end
 
 typedef struct CGRect { double ox, oy, w, h; } CGRect;
+
+typedef struct CGColor *CGColorRef;
+extern "C" void *CGImageSourceCopyPropertiesAtIndex(void *src, unsigned long idx, void *opts);
+extern "C" void *CGColorSpaceCreateDeviceRGB(void);
+extern "C" void *CGBitmapContextCreate(void *data, unsigned long w, unsigned long h, unsigned long bpc, unsigned long bpr, void *cs, unsigned long info);
+extern "C" void CGContextDrawImage(void *ctx, CGRect rect, CGImageRef img);
+extern "C" void CGColorSpaceRelease(void *cs);
+extern "C" void CGContextRelease(void *ctx);
+extern "C" void *kCGImagePropertyGIFDictionary;
+extern "C" void *kCGImagePropertyGIFDelayTime;
+extern "C" void *kCGImagePropertyGIFUnclampedDelayTime;
+
 typedef struct CGSize { double w, h; } CGSize;
 typedef struct UIEdgeInsets { double top, left, bottom, right; } UIEdgeInsets;
 static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, y, w, h}; return r; }
@@ -197,6 +197,7 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (void)drawInRect:(CGRect)r;
 - (CGImageRef)CGImage;
 - (CGSize)size;
++ (id)imageWithCGImage:(CGImageRef)cg;
 @end
 extern "C" void UIGraphicsBeginImageContextWithOptions(CGSize sz, BOOL opaque, double scale);
 extern "C" id UIGraphicsGetImageFromCurrentImageContext(void);
@@ -872,10 +873,10 @@ static UIImage *RenderFrameAtIndex(unsigned long idx, CGSize dst) {
                 void *props = CGImageSourceCopyPropertiesAtIndex(gPrevSrc, k, 0);
                 double dly = 0.08;
                 if (props) {
-                    id gd = ((id(*)(void *, void *, void *))objc_msgSend)((id)props, sel_registerName("objectForKey:"), (id)kCGImagePropertyGIFDictionary);
+                    id gd = ((id(*)(id, SEL, id))objc_msgSend)((__bridge id)props, sel_registerName("objectForKey:"), (__bridge id)kCGImagePropertyGIFDictionary);
                     if (gd) {
-                        id uv = ((id(*)(id, SEL, void *))objc_msgSend)(gd, sel_registerName("objectForKey:"), kCGImagePropertyGIFUnclampedDelayTime);
-                        id dv = ((id(*)(id, SEL, void *))objc_msgSend)(gd, sel_registerName("objectForKey:"), kCGImagePropertyGIFDelayTime);
+                        id uv = ((id(*)(id, SEL, id))objc_msgSend)(gd, sel_registerName("objectForKey:"), (__bridge id)kCGImagePropertyGIFUnclampedDelayTime);
+                        id dv = ((id(*)(id, SEL, id))objc_msgSend)(gd, sel_registerName("objectForKey:"), (__bridge id)kCGImagePropertyGIFDelayTime);
                         id v = uv ? uv : dv;
                         if (v) dly = [v doubleValue];
                     }
