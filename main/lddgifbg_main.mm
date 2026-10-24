@@ -397,18 +397,21 @@ static void LoadMediaWithPathIntoImageView(NSString *path, UIImageView *iv) {
 
 // ---------- 强制上岛预览 (8秒, 不依赖通知系统) ----------
 static long gForceUntil = 0;
+static void PreviewOverlayDismiss(void);
 @interface LDDPreviewDismiss : NSObject
 - (void)dismissPreview;
 @end
 @implementation LDDPreviewDismiss
 - (void)dismissPreview;
 {
-    extern id gPreviewOverlay;
-    if (gPreviewOverlay) { ((void(*)(id, SEL))objc_msgSend)(gPreviewOverlay, sel_registerName("removeFromSuperview")); gPreviewOverlay = nil; ProbeWrite("PREV-TAP-OFF"); }
+    PreviewOverlayDismiss();
 }
 @end
 static id gPreviewDismissTarget = nil;
 static id gPreviewOverlay = nil;
+static void PreviewOverlayDismiss(void) {
+    if (gPreviewOverlay) { ((void(*)(id, SEL))objc_msgSend)(gPreviewOverlay, sel_registerName("removeFromSuperview")); gPreviewOverlay = nil; ProbeWrite("PREV-TAP-OFF"); }
+}
 static void ShowPreviewWindow(void) {
     @try {
         NSString *path = GetSelectedImagePath();
