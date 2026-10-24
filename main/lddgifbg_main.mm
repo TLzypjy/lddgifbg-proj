@@ -426,6 +426,17 @@ static void ShowPreviewWindow(void) {
     } @catch (id e) { LogReason("PREV-EXC", e); }
 }
 
+static long gForceSec = 0;
+static void CheckForcePreviewTick(void) {
+    long t = time(0);
+    if (t == gForceSec) return;
+    gForceSec = t;
+    if (access("/var/mobile/lddgifbg/__force_preview__", 0) == 0) {
+        remove("/var/mobile/lddgifbg/__force_preview__");
+        ShowPreviewWindow();
+    }
+}
+
 static void CheckForcePreview(void) {
     if (access("/var/mobile/lddgifbg/__force_preview__", 0) == 0) {
         remove("/var/mobile/lddgifbg/__force_preview__");
