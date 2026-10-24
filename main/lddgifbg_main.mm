@@ -197,6 +197,7 @@ static void PreviewAutoClose(void);
 @interface UIImage : NSObject
 + (id)imageWithContentsOfFile:(NSString *)p;
 + (id)imageWithCGImage:(CGImageRef)cg scale:(double)s orientation:(NSInteger)o;
++ (id)imageWithCGImage:(CGImageRef)cg;
 @end
 @interface UIImageView : UIView
 - (id)initWithFrame:(CGRect)r;
