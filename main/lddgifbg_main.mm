@@ -380,35 +380,52 @@ static void SBPostTestNotification(void) {
     ProbeWrite("SBB-START");
     @try {
         dlopen("/System/Library/PrivateFrameworks/BulletinBoard.framework/BulletinBoard", 2);
-        ProbeWrite("SBB-DL");
         id clsB = (id)objc_getClass("BBBulletin");
         id clsS = (id)objc_getClass("BBServer");
         if (!clsB || !clsS) { ProbeWrite("SBB-NO-CLASS"); return; }
-        ProbeWrite("SBB-PRE");
-        id bulletin = ((id(*)(id, SEL))objc_msgSend)(clsB, sel_registerName("bulletin"));
+        // 创建 bulletin: +bulletin 不存在则 alloc/init
+        id bulletin = nil;
+        if (((BOOL(*)(id, SEL))objc_msgSend)(clsB, sel_registerName("respondsToSelector:"), sel_registerName("bulletin"))) {
+            bulletin = ((id(*)(id, SEL))objc_msgSend)(clsB, sel_registerName("bulletin"));
+        }
+        if (!bulletin) bulletin = [[clsB alloc] init];
         if (!bulletin) { ProbeWrite("SBB-NO-BULLETIN"); return; }
         ProbeWrite("SBB-B1");
         ((void(*)(id, SEL, NSString *))objc_msgSend)(bulletin, sel_registerName("setTitle:"), @"灵动岛测试");
         ((void(*)(id, SEL, NSString *))objc_msgSend)(bulletin, sel_registerName("setMessage:"), @"查看素材显示效果");
         ((void(*)(id, SEL, NSString *))objc_msgSend)(bulletin, sel_registerName("setSectionID:"), @"com.axs.lddgifbg");
-        ProbeWrite("SBB-B1b");
         NSString *uid = [NSString stringWithFormat:@"ldd-%ld", (long)time(0)];
         ((void(*)(id, SEL, NSString *))objc_msgSend)(bulletin, sel_registerName("setPublisherBulletinID:"), uid);
         ((void(*)(id, SEL, NSString *))objc_msgSend)(bulletin, sel_registerName("setRecordID:"), uid);
-        ProbeWrite("SBB-B2b");
-        ((void(*)(id, SEL, id))objc_msgSend)(bulletin, sel_registerName("setDate:"), [(id)objc_getClass("NSDate") date]);
-        ((void(*)(id, SEL, id))objc_msgSend)(bulletin, sel_registerName("setPublicationDate:"), [(id)objc_getClass("NSDate") date]);
-        ProbeWrite("SBB-B2");
+        id now = [(id)objc_getClass("NSDate") date];
+        ((void(*)(id, SEL, id))objc_msgSend)(bulletin, sel_registerName("setDate:"), now);
         ((void(*)(id, SEL, BOOL))objc_msgSend)(bulletin, sel_registerName("setShowsMessagePreview:"), YES);
-        ProbeWrite("SBB-BULLETIN-READY");
-        ProbeWrite("SBB-B3");
-        id server = ((id(*)(id, SEL))objc_msgSend)(clsS, sel_registerName("sharedInstance"));
-        if (!server) server = ((id(*)(id, SEL))objc_msgSend)(clsS, sel_registerName("sharedInstanceIfExists"));
+        ProbeWrite("SBB-B2");
+        // server 多路回退
+        id server = nil;
+        if (((BOOL(*)(id, SEL))objc_msgSend)(clsS, sel_registerName("respondsToSelector:"), sel_registerName("sharedInstance")))
+            server = ((id(*)(id, SEL))objc_msgSend)(clsS, sel_registerName("sharedInstance"));
+        if (!server && ((BOOL(*)(id, SEL))objc_msgSend)(clsS, sel_registerName("respondsToSelector:"), sel_registerName("sharedInstanceIfExists")))
+            server = ((id(*)(id, SEL))objc_msgSend)(clsS, sel_registerName("sharedInstanceIfExists"));
         if (!server) { ProbeWrite("SBB-NO-SERVER"); return; }
-        // 标准发布: banner(1) | coverSheet(2) | notificationCenter(4)
-        ProbeWrite("SBB-B4");
-        ((void(*)(id, SEL, id, NSUInteger, BOOL))objc_msgSend)(server, sel_registerName("publishBulletin:destinations:alwaysToLockScreen:"), bulletin, (NSUInteger)7, YES);
-        ProbeWrite("SBB-PUBLISHED");
+        ProbeWrite("SBB-B3");
+        // 发布: 三种 selector 回退
+        SEL sPub = sel_registerName("publishBulletin:destinations:alwaysToLockScreen:");
+        SEL sPub2 = sel_registerName("publishBulletin:destinations:");
+        SEL sSend = sel_registerName("_sendAddBulletin:toFeeds:");
+        if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(server, sel_registerName("respondsToSelector:"), sPub)) {
+            ((void(*)(id, SEL, id, NSUInteger, BOOL))objc_msgSend)(server, sPub, bulletin, (NSUInteger)7, YES);
+            ProbeWrite("SBB-PUB1");
+        } else if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(server, sel_registerName("respondsToSelector:"), sPub2)) {
+            ((void(*)(id, SEL, id, NSUInteger))objc_msgSend)(server, sPub2, bulletin, (NSUInteger)7);
+            ProbeWrite("SBB-PUB2");
+        } else if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(server, sel_registerName("respondsToSelector:"), sSend)) {
+            id feeds = [NSArray arrayWithObjects:[NSNumber numberWithInt:1], [NSNumber numberWithInt:2], nil];
+            ((void(*)(id, SEL, id, id))objc_msgSend)(server, sSend, bulletin, feeds);
+            ProbeWrite("SBB-PUB3");
+        } else {
+            ProbeWrite("SBB-NO-PUB-SEL");
+        }
     } @catch (id e) {
         @try {
             id r = ((id(*)(id, SEL))objc_msgSend)(e, sel_registerName("reason"));
