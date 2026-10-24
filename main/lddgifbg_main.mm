@@ -453,23 +453,31 @@ static void SBPostTestNotification(void) {
             return;
         }
         ProbeWrite("SBB-B3");
-        // 发布: 三种 selector 回退
+        // 发布: 队列安全路线 (主线程直调 server 会触发 dispatch_assert 崩溃)
         SEL sPub = sel_registerName("publishBulletin:destinations:alwaysToLockScreen:");
-        SEL sPub2 = sel_registerName("publishBulletin:destinations:");
-        SEL sSend = sel_registerName("_sendAddBulletin:toFeeds:");
-        if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(server, sel_registerName("respondsToSelector:"), sPub)) {
-            ((void(*)(id, SEL, id, NSUInteger, BOOL))objc_msgSend)(server, sPub, bulletin, (NSUInteger)7, YES);
-            ProbeWrite("SBB-PUB1");
-        } else if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(server, sel_registerName("respondsToSelector:"), sPub2)) {
-            ((void(*)(id, SEL, id, NSUInteger))objc_msgSend)(server, sPub2, bulletin, (NSUInteger)7);
-            ProbeWrite("SBB-PUB2");
-        } else if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(server, sel_registerName("respondsToSelector:"), sSend)) {
-            id feeds = [NSArray arrayWithObjects:[NSNumber numberWithInt:1], [NSNumber numberWithInt:2], nil];
-            ((void(*)(id, SEL, id, id))objc_msgSend)(server, sSend, bulletin, feeds);
-            ProbeWrite("SBB-PUB3");
-        } else {
-            ProbeWrite("SBB-NO-PUB-SEL");
+        // 路线1: BBServerConnection 客户端通道 (内部转发到正确队列)
+        id clsConn = (id)objc_getClass("BBServerConnection");
+        if (clsConn) {
+            id conn = [[clsConn alloc] init];
+            if (conn && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(conn, sel_registerName("respondsToSelector:"), sPub)) {
+                ((void(*)(id, SEL, id, NSUInteger, BOOL))objc_msgSend)(conn, sPub, bulletin, (NSUInteger)7, YES);
+                ProbeWrite("SBB-PUB-CONN");
+                return;
+            }
+            ProbeWrite("SBB-CONN-NOPUB");
         }
+        // 路线2: 取 server 内部队列, 异步到该队列再发布
+        id q = nil;
+        @try { q = [server valueForKey:@"_queue"]; } @catch (id e) { q = nil; }
+        if (q && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(server, sel_registerName("respondsToSelector:"), sPub)) {
+            dispatch_async((__bridge void *)q, ^{
+                ((void(*)(id, SEL, id, NSUInteger, BOOL))objc_msgSend)(server, sPub, bulletin, (NSUInteger)7, YES);
+                ProbeWrite("SBB-PUB-Q");
+            });
+            ProbeWrite("SBB-QASYNC");
+            return;
+        }
+        ProbeWrite("SBB-NO-PATH");
     } @catch (id e) {
         @try {
             id r = ((id(*)(id, SEL))objc_msgSend)(e, sel_registerName("reason"));
