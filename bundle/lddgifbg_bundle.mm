@@ -255,6 +255,7 @@ extern "C" void UIGraphicsEndImageContext(void);
 - (void)viewDidAppear:(BOOL)a;
 - (void)presentViewController:(id)vc animated:(BOOL)a completion:(id)c;
 - (void)dismissViewControllerAnimated:(BOOL)a completion:(id)c;
+- (id)presentingViewController;
 @end
 @interface UITableViewController : UIViewController
 - (id)initWithStyle:(NSInteger)style;
@@ -591,7 +592,9 @@ static id ThumbForPath(NSString *path) {
     } @catch (id e) { LogB("PICK-EXC"); }
 }
 - (void)notifyTapped {
-    ((void(*)(id, SEL))objc_msgSend)(self, sel_registerName("showBannerPreview"));
+    id host = ((id(*)(id, SEL))objc_msgSend)(self, sel_registerName("presentingViewController"));
+    if (!host) host = self;
+    ((void(*)(id, SEL))objc_msgSend)(host, sel_registerName("showBannerPreview"));
 }
 - (void)deleteTapped {
     if (!_delMode) {
@@ -887,7 +890,7 @@ static UIImage *RenderFrameAtIndex(unsigned long idx, CGSize dst) {
         if (firstImg) [bg setImage:firstImg];
         [banner addSubview:bg];
         UIView *mk = [[UIView alloc] initWithFrame:MakeRect(0, 0, exp.w, exp.h)];
-        [mk setBackgroundColor:[UIColor colorWithWhite:0.0 alpha:0.4]];
+        [mk setBackgroundColor:[UIColor colorWithWhite:0.0 alpha:0.15]];
         [mk setAlpha:0.0];
         [mk setUserInteractionEnabled:NO];
         [banner addSubview:mk];
