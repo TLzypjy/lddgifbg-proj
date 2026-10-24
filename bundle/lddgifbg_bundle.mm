@@ -515,8 +515,7 @@ static id ThumbForPath(NSString *path) {
     [[self navigationItem] setLeftBarButtonItem:close];
     UIBarButtonItem *imp = [[UIBarButtonItem alloc] initWithTitle:@"导入" style:0 target:self action:@selector(importTapped)];
     UIBarButtonItem *del = [[UIBarButtonItem alloc] initWithTitle:@"删除" style:0 target:self action:@selector(deleteTapped)];
-    UIBarButtonItem *ntf = [[UIBarButtonItem alloc] initWithTitle:@"通知" style:0 target:self action:@selector(notifyTapped)];
-    [[self navigationItem] setRightBarButtonItems:[NSArray arrayWithObjects:imp, del, ntf, nil]];
+    [[self navigationItem] setRightBarButtonItems:[NSArray arrayWithObjects:imp, del, nil]];
     _marked = [NSMutableArray array];
     [[self view] setBackgroundColor:[UIColor colorWithWhite:0.94 alpha:1.0]];
 
