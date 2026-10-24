@@ -119,18 +119,6 @@ typedef struct CGSize { double w, h; } CGSize;
 typedef struct UIEdgeInsets { double top, left, bottom, right; } UIEdgeInsets;
 static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, y, w, h}; return r; }
 
-@interface UIWindow : UIView
-- (id)initWithFrame:(CGRect)r;
-- (void)setWindowLevel:(long)l;
-- (void)setHidden:(BOOL)h;
-- (void)makeKeyAndVisible;
-- (void)setWindowScene:(id)s;
-- (id)scene;
-@end
-@interface UIApplication : NSObject
-+ (id)sharedApplication;
-- (id)keyWindow;
-@end
 @interface UIColor : NSObject
 + (id)clearColor;
 + (id)whiteColor;
@@ -154,6 +142,7 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (id)layer;
 - (void)setContentMode:(NSInteger)m;
 - (void)setClipsToBounds:(BOOL)b;
+- (void)setAlpha:(double)a;
 @end
 
 @interface UIWindow : UIView
@@ -164,12 +153,20 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (void)setWindowScene:(id)s;
 - (id)scene;
 @end
+@interface UIApplication : NSObject
++ (id)sharedApplication;
+- (id)keyWindow;
+@end
+@interface UIControl : UIView
+- (void)addTarget:(id)t action:(SEL)a forControlEvents:(NSUInteger)e;
+@end
 @interface UILabel : UIView
 - (id)initWithFrame:(CGRect)r;
 - (void)setText:(NSString *)t;
 - (void)setFont:(id)f;
 - (void)setTextColor:(id)c;
 - (void)setTextAlignment:(NSInteger)a;
+- (void)setAlpha:(double)a;
 @end
 @interface UITextField : UIView
 - (void)setPlaceholder:(NSString *)p;
@@ -192,6 +189,7 @@ extern "C" void UIGraphicsEndImageContext(void);
 - (void)setAnimationRepeatCount:(NSInteger)n;
 - (void)startAnimating;
 - (void)stopAnimating;
+- (void)setAlpha:(double)a;
 @end
 @interface UIView (Spring)
 + (void)animateWithDuration:(double)d delay:(double)dl usingSpringWithDamping:(double)damp initialSpringVelocity:(double)vel options:(NSUInteger)opt animations:(void(^)(void))anim completion:(void(^)(BOOL))comp;
@@ -298,11 +296,6 @@ extern "C" void UIGraphicsEndImageContext(void);
 @end
 @interface UIBarButtonItem : NSObject
 - (id)initWithTitle:(NSString *)t style:(NSInteger)s target:(id)tgt action:(SEL)a;
-@end
-@interface UIApplication : NSObject
-+ (id)sharedApplication;
-- (BOOL)canOpenURL:(id)url;
-- (void)openURL:(id)url options:(id)opts completionHandler:(id)handler;
 @end
 @interface NSTimer : NSObject
 + (id)scheduledTimerWithTimeInterval:(double)t target:(id)target selector:(SEL)s userInfo:(id)info repeats:(BOOL)r;
