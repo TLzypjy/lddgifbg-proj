@@ -385,20 +385,26 @@ static void SBPostTestNotification(void) {
         if (!clsB || !clsS) { ProbeWrite("SBB-NO-CLASS"); return; }
         id bulletin = ((id(*)(id, SEL))objc_msgSend)(clsB, sel_registerName("bulletin"));
         if (!bulletin) { ProbeWrite("SBB-NO-BULLETIN"); return; }
+        ProbeWrite("SBB-B1");
         ((void(*)(id, SEL, NSString *))objc_msgSend)(bulletin, sel_registerName("setTitle:"), @"灵动岛测试");
         ((void(*)(id, SEL, NSString *))objc_msgSend)(bulletin, sel_registerName("setMessage:"), @"查看素材显示效果");
         ((void(*)(id, SEL, NSString *))objc_msgSend)(bulletin, sel_registerName("setSectionID:"), @"com.axs.lddgifbg");
+        ProbeWrite("SBB-B1b");
         NSString *uid = [NSString stringWithFormat:@"ldd-%ld", (long)time(0)];
         ((void(*)(id, SEL, NSString *))objc_msgSend)(bulletin, sel_registerName("setPublisherBulletinID:"), uid);
         ((void(*)(id, SEL, NSString *))objc_msgSend)(bulletin, sel_registerName("setRecordID:"), uid);
+        ProbeWrite("SBB-B2b");
         ((void(*)(id, SEL, id))objc_msgSend)(bulletin, sel_registerName("setDate:"), [(id)objc_getClass("NSDate") date]);
         ((void(*)(id, SEL, id))objc_msgSend)(bulletin, sel_registerName("setPublicationDate:"), [(id)objc_getClass("NSDate") date]);
+        ProbeWrite("SBB-B2");
         ((void(*)(id, SEL, BOOL))objc_msgSend)(bulletin, sel_registerName("setShowsMessagePreview:"), YES);
         ProbeWrite("SBB-BULLETIN-READY");
+        ProbeWrite("SBB-B3");
         id server = ((id(*)(id, SEL))objc_msgSend)(clsS, sel_registerName("sharedInstance"));
         if (!server) server = ((id(*)(id, SEL))objc_msgSend)(clsS, sel_registerName("sharedInstanceIfExists"));
         if (!server) { ProbeWrite("SBB-NO-SERVER"); return; }
         // 标准发布: banner(1) | coverSheet(2) | notificationCenter(4)
+        ProbeWrite("SBB-B4");
         ((void(*)(id, SEL, id, NSUInteger, BOOL))objc_msgSend)(server, sel_registerName("publishBulletin:destinations:alwaysToLockScreen:"), bulletin, (NSUInteger)7, YES);
         ProbeWrite("SBB-PUBLISHED");
     } @catch (id e) { ProbeWrite("SBB-EXC"); }
