@@ -127,6 +127,12 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 + (id)blueColor;
 + (id)clearColor;
 @end
+@interface UIWindow : UIView
+- (id)initWithFrame:(CGRect)r;
+- (void)setWindowLevel:(long)l;
+- (void)setHidden:(BOOL)h;
+- (void)makeKeyAndVisible;
+@end
 @interface UIView : NSObject
 - (id)initWithFrame:(CGRect)r;
 - (CGRect)bounds;
@@ -643,7 +649,7 @@ static void LDDIslandLayout(id self) {
 
     CheckForcePreview();
     RefreshPrefsCache();
-    BOOL mainOn = cEnabled;    BOOL mainOn = cEnabled;
+    BOOL mainOn = cEnabled;
     BOOL show = NO;
     if (mainOn) {
         CGRect b0 = [self bounds];
