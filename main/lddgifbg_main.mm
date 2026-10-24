@@ -36,6 +36,8 @@ extern "C" const char *object_getClassName(id obj);
 extern "C" id object_getClass(id obj);
 extern "C" void dispatch_async(void *queue, void (^block)(void));
 extern "C" void dispatch_after(long long when, void *queue, void (^block)(void));
+extern "C" int notify_post(const char *name);
+extern "C" int notify_register_dispatch(const char *name, int *token, void *queue, void (^block)(int token));
 extern "C" long long dispatch_time(long long base, long long delta);
 struct dispatch_queue_s;
 extern "C" struct dispatch_queue_s _dispatch_main_q;
@@ -421,26 +423,46 @@ static void ShowPreviewWindow(void) {
         if (!kw) { ProbeWrite("PREV-NOKEYWIN"); return; }
         id scr = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIScreen"), sel_registerName("mainScreen"));
         CGRect sb = ((CGRect(*)(id, SEL))objc_msgSend)(scr, sel_registerName("bounds"));
-        double w = sb.w - 60.0; if (w > 380.0) w = 380.0;
-        double h = 84.0;
+        double w = sb.w - 24.0;
+        double h = 92.0;
         if (gPreviewOverlay) { ((void(*)(id, SEL))objc_msgSend)(gPreviewOverlay, sel_registerName("removeFromSuperview")); gPreviewOverlay = nil; }
-        UIControl *ov = [[UIControl alloc] initWithFrame:MakeRect((sb.w - w) / 2.0, 10.0, w, h)];
+        UIControl *ov = [[UIControl alloc] initWithFrame:MakeRect(12.0, 8.0, w, h)];
         [ov addTarget:gPreviewDismissTarget action:@selector(dismissPreview) forControlEvents:1 << 6];
-        [ov setBackgroundColor:[UIColor clearColor]];
+        [ov setBackgroundColor:[UIColor colorWithWhite:0.10 alpha:0.88]];
         id ol = [ov layer];
-        [ol setCornerRadius:h / 2.0];
+        [ol setCornerRadius:22.0];
         [ol setMasksToBounds:YES];
-        UIImageView *iv = [[UIImageView alloc] initWithFrame:MakeRect(0, 0, w, h)];
+        // 左: 素材缩略图(动态)
+        UIImageView *iv = [[UIImageView alloc] initWithFrame:MakeRect(10, 10, 72, 72)];
         [iv setContentMode:2];
+        id il = [iv layer];
+        [il setCornerRadius:14.0];
+        [il setMasksToBounds:YES];
         [ov addSubview:iv];
+        LoadMediaWithPathIntoImageView(path, iv);
+        // 右: 标题+正文 (系统横幅样式)
+        UILabel *ti = [[UILabel alloc] initWithFrame:MakeRect(92, 16, w - 104, 22)];
+        [ti setText:@"灵动岛GIF背景"];
+        [ti setFont:[UIFont boldSystemFontOfSize:15.0]];
+        [ti setTextColor:[UIColor whiteColor]];
+        [ov addSubview:ti];
+        UILabel *now = [[UILabel alloc] initWithFrame:MakeRect(w - 60, 18, 48, 18)];
+        [now setText:@"现在"];
+        [now setFont:[UIFont systemFontOfSize:12.0]];
+        [now setTextColor:[UIColor colorWithWhite:1.0 alpha:0.6]];
+        [ov addSubview:now];
+        UILabel *bo = [[UILabel alloc] initWithFrame:MakeRect(92, 42, w - 104, 34)];
+        [bo setText:@"预览通知 · 点按关闭\n真实通知请让 Minis 代发"];
+        [bo setFont:[UIFont systemFontOfSize:12.0]];
+        [bo setTextColor:[UIColor colorWithWhite:1.0 alpha:0.75]];
+        [ov addSubview:bo];
         [kw addSubview:ov];
         [kw bringSubviewToFront:ov];
-        LoadMediaWithPathIntoImageView(path, iv);
         gPreviewOverlay = ov;
         if (!gPreviewDismissTarget) gPreviewDismissTarget = [[LDDPreviewDismiss alloc] init];
-        ProbeWrite("PREV-OVERLAY-ON");
-        dispatch_after(dispatch_time(0, 8LL * 1000000000LL), (void *)&_dispatch_main_q, ^{
-            if (gPreviewOverlay) { ((void(*)(id, SEL))objc_msgSend)(gPreviewOverlay, sel_registerName("removeFromSuperview")); gPreviewOverlay = nil; ProbeWrite("PREV-OVERLAY-OFF"); }
+        ProbeWrite("PREV-BANNER-ON");
+        dispatch_after(dispatch_time(0, 6LL * 1000000000LL), (void *)&_dispatch_main_q, ^{
+            PreviewOverlayDismiss();
         });
     } @catch (id e) { LogReason("PREV-EXC", e); }
 }
@@ -809,5 +831,10 @@ static void LDDInit(void) {
             if (meta) { MSHookMessageEx((Class)meta, sel_registerName("alloc"), (IMP)HookBBAlloc, (IMP *)&origBBAlloc); ProbeWrite("SBB-ALLOCHOOK"); }
         }
     }
+    // Darwin notify: 设置端点"预览通知"即时触发 (灵动通知同款机制)
+    static int notifyTok = 0;
+    notify_register_dispatch("com.axs.lddgifbg/TestNotification", &notifyTok, (void *)&_dispatch_main_q, ^(int tok){
+        ShowPreviewWindow();
+    });
     // 灵动岛 hook 由 CtrlLayoutHook 延迟补挂 (避免构造时机过早)
 }
