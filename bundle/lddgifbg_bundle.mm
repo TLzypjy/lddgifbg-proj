@@ -591,6 +591,289 @@ static id ThumbForPath(NSString *path) {
     } @catch (id e) { LogB("PICK-EXC"); }
 }
 - (void)notifyTapped {
+    [self showBannerPreview];
+}
+- (void)notifyTappedOld {
+    PostTestNotification();
+}
+- (void)deleteTapped {
+    if (!_delMode) {
+        _delMode = YES;
+        [_marked removeAllObjects];
+        [self setTitle:@"删除模式: 点选素材"];
+        [(UICollectionView *)_cv reloadData];
+        return;
+    }
+    // 已在删除模式: 有标记则确认删除, 无则退出
+    if ([_marked count] == 0) {
+        _delMode = NO;
+        [self setTitle:[NSString stringWithFormat:@"素材库 (%lu)", (unsigned long)[_folders count]]];
+        [(UICollectionView *)_cv reloadData];
+        return;
+    }
+    UIAlertController *cf = [UIAlertController alertControllerWithTitle:@"确认删除"
+        message:[NSString stringWithFormat:@"删除 %lu 个素材?", (unsigned long)[_marked count]] preferredStyle:1];
+    UIAlertAction *yes = [UIAlertAction actionWithTitle:@"删除" style:2 handler:^(UIAlertAction *a){
+        NSFileManager *fm = [NSFileManager defaultManager];
+        for (NSString *nm in _marked) {
+            [fm removeItemAtPath:[@"/var/mobile/lddgifbg" stringByAppendingPathComponent:nm] error:0];
+        }
+        [_marked removeAllObjects];
+        _delMode = NO;
+        _folders = [fm contentsOfDirectoryAtPath:@"/var/mobile/lddgifbg" error:nil];
+        [self setTitle:[NSString stringWithFormat:@"素材库 (%lu)", (unsigned long)[_folders count]]];
+        [(UICollectionView *)_cv reloadData];
+    }];
+    UIAlertAction *no = [UIAlertAction actionWithTitle:@"取消" style:1 handler:^(UIAlertAction *a){
+    }];
+    [cf addAction:yes];
+    [cf addAction:no];
+    [self presentViewController:cf animated:YES completion:0];
+}
+- (void)showNaming {
+    [self askNameAndSave:_pendImg url:_pendURL isVideo:_pendVideo];
+}
+- (void)imagePickerControllerDidCancel:(id)picker {
+    [self dismissViewControllerAnimated:YES completion:0];
+}
+// 文件回调
+- (void)documentPicker:(id)controller didPickDocumentsAtURLs:(id)urls {
+    _pendImg = 0;
+    _pendURL = [urls objectAtIndex:0];
+    _pendVideo = NO;
+    [self dismissViewControllerAnimated:YES completion:0];
+    [self performSelector:@selector(showNaming) withObject:0 afterDelay:0.5];
+}
+- (void)documentPickerWasCancelled:(id)controller {
+    [self dismissViewControllerAnimated:YES completion:0];
+}
+// 命名 + 保存
+- (void)askNameAndSave:(id)img url:(id)srcURL isVideo:(BOOL)isVideo {
+    LogB("ASKNAME");
+    UIAlertController *al = [UIAlertController alertControllerWithTitle:@"命名素材" message:@"给这个素材起个名字" preferredStyle:1];
+    [al addTextFieldWithConfigurationHandler:^(UITextField *tf){
+        [tf setPlaceholder:@"素材名称"];
+    }];
+    UIAlertAction *ok = [UIAlertAction actionWithTitle:@"保存" style:0 handler:^(UIAlertAction *a){
+        id tfs = [al textFields];
+        UITextField *tf = [tfs objectAtIndex:0];
+        NSString *nm = [tf text];
+        if (!nm || [nm length] == 0) nm = @"新素材";
+        [self saveMaterial:nm image:img url:srcURL isVideo:isVideo];
+    }];
+    UIAlertAction *cc = [UIAlertAction actionWithTitle:@"取消" style:1 handler:0];
+    [al addAction:ok];
+    [al addAction:cc];
+    [self presentViewController:al animated:YES completion:0];
+}
+- (void)saveMaterial:(NSString *)nm image:(id)img url:(id)srcURL isVideo:(BOOL)isVideo {
+    LogB("SAVE-START");
+    @try {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSString *dir = [@"/var/mobile/lddgifbg" stringByAppendingPathComponent:nm];
+    [fm createDirectoryAtPath:dir withIntermediateDirectories:YES attributes:0 error:0];
+    BOOL ok = NO;
+    if (img) {
+        id data = UIImageJPEGRepresentation(img, 0.85);
+        ok = [data writeToFile:[dir stringByAppendingPathComponent:@"imported.jpg"] atomically:YES];
+    } else if (srcURL) {
+        NSString *ext = isVideo ? @"mov" : @"jpg";
+        ok = [fm copyItemAtURL:srcURL toURL:[NSURL fileURLWithPath:[dir stringByAppendingPathComponent:[NSString stringWithFormat:@"imported.%@", ext]]] error:0];
+    }
+    LogB(ok ? "SAVE-OK" : "SAVE-FAIL");
+    // 刷新列表
+    _folders = [fm contentsOfDirectoryAtPath:@"/var/mobile/lddgifbg" error:nil];
+    NSString *cnt = [NSString stringWithFormat:@"素材库 (%lu)", (unsigned long)[_folders count]];
+    [self setTitle:cnt];
+    [(UICollectionView *)_cv reloadData];
+    LogB("SAVE-RELOADED");
+    (void)ok;
+    } @catch (id e) { LogB("SAVE-EXC"); }
+}
+- (NSInteger)collectionView:(id)cv numberOfItemsInSection:(NSInteger)s {
+    return _folders ? (NSInteger)[_folders count] : 0;
+}
+- (CGSize)collectionView:(id)cv layout:(id)layout sizeForItemAtIndexPath:(id)ip {
+    CGRect sb = [[UIScreen mainScreen] bounds];
+    double w = (sb.w - 28.0 - 20.0) / 3.0;
+    CGSize sz; sz.w = w; sz.h = w * 1.0 + 62.0;
+    return sz;
+}
+- (id)collectionView:(id)cv cellForItemAtIndexPath:(id)ip {
+    NSInteger row = [ip row];
+    UICollectionViewCell *cell = [(UICollectionView *)cv dequeueReusableCellWithReuseIdentifier:@"m" forIndexPath:ip];
+    for (UIView *v in [[cell contentView] subviews]) { if (v) [v removeFromSuperview]; }
+    if (!_folders || row >= (NSInteger)[_folders count]) return cell;
+    NSString *name = [_folders objectAtIndex:(NSUInteger)row];
+    CGRect cb = [[cell contentView] bounds];
+    double imgH = cb.w * 1.0;
+    // 白色圆角卡片 + 图
+    UIView *card = [[UIView alloc] initWithFrame:MakeRect(0, 0, cb.w, imgH)];
+    [card setBackgroundColor:[UIColor whiteColor]];
+    [[card layer] setCornerRadius:14.0];
+    [[card layer] setMasksToBounds:YES];
+    UIImage *thumb = [_thumbs objectForKeyedSubscript:name];
+    NSString *typeTag = @"图片";
+    {
+        NSString *full = [@"/var/mobile/lddgifbg" stringByAppendingPathComponent:name];
+        NSArray *files = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:full error:nil];
+        for (NSString *f in files) {
+            NSString *ext = [[f pathExtension] lowercaseString];
+            if ([ext isEqualToString:@"gif"]) { typeTag = @"GIF"; if (!thumb) thumb = ThumbForPath([full stringByAppendingPathComponent:f]); break; }
+            if ([ext isEqualToString:@"mp4"] || [ext isEqualToString:@"mov"]) { typeTag = @"视频"; if (!thumb) thumb = ThumbForPath([full stringByAppendingPathComponent:f]); break; }
+            if ([ext isEqualToString:@"png"] || [ext isEqualToString:@"jpg"] || [ext isEqualToString:@"jpeg"]) { typeTag = @"图片"; if (!thumb) thumb = ThumbForPath([full stringByAppendingPathComponent:f]); }
+        }
+        if (thumb) [_thumbs setObject:thumb forKeyedSubscript:name];
+    }
+    UIImageView *iv = [[UIImageView alloc] initWithFrame:MakeRect(0, 0, cb.w, imgH)];
+    [iv setImage:thumb];
+    [iv setContentMode:2];
+    [card addSubview:iv];
+    UILabel *badge = [[UILabel alloc] initWithFrame:MakeRect(6, 6, 34, 16)];
+    [badge setText:typeTag];
+    [badge setFont:[UIFont systemFontOfSize:9.0]];
+    [badge setTextAlignment:1];
+    [badge setBackgroundColor:[UIColor colorWithWhite:0.0 alpha:0.55]];
+    [badge setTextColor:[UIColor whiteColor]];
+    [[badge layer] setCornerRadius:8.0];
+    [[badge layer] setMasksToBounds:YES];
+    [card addSubview:badge];
+    [[cell contentView] addSubview:card];
+    // 名字胶囊
+    UILabel *pill = [[UILabel alloc] initWithFrame:MakeRect(4, imgH + 8, cb.w - 8, 24)];
+    [pill setText:name];
+    [pill setFont:[UIFont systemFontOfSize:11.0]];
+    [pill setTextAlignment:1];
+    [pill setBackgroundColor:[UIColor colorWithWhite:0.62 alpha:0.85]];
+    [pill setTextColor:[UIColor whiteColor]];
+    [[pill layer] setCornerRadius:12.0];
+    [[pill layer] setMasksToBounds:YES];
+    [[cell contentView] addSubview:pill];
+    // 选中圆点
+    BOOL on = _sel && [_sel isEqualToString:name];
+    BOOL mk = [_marked containsObject:name];
+    UIView *dot = [[UIView alloc] initWithFrame:MakeRect(cb.w / 2 - 11, imgH + 38, 22, 22)];
+    [[dot layer] setCornerRadius:11.0];
+    [[dot layer] setMasksToBounds:YES];
+    [dot setBackgroundColor:(_delMode ? (mk ? [UIColor redColor] : [UIColor colorWithWhite:0.85 alpha:1.0])
+                                       : (on ? [UIColor systemBlueColor] : [UIColor colorWithWhite:0.80 alpha:1.0]))];
+    [[cell contentView] addSubview:dot];
+    return cell;
+}
+- (void)collectionView:(id)cv didSelectItemAtIndexPath:(id)ip {
+    NSInteger row = [ip row];
+    if (!_folders || row >= (NSInteger)[_folders count]) return;
+    NSString *name = [_folders objectAtIndex:(NSUInteger)row];
+    if (_delMode) {
+        if ([_marked containsObject:name]) [_marked removeObject:name];
+        else [_marked addObject:name];
+        [(UICollectionView *)cv reloadData];
+        return;
+    }
+    _sel = name;
+    NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
+    [ud setObject:name forKey:@"SelectedMaterialFolder"];
+    [ud synchronize];
+    WritePrefsFile(@"SelectedMaterialFolder", name);
+    [(UICollectionView *)cv reloadData];
+}
+@end
+
+// ---------- 设置主控制器: PSListController 子类 + 直接自绘 6 行 (无模态无延迟) ----------
+@interface lddgifbgRootListController : PSListController
+- (NSInteger)numberOfSectionsInTableView:(id)tv;
+- (NSInteger)tableView:(id)tv numberOfRowsInSection:(NSInteger)s;
+- (id)tableView:(id)tv cellForRowAtIndexPath:(id)ip;
+- (void)tableView:(id)tv didSelectRowAtIndexPath:(id)ip;
+@end
+
+// ---- 流式 GIF 播放状态 ----
+static void *gPrevSrc = 0;
+static id gPrevDelays = nil;
+static unsigned long gPrevIdx = 0;
+static double gPrevTime = 0, gPrevLast = 0;
+static id gPrevTimer2 = nil;
+static UIColor *AvgColorOfImage(UIImage *img) {
+    unsigned char px[4] = {128, 90, 220, 255};
+    CGImageRef cg = [img CGImage];
+    if (!cg) return [UIColor colorWithRed:0.55 green:0.4 blue:0.95 alpha:1.0];
+    void *cs = CGColorSpaceCreateDeviceRGB();
+    void *ctx = CGBitmapContextCreate(px, 1, 1, 8, 4, cs, 1);
+    if (ctx) { CGContextDrawImage(ctx, MakeRect(0, 0, 1, 1), cg); CGContextRelease(ctx); }
+    CGColorSpaceRelease(cs);
+    return [UIColor colorWithRed:px[0]/255.0 green:px[1]/255.0 blue:px[2]/255.0 alpha:1.0];
+}
+static UIImage *RenderFrameAtIndex(unsigned long idx, CGSize dst) {
+    if (!gPrevSrc) return nil;
+    CGImageRef cg = ((CGImageRef(*)(void *, NSUInteger, void *))fnCGSrcImg)(gPrevSrc, idx, 0);
+    if (!cg) return nil;
+    UIImage *tmp = [UIImage imageWithCGImage:cg];
+    CFRelease((void *)cg);
+    if (!tmp) return nil;
+    CGSize isz = [tmp size];
+    if (isz.w <= 0 || isz.h <= 0) return tmp;
+    double r = (dst.w / isz.w) > (dst.h / isz.h) ? (dst.w / isz.w) : (dst.h / isz.h);
+    double dw = isz.w * r, dh = isz.h * r;
+    UIGraphicsBeginImageContextWithOptions(dst, NO, 0.0);
+    [tmp drawInRect:MakeRect((dst.w - dw) / 2.0, (dst.h - dh) / 2.0, dw, dh)];
+    UIImage *out = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    return out;
+}
+
+@interface NSObject (LDDPreview)
+- (void)showBannerPreview;
+- (void)previewTick:(id)t;
+- (void)previewTap:(id)s;
+- (void)previewAuto:(id)t;
+@end
+@implementation NSObject (LDDPreview)
+@end
+
+@implementation lddgifbgRootListController
+- (void)importTapped {
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"导入素材" message:@"选择来源" preferredStyle:0];
+    UIAlertAction *a1 = [UIAlertAction actionWithTitle:@"从相册" style:0 handler:^(UIAlertAction *a){
+        [self openPhotos];
+    }];
+    UIAlertAction *a2 = [UIAlertAction actionWithTitle:@"从文件" style:0 handler:^(UIAlertAction *a){
+        [self openFiles];
+    }];
+    UIAlertAction *a3 = [UIAlertAction actionWithTitle:@"取消" style:1 handler:0];
+    [sheet addAction:a1];
+    [sheet addAction:a2];
+    [sheet addAction:a3];
+    [self presentViewController:sheet animated:YES completion:0];
+}
+- (void)openPhotos {
+    UIImagePickerController *pc = [[UIImagePickerController alloc] init];
+    [pc setSourceType:0];
+    [pc setMediaTypes:[NSArray arrayWithObjects:@"public.image", @"public.movie", nil]];
+    [pc setDelegate:self];
+    [pc setAllowsEditing:NO];
+    [self presentViewController:pc animated:YES completion:0];
+}
+- (void)openFiles {
+    id utImage = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UTType"), sel_registerName("image"));
+    id utMovie = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UTType"), sel_registerName("movie"));
+    UIDocumentPickerViewController *dp = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:[NSArray arrayWithObjects:utImage, utMovie, nil]];
+    [dp setDelegate:self];
+    [self presentViewController:dp animated:YES completion:0];
+}
+// 相册回调
+- (void)imagePickerController:(id)picker didFinishPickingMediaWithInfo:(id)info {
+    LogB("PICK-DIDFINISH");
+    @try {
+        NSString *mt = [info objectForKeyedSubscript:@"UIImagePickerControllerMediaType"];
+        _pendImg = [info objectForKeyedSubscript:@"UIImagePickerControllerOriginalImage"];
+        _pendURL = [info objectForKeyedSubscript:@"UIImagePickerControllerMediaURL"];
+        _pendVideo = mt && [mt isEqualToString:@"public.movie"];
+        LogB(_pendImg ? "PICK-HAS-IMAGE" : "PICK-NO-IMAGE");
+        [self dismissViewControllerAnimated:YES completion:0];
+        [self performSelector:@selector(showNaming) withObject:0 afterDelay:0.5];
+    } @catch (id e) { LogB("PICK-EXC"); }
+}
+- (void)notifyTapped {
     PostTestNotification();
 }
 - (void)deleteTapped {
@@ -843,19 +1126,6 @@ static UIImage *RenderFrameAtIndex(unsigned long idx, CGSize dst) {
         double W = sb.w;
         CGRect pill = MakeRect((W - 126.0) / 2.0, 11.0, 126.0, 37.0);
         CGRect exp = MakeRect(12.0, 11.0, W - 24.0, 110.0);
-        UIImage *probeImg = ThumbForPath(path);
-        UIColor *glowC = probeImg ? AvgColorOfImage(probeImg) : [UIColor colorWithRed:0.55 green:0.4 blue:0.95 alpha:1.0];
-        CGRect gpill; gpill.ox = pill.ox - 6; gpill.oy = pill.oy - 6; gpill.w = pill.w + 12; gpill.h = pill.h + 12;
-        UIView *glow = [[UIView alloc] initWithFrame:gpill];
-        [glow setBackgroundColor:glowC];
-        id gl = [glow layer];
-        [gl setCornerRadius:26.0];
-        [gl setShadowColor:[glowC CGColor]];
-        [gl setShadowOpacity:0.85];
-        [gl setShadowRadius:18.0];
-        CGSize zoff; zoff.w = 0; zoff.h = 0;
-        [gl setShadowOffset:zoff];
-        [win addSubview:glow];
         UIControl *banner = [[UIControl alloc] initWithFrame:pill];
         [banner setBackgroundColor:[UIColor colorWithWhite:0.0 alpha:1.0]];
         id bl = [banner layer];
@@ -944,10 +1214,10 @@ static UIImage *RenderFrameAtIndex(unsigned long idx, CGSize dst) {
         __block id bBanner = banner;
         void (^collapse)(void) = ^{
             if (gPrevTimer2) { [gPrevTimer2 invalidate]; gPrevTimer2 = nil; }
+            id at = objc_getAssociatedObject(self, "pvauto");
+            if (at) { ((void(*)(id, SEL))objc_msgSend)(at, sel_registerName("invalidate")); objc_setAssociatedObject(self, "pvauto", nil, 1); }
             [UIView animateWithDuration:0.35 delay:0 usingSpringWithDamping:0.8 initialSpringVelocity:0.5 options:0 animations:^{
                 [bBanner setFrame:pill];
-                [glow setFrame:gpill];
-                [gl setCornerRadius:26.0];
                 [[bBanner layer] setCornerRadius:20.0];
                 [bg setAlpha:0.0];
         [bg setUserInteractionEnabled:NO]; [mk setAlpha:0.0];
@@ -958,16 +1228,12 @@ static UIImage *RenderFrameAtIndex(unsigned long idx, CGSize dst) {
         [bo setUserInteractionEnabled:NO];
             } completion:^(BOOL f) {
                 [bBanner removeFromSuperview];
-                [glow removeFromSuperview];
                 if (gPrevSrc) { CFRelease(gPrevSrc); gPrevSrc = 0; }
             }];
         };
         [banner addTarget:self action:@selector(previewTap:) forControlEvents:1 << 6];
-        CGRect gexp; gexp.ox = exp.ox - 6; gexp.oy = exp.oy - 6; gexp.w = exp.w + 12; gexp.h = exp.h + 12;
         [UIView animateWithDuration:0.45 delay:0 usingSpringWithDamping:0.8 initialSpringVelocity:0.5 options:0 animations:^{
             [banner setFrame:exp];
-            [glow setFrame:gexp];
-            [gl setCornerRadius:50.0];
             [bl setCornerRadius:44.0];
             [icon setFrame:MakeRect(16, 33, 44, 44)];
             [icl setCornerRadius:16.0];
@@ -978,7 +1244,8 @@ static UIImage *RenderFrameAtIndex(unsigned long idx, CGSize dst) {
                 if (gPrevTimer2) [gPrevTimer2 invalidate];
                 gPrevTimer2 = [NSTimer scheduledTimerWithTimeInterval:1.0/30.0 target:self selector:@selector(previewTick:) userInfo:0 repeats:YES];
             }
-            [NSTimer scheduledTimerWithTimeInterval:10.0 target:self selector:@selector(previewAuto:) userInfo:0 repeats:NO];
+            id autoT = [NSTimer scheduledTimerWithTimeInterval:10.0 target:self selector:@selector(previewAuto:) userInfo:0 repeats:NO];
+            objc_setAssociatedObject(self, "pvauto", autoT, 1);
         }];
         objc_setAssociatedObject(self, "pvbg", bg, 1);
         objc_setAssociatedObject(self, "pvbanner", banner, 1);
