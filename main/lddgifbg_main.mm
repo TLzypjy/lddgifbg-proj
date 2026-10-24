@@ -124,6 +124,7 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 + (id)sharedApplication;
 - (id)keyWindow;
 - (id)windows;
+- (id)connectedScenes;
 @end
 @interface UIScreen : NSObject
 + (id)mainScreen;
@@ -156,6 +157,9 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (id)window;
 - (void)setBackgroundColor:(id)c;
 - (void)setTag:(NSInteger)t;
+- (void)setAlpha:(double)a;
+- (void)setTransform:(CGAffineTransform)t;
++ (void)animateWithDuration:(double)d delay:(double)dl usingSpringWithDamping:(double)damp initialSpringVelocity:(double)vel options:(NSUInteger)opt animations:(void(^)(void))anim completion:(void(^)(BOOL))comp;
 @end
 
 @interface UILabel : UIView
@@ -164,6 +168,7 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (void)setFont:(id)f;
 - (void)setTextColor:(id)c;
 - (void)setTextAlignment:(NSInteger)a;
+- (void)setNumberOfLines:(NSInteger)n;
 @end
 
 @interface UIControl : UIView
@@ -177,6 +182,7 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (id)scene;
 - (void)setWindowScene:(id)s;
 - (BOOL)isHidden;
+- (UIEdgeInsets)safeAreaInsets;
 @end
 @interface UIImage : NSObject
 + (id)imageWithContentsOfFile:(NSString *)p;
@@ -428,99 +434,155 @@ static void PreviewOverlayDismiss(void);
 }
 @end
 static id gPreviewDismissTarget = nil;
-static id gPreviewOverlay = nil;
-static long gPreviewGen = 0;
+
 static id gPreviewWinHolder = nil;
-static void PreviewOverlayDismiss(void) {
-    gPreviewGen++;
-    if (gPreviewOverlay) { ((void(*)(id, SEL))objc_msgSend)(gPreviewOverlay, sel_registerName("removeFromSuperview")); gPreviewOverlay = nil; }
-    if (gPreviewWinHolder) { ((void(*)(id, SEL, BOOL))objc_msgSend)(gPreviewWinHolder, sel_registerName("setHidden:"), YES); gPreviewWinHolder = nil; }
-    ProbeWrite("PREV-OFF");
+static id gPreviewOverlay = nil;
+static id gPreviewContent = nil;
+static CGRect gPreviewPill;
+static long gPreviewGen = 0;
+static void CollapsePreview(void);
+static void PreviewOverlayDismiss(void) { CollapsePreview(); }
+
+static UIImage *FirstImageForPath(NSString *path) {
+    NSData *data = [NSData dataWithContentsOfFile:path];
+    if (!data) return nil;
+    void *src = CGImageSourceCreateWithData((__bridge void *)data, 0);
+    if (!src) return nil;
+    CGImageRef cg = CGImageSourceCreateImageAtIndex(src, 0, 0);
+    CFRelease(src);
+    if (!cg) return nil;
+    UIImage *img = [UIImage imageWithCGImage:cg scale:1.0 orientation:0];
+    CFRelease((void *)cg);
+    return img;
 }
+
 static void ShowPreviewWindow(void) {
     @try {
-        NSString *path = GetSelectedImagePath();
+        RefreshPrefsCache();
+        NSString *path = cPath;
         if (!path) { ProbeWrite("PREV-NOPATH"); return; }
+        if (gPreviewOverlay) CollapsePreview();
         id app = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIApplication"), sel_registerName("sharedApplication"));
-        // 1) 找带 scene 的 SB 窗口, 用其 scene 建 alert 级独立窗口 (系统横幅同款, 可盖在任何 App 上)
+        // 取 foreground UIWindowScene (iOS16 必须)
+        id scenes = ((id(*)(id, SEL))objc_msgSend)(app, sel_registerName("connectedScenes"));
         id scene = nil;
-        id wins = ((id(*)(id, SEL))objc_msgSend)(app, sel_registerName("windows"));
-        NSUInteger wn = wins ? ((NSUInteger(*)(id, SEL))objc_msgSend)(wins, sel_registerName("count")) : 0;
-        for (NSUInteger i = 0; i < wn && !scene; i++) {
-            id wv = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(wins, sel_registerName("objectAtIndex:"), i);
-            scene = ((id(*)(id, SEL))objc_msgSend)(wv, sel_registerName("scene"));
+        NSUInteger scn = scenes ? ((NSUInteger(*)(id, SEL))objc_msgSend)(scenes, sel_registerName("count")) : 0;
+        for (NSUInteger i = 0; i < scn; i++) {
+            id s = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(scenes, sel_registerName("objectAtIndex:"), i);
+            const char *cn = object_getClassName(s);
+            if (cn && strstr(cn, "UIWindowScene")) { scene = s; break; }
         }
-        id kw = nil;
-        BOOL ownWindow = NO;
-        if (scene) {
-            UIWindow *nw = [[UIWindow alloc] initWithFrame:MakeRect(0, 0, 0, 0)];
-            [nw setWindowScene:scene];
-            [nw setWindowLevel:2000];
-            [nw setBackgroundColor:[UIColor clearColor]];
-            [nw setHidden:NO];
-            kw = nw; ownWindow = YES;
-            ProbeWrite("PREV-SCENE-WIN");
-        } else {
-            // 2) 兜底: 最大的可见窗口
-            double bestArea = 0;
-            for (NSUInteger i = 0; i < wn; i++) {
-                id wv = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(wins, sel_registerName("objectAtIndex:"), i);
-                if (((BOOL(*)(id, SEL))objc_msgSend)(wv, sel_registerName("isHidden"))) continue;
-                CGRect wf = ((CGRect(*)(id, SEL))objc_msgSend)(wv, sel_registerName("bounds"));
-                double area = wf.w * wf.h;
-                if (area > bestArea) { bestArea = area; kw = wv; }
-            }
-            if (!kw) kw = ((id(*)(id, SEL))objc_msgSend)(app, sel_registerName("keyWindow"));
-            ProbeWrite("PREV-FALLBACK-WIN");
-        }
-        if (!kw) { ProbeWrite("PREV-NOKEYWIN"); return; }
+        if (!scene && scn > 0) scene = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(scenes, sel_registerName("objectAtIndex:"), 0);
         id scr = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIScreen"), sel_registerName("mainScreen"));
         CGRect sb = ((CGRect(*)(id, SEL))objc_msgSend)(scr, sel_registerName("bounds"));
-        double w = sb.w - 24.0;
-        double h = 92.0;
-        if (gPreviewOverlay) { ((void(*)(id, SEL))objc_msgSend)(gPreviewOverlay, sel_registerName("removeFromSuperview")); gPreviewOverlay = nil; }
-        UIControl *ov = [[UIControl alloc] initWithFrame:MakeRect(12.0, 8.0, w, h)];
-        [ov addTarget:gPreviewDismissTarget action:@selector(dismissPreview) forControlEvents:1 << 6];
-        [ov setBackgroundColor:[UIColor colorWithWhite:0.10 alpha:0.88]];
-        id ol = [ov layer];
-        [ol setCornerRadius:22.0];
-        [ol setMasksToBounds:YES];
-        // 左: 素材缩略图(动态)
-        UIImageView *iv = [[UIImageView alloc] initWithFrame:MakeRect(10, 10, 72, 72)];
-        [iv setContentMode:2];
-        id il = [iv layer];
-        [il setCornerRadius:14.0];
-        [il setMasksToBounds:YES];
-        [ov addSubview:iv];
-        LoadMediaWithPathIntoImageView(path, iv);
-        // 右: 标题+正文 (系统横幅样式)
-        UILabel *ti = [[UILabel alloc] initWithFrame:MakeRect(92, 16, w - 104, 22)];
-        [ti setText:@"灵动岛GIF背景"];
+        UIWindow *win = [[UIWindow alloc] initWithFrame:sb];
+        if (scene) [win setWindowScene:scene];
+        [win setWindowLevel:2001];
+        [win setBackgroundColor:[UIColor clearColor]];
+        [win setHidden:NO];
+        UIEdgeInsets si = [win safeAreaInsets];
+        double top = si.top > 0 ? si.top : 10.0;
+        double bw = sb.w - 24.0;
+        double bh = 122.0;
+        CGRect expanded = MakeRect(12.0, top + 2.0, bw, bh);
+        CGRect pill = MakeRect((sb.w - 125.0) / 2.0, top + 2.0, 125.0, 37.0);
+        gPreviewPill = pill;
+        UIControl *banner = [[UIControl alloc] initWithFrame:pill];
+        [banner setBackgroundColor:[UIColor colorWithWhite:0.05 alpha:1.0]];
+        id bl = [banner layer];
+        [bl setCornerRadius:20.0];
+        [bl setMasksToBounds:YES];
+        [win addSubview:banner];
+        // GIF 背景 + 缩放
+        UIImageView *bg = [[UIImageView alloc] initWithFrame:MakeRect(0, 0, bw, bh)];
+        [bg setContentMode:2];
+        LoadMediaWithPathIntoImageView(path, bg);
+        double scale = cScale > 0 ? cScale : 1.0;
+        [bg setTransform:CGMakeScale(scale)];
+        [banner addSubview:bg];
+        UIView *mk = [[UIView alloc] initWithFrame:MakeRect(0, 0, bw, bh)];
+        [mk setBackgroundColor:[UIColor colorWithWhite:0.0 alpha:0.4]];
+        [banner addSubview:mk];
+        // 内容层
+        UIView *content = [[UIView alloc] initWithFrame:MakeRect(0, 0, bw, bh)];
+        [content setAlpha:0.0];
+        UIImageView *icon = [[UIImageView alloc] initWithFrame:MakeRect(16, (bh - 44) / 2.0, 44, 44)];
+        [icon setImage:FirstImageForPath(path)];
+        [icon setContentMode:2];
+        id icl = [icon layer];
+        [icl setCornerRadius:16.0];
+        [icl setMasksToBounds:YES];
+        [content addSubview:icon];
+        UILabel *nowL = [[UILabel alloc] initWithFrame:MakeRect(72, 12, 120, 16)];
+        [nowL setText:@"现在"];
+        [nowL setFont:[UIFont systemFontOfSize:12.0]];
+        [nowL setTextColor:[UIColor colorWithWhite:1.0 alpha:0.65]];
+        [content addSubview:nowL];
+        UILabel *tagL = [[UILabel alloc] initWithFrame:MakeRect(bw - 92, 12, 76, 16)];
+        [tagL setText:@"灵动通知"];
+        [tagL setFont:[UIFont systemFontOfSize:12.0]];
+        [tagL setTextColor:[UIColor colorWithWhite:1.0 alpha:0.65]];
+        [tagL setTextAlignment:2];
+        [content addSubview:tagL];
+        UILabel *ti = [[UILabel alloc] initWithFrame:MakeRect(72, 32, bw - 88, 20)];
+        [ti setText:@"灵动岛GIF背景给您发来的"];
         [ti setFont:[UIFont boldSystemFontOfSize:15.0]];
         [ti setTextColor:[UIColor whiteColor]];
-        [ov addSubview:ti];
-        UILabel *now = [[UILabel alloc] initWithFrame:MakeRect(w - 60, 18, 48, 18)];
-        [now setText:@"现在"];
-        [now setFont:[UIFont systemFontOfSize:12.0]];
-        [now setTextColor:[UIColor colorWithWhite:1.0 alpha:0.6]];
-        [ov addSubview:now];
-        UILabel *bo = [[UILabel alloc] initWithFrame:MakeRect(92, 42, w - 104, 34)];
-        [bo setText:@"预览通知 · 点按关闭\n真实通知请让 Minis 代发"];
-        [bo setFont:[UIFont systemFontOfSize:12.0]];
-        [bo setTextColor:[UIColor colorWithWhite:1.0 alpha:0.75]];
-        [ov addSubview:bo];
-        [kw addSubview:ov];
-        [kw bringSubviewToFront:ov];
-        gPreviewOverlay = ov;
-        gPreviewWinHolder = ownWindow ? kw : nil;
+        [content addSubview:ti];
+        UILabel *bo = [[UILabel alloc] initWithFrame:MakeRect(72, 56, bw - 88, 52)];
+        [bo setText:@"这是一条GIF背景预览通知，非常完美的展示出来了。您可以实时预览选择的窗口样式！"];
+        [bo setFont:[UIFont systemFontOfSize:14.0]];
+        [bo setTextColor:[UIColor whiteColor]];
+        [bo setNumberOfLines:2];
+        [content addSubview:bo];
+        [banner addSubview:content];
+        [banner addTarget:gPreviewDismissTarget action:@selector(dismissPreview) forControlEvents:1 << 6];
+        gPreviewWinHolder = win;
+        gPreviewOverlay = banner;
+        gPreviewContent = content;
         gPreviewGen++;
         long myGen = gPreviewGen;
         if (!gPreviewDismissTarget) gPreviewDismissTarget = [[LDDPreviewDismiss alloc] init];
+        // spring 展开
+        ((void(*)(id, SEL, double, double, double, double, NSUInteger, void(^)(void), void(^)(BOOL)))objc_msgSend)(
+            (id)objc_getClass("UIView"), sel_registerName("animateWithDuration:delay:usingSpringWithDamping:initialSpringVelocity:options:animations:completion:"),
+            0.4, 0.0, 0.85, 0.5, (NSUInteger)0, ^{
+                [banner setFrame:expanded];
+                [bl setCornerRadius:44.0];
+                [content setAlpha:1.0];
+            }, ^(BOOL f){
+                if (myGen == gPreviewGen) {
+                    dispatch_after(dispatch_time(0, 3500000000LL), (void *)&_dispatch_main_q, ^{
+                        if (myGen == gPreviewGen) CollapsePreview();
+                    });
+                }
+            });
         ProbeWrite("PREV-BANNER-ON");
-        dispatch_after(dispatch_time(0, 6LL * 1000000000LL), (void *)&_dispatch_main_q, ^{
-            if (myGen == gPreviewGen) PreviewOverlayDismiss();
-        });
     } @catch (id e) { LogReason("PREV-EXC", e); }
+}
+
+static void CollapsePreview(void) {
+    id banner = gPreviewOverlay;
+    id win = gPreviewWinHolder;
+    id content = gPreviewContent;
+    CGRect pill = gPreviewPill;
+    gPreviewOverlay = nil;
+    gPreviewWinHolder = nil;
+    gPreviewContent = nil;
+    gPreviewGen++;
+    if (!banner) { if (win) ((void(*)(id, SEL, BOOL))objc_msgSend)(win, sel_registerName("setHidden:"), YES); return; }
+    id bl = ((id(*)(id, SEL))objc_msgSend)(banner, sel_registerName("layer"));
+    ((void(*)(id, SEL, double, double, double, double, NSUInteger, void(^)(void), void(^)(BOOL)))objc_msgSend)(
+        (id)objc_getClass("UIView"), sel_registerName("animateWithDuration:delay:usingSpringWithDamping:initialSpringVelocity:options:animations:completion:"),
+        0.35, 0.0, 0.85, 0.5, (NSUInteger)0, ^{
+            [banner setFrame:pill];
+            [bl setCornerRadius:20.0];
+            [content setAlpha:0.0];
+        }, ^(BOOL f){
+            ((void(*)(id, SEL))objc_msgSend)(banner, sel_registerName("removeFromSuperview"));
+            if (win) ((void(*)(id, SEL, BOOL))objc_msgSend)(win, sel_registerName("setHidden:"), YES);
+            ProbeWrite("PREV-OFF");
+        });
 }
 
 static double gForceLast = 0;
@@ -836,7 +898,6 @@ static void LDDIslandLayout(id self);
 static void CtrlLayoutHook(id self, SEL _cmd) {
     static int once = 0;
     if (!once) { once = 1; ProbeWrite("CTRL-HOOK-FIRED"); }
-    CheckTestNotifFlag();
     CheckForcePreviewTick();
     const char *cn = object_getClassName(self);
     if (cn && (strstr(cn, "Aperture") || strstr(cn, "Island"))) {
