@@ -123,6 +123,7 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 @interface UIApplication : NSObject
 + (id)sharedApplication;
 - (id)keyWindow;
+- (id)windows;
 @end
 @interface UIScreen : NSObject
 + (id)mainScreen;
@@ -425,7 +426,9 @@ static void PreviewOverlayDismiss(void);
 @end
 static id gPreviewDismissTarget = nil;
 static id gPreviewOverlay = nil;
+static long gPreviewGen = 0;
 static void PreviewOverlayDismiss(void) {
+    gPreviewGen++;
     if (gPreviewOverlay) { ((void(*)(id, SEL))objc_msgSend)(gPreviewOverlay, sel_registerName("removeFromSuperview")); gPreviewOverlay = nil; ProbeWrite("PREV-TAP-OFF"); }
 }
 static void ShowPreviewWindow(void) {
@@ -433,7 +436,17 @@ static void ShowPreviewWindow(void) {
         NSString *path = GetSelectedImagePath();
         if (!path) { ProbeWrite("PREV-NOPATH"); return; }
         id app = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIApplication"), sel_registerName("sharedApplication"));
-        id kw = ((id(*)(id, SEL))objc_msgSend)(app, sel_registerName("keyWindow"));
+        id kw = nil;
+        double bestArea = 0;
+        id wins = ((id(*)(id, SEL))objc_msgSend)(app, sel_registerName("windows"));
+        NSUInteger wn = wins ? ((NSUInteger(*)(id, SEL))objc_msgSend)(wins, sel_registerName("count")) : 0;
+        for (NSUInteger i = 0; i < wn; i++) {
+            id wv = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(wins, sel_registerName("objectAtIndex:"), i);
+            CGRect wf = ((CGRect(*)(id, SEL))objc_msgSend)(wv, sel_registerName("bounds"));
+            double area = wf.w * wf.h;
+            if (area > bestArea) { bestArea = area; kw = wv; }
+        }
+        if (!kw) kw = ((id(*)(id, SEL))objc_msgSend)(app, sel_registerName("keyWindow"));
         if (!kw) { ProbeWrite("PREV-NOKEYWIN"); return; }
         id scr = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIScreen"), sel_registerName("mainScreen"));
         CGRect sb = ((CGRect(*)(id, SEL))objc_msgSend)(scr, sel_registerName("bounds"));
@@ -473,10 +486,12 @@ static void ShowPreviewWindow(void) {
         [kw addSubview:ov];
         [kw bringSubviewToFront:ov];
         gPreviewOverlay = ov;
+        gPreviewGen++;
+        long myGen = gPreviewGen;
         if (!gPreviewDismissTarget) gPreviewDismissTarget = [[LDDPreviewDismiss alloc] init];
         ProbeWrite("PREV-BANNER-ON");
         dispatch_after(dispatch_time(0, 6LL * 1000000000LL), (void *)&_dispatch_main_q, ^{
-            PreviewOverlayDismiss();
+            if (myGen == gPreviewGen) PreviewOverlayDismiss();
         });
     } @catch (id e) { LogReason("PREV-EXC", e); }
 }
