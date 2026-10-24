@@ -35,6 +35,9 @@ extern "C" void CFRelease(void *cf);
 extern "C" const char *object_getClassName(id obj);
 extern "C" id object_getClass(id obj);
 extern "C" void dispatch_async(void *queue, void (^block)(void));
+extern "C" void *class_copyIvarList(Class cls, unsigned int *count);
+extern "C" const char *ivar_getName(void *ivar);
+extern "C" id object_getIvar(id obj, void *ivar);
 extern "C" CGImageRef CGImageSourceCreateImageAtIndex(void *src, NSUInteger idx, void *opts);
 extern "C" NSUInteger CGImageSourceGetCount(void *src);
 extern "C" void *CGImageSourceCreateWithData(void *data, void *opts);
@@ -467,13 +470,44 @@ static void SBPostTestNotification(void) {
             }
             ProbeWrite("SBB-CONN-NOPUB");
         }
-        // 路线2: 取 server 内部队列, 异步到该队列再发布
+        else { ProbeWrite("SBB-CONN-CLASS-NIL"); }
+        // 路线2: 扫描 ivar 找内部队列, 异步到该队列发布
         id q = nil;
-        @try { q = [server valueForKey:@"_queue"]; } @catch (id e) { q = nil; }
-        if (q && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(server, sel_registerName("respondsToSelector:"), sPub)) {
+        @try {
+            unsigned int cnt = 0;
+            void **ivars = (void **)class_copyIvarList((Class)clsS, &cnt);
+            static int ivlogged = 0;
+            for (unsigned int i = 0; i < cnt; i++) {
+                const char *nm = ivar_getName(ivars[i]);
+                if (!nm) continue;
+                if (!ivlogged && i < 40) {
+                    char lb[96]; snprintf(lb, sizeof(lb), "SBB-IVAR: %s", nm); ProbeWrite(lb);
+                }
+                if (strstr(nm, "ueue")) {
+                    id v = object_getIvar(server, ivars[i]);
+                    if (v) { q = v; char lb[96]; snprintf(lb, sizeof(lb), "SBB-QUEUE-IVAR: %s", nm); ProbeWrite(lb); break; }
+                }
+            }
+            ivlogged = 1;
+        } @catch (id e) { ProbeWrite("SBB-IVAR-EXC"); }
+        if (q) {
             dispatch_async((__bridge void *)q, ^{
-                ((void(*)(id, SEL, id, NSUInteger, BOOL))objc_msgSend)(server, sPub, bulletin, (NSUInteger)7, YES);
-                ProbeWrite("SBB-PUB-Q");
+                @try {
+                    SEL sPub3 = sel_registerName("publishBulletin:destinations:alwaysToLockScreen:");
+                    SEL sPub2 = sel_registerName("publishBulletin:destinations:");
+                    SEL sSend = sel_registerName("_sendAddBulletin:toFeeds:");
+                    if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(server, sel_registerName("respondsToSelector:"), sPub3)) {
+                        ((void(*)(id, SEL, id, NSUInteger, BOOL))objc_msgSend)(server, sPub3, bulletin, (NSUInteger)7, YES);
+                        ProbeWrite("SBB-PUB-Q3");
+                    } else if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(server, sel_registerName("respondsToSelector:"), sPub2)) {
+                        ((void(*)(id, SEL, id, NSUInteger))objc_msgSend)(server, sPub2, bulletin, (NSUInteger)7);
+                        ProbeWrite("SBB-PUB-Q2");
+                    } else if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(server, sel_registerName("respondsToSelector:"), sSend)) {
+                        id feeds = [NSArray arrayWithObjects:[NSNumber numberWithInt:1], [NSNumber numberWithInt:2], nil];
+                        ((void(*)(id, SEL, id, id))objc_msgSend)(server, sSend, bulletin, feeds);
+                        ProbeWrite("SBB-PUB-QS");
+                    } else ProbeWrite("SBB-Q-NOPUBSEL");
+                } @catch (id e) { ProbeWrite("SBB-Q-EXC"); }
             });
             ProbeWrite("SBB-QASYNC");
             return;
