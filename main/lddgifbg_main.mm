@@ -116,6 +116,7 @@ extern "C" { extern void *kCGImagePropertyGIFDictionary; extern void *kCGImagePr
 
 typedef struct CGRect { double ox, oy, w, h; } CGRect;
 static void LogReason(const char *tag, id e);
+static void CheckForcePreviewTick(void);
 static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, y, w, h}; return r; }
 @interface UIApplication : NSObject
 + (id)sharedApplication;
