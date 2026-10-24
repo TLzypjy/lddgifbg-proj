@@ -91,6 +91,7 @@ static id CLSSTR(const char *n) { return (id)objc_getClass(n); }
 - (BOOL)createDirectoryAtPath:(NSString *)p withIntermediateDirectories:(BOOL)b attributes:(id)a error:(id *)e;
 - (BOOL)copyItemAtURL:(id)src toURL:(id)dst error:(id *)e;
 - (BOOL)removeItemAtPath:(NSString *)p error:(id *)e;
+- (BOOL)createFileAtPath:(NSString *)p contents:(id)c attributes:(id)a;
 - (id)contentsOfDirectoryAtPath:(NSString *)p error:(id *)e;
 @end
 @interface NSUserDefaults : NSObject
