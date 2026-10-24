@@ -46,6 +46,7 @@ extern "C" { extern void *kCGImagePropertyGIFDictionary; extern void *kCGImagePr
 + (id)alloc;
 - (id)init;
 - (void)setValue:(id)v forKey:(id)k;
+- (id)valueForKey:(id)k;
 @end
 @interface NSString : NSObject
 - (id)initWithBytes:(const void *)b length:(NSUInteger)l encoding:(NSUInteger)e;
