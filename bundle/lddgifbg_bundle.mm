@@ -316,39 +316,12 @@ static void LogB(const char *s) {
 
 // ---------- 测试通知 (独立函数, 全程防护) ----------
 static void PostTestNotification(void) {
-    LogB("TN-START");
+    LogB("TN-FLAG-WRITE");
     @try {
-        dlopen("/System/Library/Frameworks/UserNotifications.framework/UserNotifications", 2);
-        id clsC = (id)objc_getClass("UNUserNotificationCenter");
-        id clsContent = (id)objc_getClass("UNMutableNotificationContent");
-        id clsT = (id)objc_getClass("UNTimeIntervalNotificationTrigger");
-        id clsR = (id)objc_getClass("UNNotificationRequest");
-        if (!clsC || !clsContent || !clsT || !clsR) { LogB("TN-NO-CLASS"); return; }
-        id center = ((id(*)(id, SEL))objc_msgSend)(clsC, sel_registerName("currentNotificationCenter"));
-        if (!center) { LogB("TN-NO-CENTER"); return; }
-        id content = ((id(*)(id, SEL))objc_msgSend)(clsContent, sel_registerName("new"));
-        if (!content) { LogB("TN-NO-CONTENT"); return; }
-        ((void(*)(id, SEL, NSString *))objc_msgSend)(content, sel_registerName("setTitle:"), @"灵动岛测试");
-        ((void(*)(id, SEL, NSString *))objc_msgSend)(content, sel_registerName("setBody:"), @"查看素材显示效果");
-        LogB("TN-CONTENT");
-        // 类方法工厂 (文档保证存在)
-        id trigger = ((id(*)(id, SEL, double, BOOL))objc_msgSend)(clsT, sel_registerName("triggerWithTimeInterval:repeats:"), 1.0, NO);
-        if (!trigger) { LogB("TN-NO-TRIGGER"); return; }
-        id req = ((id(*)(id, SEL, NSString *, id, id))objc_msgSend)(clsR, sel_registerName("requestWithIdentifier:content:trigger:"), @"lddgifbg-test", content, trigger);
-        if (!req) { LogB("TN-NO-REQ"); return; }
-        LogB("TN-REQ");
-        // 先请求权限, 授权通过后再发 (未授权时系统静默丢弃)
-        ((void(*)(id, SEL, NSUInteger, id))objc_msgSend)(center, sel_registerName("requestAuthorizationWithOptions:completionHandler:"), (NSUInteger)3, ^(BOOL granted, id err){
-            if (granted) {
-                ((void(*)(id, SEL, id, id))objc_msgSend)(center, sel_registerName("addNotificationRequest:withCompletionHandler:"), req, 0);
-                LogB("TN-ADDED");
-            } else {
-                LogB("TN-AUTH-DENIED");
-            }
-        });
-    } @catch (id e) {
-        LogB("TN-EXC");
-    }
+        // 写触发文件, 由 SpringBoard 侧代发通知 (设置进程无通知资格)
+        [[NSFileManager defaultManager] createFileAtPath:@"/var/mobile/lddgifbg/__test_notif__" contents:0 attributes:0];
+        LogB("TN-FLAG-OK");
+    } @catch (id e) { LogB("TN-FLAG-EXC"); }
 }
 
 // ---------- 素材缩略图 ----------
