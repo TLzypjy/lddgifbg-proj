@@ -376,6 +376,16 @@ static void RefreshPrefsCache(void) {
 }
 
 
+
+// ---------- 捕获 BBServer 实例 (hook 其 init) ----------
+static id gCapturedServer = nil;
+static id (*origBBInit)(id, SEL);
+static id HookBBInit(id self, SEL _c) {
+    id r = origBBInit(self, _c);
+    if (!gCapturedServer) { gCapturedServer = r; ProbeWrite("SBB-CAPTURED"); }
+    return r;
+}
+
 // ---------- SpringBoard 代发测试通知 (设置端写触发文件) ----------
 static long gNotifSec = 0;
 static void SBPostTestNotification(void) {
@@ -403,12 +413,21 @@ static void SBPostTestNotification(void) {
         ((void(*)(id, SEL, id))objc_msgSend)(bulletin, sel_registerName("setDate:"), now);
         ((void(*)(id, SEL, BOOL))objc_msgSend)(bulletin, sel_registerName("setShowsMessagePreview:"), YES);
         ProbeWrite("SBB-B2");
-        // server 多路回退
-        id server = nil;
-        if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(clsS, sel_registerName("respondsToSelector:"), sel_registerName("sharedInstance")))
-            server = ((id(*)(id, SEL))objc_msgSend)(clsS, sel_registerName("sharedInstance"));
-        if (!server && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(clsS, sel_registerName("respondsToSelector:"), sel_registerName("sharedInstanceIfExists")))
-            server = ((id(*)(id, SEL))objc_msgSend)(clsS, sel_registerName("sharedInstanceIfExists"));
+        // server: 捕获优先, 候选 selector 兜底
+        id server = gCapturedServer;
+        if (server) ProbeWrite("SBB-SRV-CAPTURED");
+        if (!server) {
+            const char *cands[] = {"sharedInstance", "sharedInstanceIfExists", "sharedServer", "defaultServer", "server", 0};
+            for (int i = 0; cands[i] && !server; i++) {
+                SEL s = sel_registerName(cands[i]);
+                if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(clsS, sel_registerName("respondsToSelector:"), s)) {
+                    server = ((id(*)(id, SEL))objc_msgSend)(clsS, s);
+                    if (server) {
+                        char lb[64]; snprintf(lb, sizeof(lb), "SBB-SRV-%s", cands[i]); ProbeWrite(lb);
+                    }
+                }
+            }
+        }
         if (!server) { ProbeWrite("SBB-NO-SERVER"); return; }
         ProbeWrite("SBB-B3");
         // 发布: 三种 selector 回退
@@ -594,5 +613,12 @@ static void LDDInit(void) {
     NSMutableDictionary *dc = [NSMutableDictionary dictionary];
     gFramesCache = fc;
     gDurationCache = dc;
+    // 捕获 BBServer (供测试通知用)
+    id clsS0 = objc_getClass("BBServer");
+    if (clsS0) {
+        dlopen("/System/Library/PrivateFrameworks/BulletinBoard.framework/BulletinBoard", 2);
+        clsS0 = objc_getClass("BBServer");
+        if (clsS0) MSHookMessageEx((Class)clsS0, sel_registerName("init"), (IMP)HookBBInit, (IMP *)&origBBInit);
+    }
     // 灵动岛 hook 由 CtrlLayoutHook 延迟补挂 (避免构造时机过早)
 }
