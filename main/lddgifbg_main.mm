@@ -788,8 +788,12 @@ static UIImage *FirstImageForPath(NSString *path) {
     return img;
 }
 
+static double gLastShow = 0;
 static void ShowPreviewWindow(void) {
     @try {
+        double nowT = ((double(*)(id, SEL))objc_msgSend)((id)[(id)objc_getClass("NSDate") date], sel_registerName("timeIntervalSince1970"));
+        if (nowT - gLastShow < 0.8) { ProbeWrite("PREV-DEDUP"); return; }
+        gLastShow = nowT;
         RefreshPrefsCache();
         NSString *path = cPath;
         if (!path) { ProbeWrite("PREV-NOPATH"); return; }
@@ -819,7 +823,8 @@ static void ShowPreviewWindow(void) {
         double bw = sb.w - 24.0;
         double bh = 122.0;
         CGRect expanded = MakeRect(12.0, top + 2.0, bw, bh);
-        CGRect pill = MakeRect((sb.w - 125.0) / 2.0, top + 2.0, 125.0, 37.0);
+        double pillY = (si.top > 50.0) ? (si.top - 48.0) : 11.0;
+        CGRect pill = MakeRect((sb.w - 125.0) / 2.0, pillY, 125.0, 37.0);
         gPreviewPill = pill;
         UIControl *banner = [[UIControl alloc] initWithFrame:pill];
         [banner setBackgroundColor:[UIColor colorWithWhite:0.05 alpha:1.0]];
