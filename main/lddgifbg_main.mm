@@ -895,9 +895,11 @@ static void ShowPreviewWindow(void) {
         id hostWin = nil;
         double best = 0;
         // 路线1: 从 SB 窗口取 scene (1.9.57 验证过可见)
+        SEL selScene = sel_registerName("scene");
         for (NSUInteger i = 0; i < wn && !scene; i++) {
             id wv = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(wins, sel_registerName("objectAtIndex:"), i);
-            id s = ((id(*)(id, SEL))objc_msgSend)(wv, sel_registerName("scene"));
+            if (!((BOOL(*)(id, SEL, SEL))objc_msgSend)(wv, sel_registerName("respondsToSelector:"), selScene)) continue;
+            id s = ((id(*)(id, SEL))objc_msgSend)(wv, selScene);
             if (s && strstr(object_getClassName(s), "UIWindowScene")) scene = s;
         }
         if (scene) ProbeWrite("PREV-SCENE-WINPATH");
