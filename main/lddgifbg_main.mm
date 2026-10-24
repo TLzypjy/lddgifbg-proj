@@ -127,12 +127,6 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 + (id)blueColor;
 + (id)clearColor;
 @end
-@interface UIWindow : UIView
-- (id)initWithFrame:(CGRect)r;
-- (void)setWindowLevel:(long)l;
-- (void)setHidden:(BOOL)h;
-- (void)makeKeyAndVisible;
-@end
 @interface UIView : NSObject
 - (id)initWithFrame:(CGRect)r;
 - (CGRect)bounds;
@@ -144,6 +138,13 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (id)window;
 - (void)setBackgroundColor:(id)c;
 - (void)setTag:(NSInteger)t;
+@end
+
+@interface UIWindow : UIView
+- (id)initWithFrame:(CGRect)r;
+- (void)setWindowLevel:(long)l;
+- (void)setHidden:(BOOL)h;
+- (void)makeKeyAndVisible;
 @end
 @interface UIImage : NSObject
 + (id)imageWithContentsOfFile:(NSString *)p;
