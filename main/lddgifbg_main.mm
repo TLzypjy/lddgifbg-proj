@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <math.h>
 #include <unistd.h>
 
 typedef struct objc_class *Class;
@@ -129,6 +130,10 @@ static void ShowPreviewWindow(void);
 - (id)keyWindow;
 - (id)windows;
 - (id)connectedScenes;
+@end
+@interface NSTimer : NSObject
++ (id)scheduledTimerWithTimeInterval:(double)ti target:(id)t selector:(SEL)s userInfo:(id)u repeats:(BOOL)r;
+- (void)invalidate;
 @end
 @interface UIScreen : NSObject
 + (id)mainScreen;
@@ -428,16 +433,529 @@ static void LoadMediaWithPathIntoImageView(NSString *path, UIImageView *iv) {
 // ---------- 强制上岛预览 (8秒, 不依赖通知系统) ----------
 static long gForceUntil = 0;
 static void PreviewOverlayDismiss(void);
+static void PreviewTick(void);
 @interface LDDPreviewDismiss : NSObject
 - (void)dismissPreview;
+- (void)tick:(id)t;
 @end
 @implementation LDDPreviewDismiss
 - (void)dismissPreview;
 {
     PreviewOverlayDismiss();
 }
+- (void)tick:(id)t;
+{
+    PreviewTick();
+}
 @end
 static id gPreviewDismissTarget = nil;
+
+static double gForceLast = 0;
+static void CheckForcePreviewTick(void) {
+    double t = ((double(*)(id, SEL))objc_msgSend)((id)[(id)objc_getClass("NSDate") date], sel_registerName("timeIntervalSince1970"));
+    if (t - gForceLast < 0.25) return;
+    gForceLast = t;
+    if (access("/var/mobile/lddgifbg/__force_preview__", 0) == 0) {
+        remove("/var/mobile/lddgifbg/__force_preview__");
+        ShowPreviewWindow();
+    }
+}
+
+static void CheckForcePreview(void) {
+    if (access("/var/mobile/lddgifbg/__force_preview__", 0) == 0) {
+        remove("/var/mobile/lddgifbg/__force_preview__");
+        ShowPreviewWindow();
+    }
+}
+static BOOL ForcePreviewActive(void) { return time(0) < gForceUntil; }
+
+// ---------- prefs 缓存 (1秒节流, 避免每帧读文件/扫目录) ----------
+static long gCacheSec = 0;
+static BOOL cEnabled, cZxh;
+static double cScale;
+static NSString *cPath;
+static void RefreshPrefsCache(void) {
+    long t = time(0);
+    if (t == gCacheSec) return;
+    gCacheSec = t;
+    cEnabled = IsLddGifBgEnabled();
+    cZxh = IsZxhLddGifBgEnabled();
+    cScale = GetLddGifBgScale();
+    cPath = GetSelectedImagePath();
+}
+
+
+
+static void LogReason(const char *tag, id e) {
+    @try {
+        id r = ((id(*)(id, SEL))objc_msgSend)(e, sel_registerName("reason"));
+        const char *c = r ? ((const char *(*)(id, SEL))objc_msgSend)(r, sel_registerName("UTF8String")) : 0;
+        char buf[300]; snprintf(buf, sizeof(buf), "%s: %.220s", tag, c ? c : "?"); ProbeWrite(buf);
+    } @catch (id e2) { ProbeWrite(tag); }
+}
+
+// ---------- 捕获 BBServer 实例 (hook 其 init) ----------
+static id gCapturedServer = nil;
+static id (*origBBInit)(id, SEL);
+static id HookBBInit(id self, SEL _c) {
+    id r = origBBInit(self, _c);
+    if (!gCapturedServer) { gCapturedServer = r; ProbeWrite("SBB-CAPTURED-INIT"); }
+    return r;
+}
+static id (*origBBAlloc)(Class, SEL);
+static id HookBBAlloc(Class cls, SEL _c) {
+    id r = origBBAlloc(cls, _c);
+    if (!gCapturedServer) { gCapturedServer = r; ProbeWrite("SBB-CAPTURED-ALLOC"); }
+    return r;
+}
+
+// ---------- SpringBoard 代发测试通知 (设置端写触发文件) ----------
+static long gNotifSec = 0;
+static void SBPostTestNotification(void) {
+    ProbeWrite("SBB-START");
+    @try {
+        dlopen("/System/Library/PrivateFrameworks/BulletinBoard.framework/BulletinBoard", 2);
+        id clsB = (id)objc_getClass("BBBulletin");
+        id clsS = (id)objc_getClass("BBServer");
+        if (!clsB || !clsS) { ProbeWrite("SBB-NO-CLASS"); return; }
+        // 创建 bulletin: +bulletin 不存在则 alloc/init
+        id bulletin = nil;
+        if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(clsB, sel_registerName("respondsToSelector:"), sel_registerName("bulletin"))) {
+            bulletin = ((id(*)(id, SEL))objc_msgSend)(clsB, sel_registerName("bulletin"));
+        }
+        if (!bulletin) bulletin = [[clsB alloc] init];
+        if (!bulletin) { ProbeWrite("SBB-NO-BULLETIN"); return; }
+        ProbeWrite("SBB-B1");
+        ((void(*)(id, SEL, NSString *))objc_msgSend)(bulletin, sel_registerName("setTitle:"), @"灵动岛测试");
+        ((void(*)(id, SEL, NSString *))objc_msgSend)(bulletin, sel_registerName("setMessage:"), @"查看素材显示效果");
+        ((void(*)(id, SEL, NSString *))objc_msgSend)(bulletin, sel_registerName("setSectionID:"), @"com.apple.MobileSMS");
+        NSString *uid = [NSString stringWithFormat:@"ldd-%ld", (long)time(0)];
+        ((void(*)(id, SEL, NSString *))objc_msgSend)(bulletin, sel_registerName("setPublisherBulletinID:"), uid);
+        ((void(*)(id, SEL, NSString *))objc_msgSend)(bulletin, sel_registerName("setRecordID:"), uid);
+        id now = [(id)objc_getClass("NSDate") date];
+        if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(bulletin, sel_registerName("respondsToSelector:"), sel_registerName("setBulletinID:")))
+            ((void(*)(id, SEL, NSString *))objc_msgSend)(bulletin, sel_registerName("setBulletinID:"), uid);
+        if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(bulletin, sel_registerName("respondsToSelector:"), sel_registerName("setPublicationDate:")))
+            ((void(*)(id, SEL, id))objc_msgSend)(bulletin, sel_registerName("setPublicationDate:"), now);
+        ((void(*)(id, SEL, id))objc_msgSend)(bulletin, sel_registerName("setDate:"), now);
+        ((void(*)(id, SEL, BOOL))objc_msgSend)(bulletin, sel_registerName("setShowsMessagePreview:"), YES);
+        ProbeWrite("SBB-B2");
+        // server: 捕获优先, 候选 selector 兜底
+        id server = gCapturedServer;
+        if (server) ProbeWrite("SBB-SRV-CAPTURED");
+        if (!server) {
+            const char *cands[] = {"sharedInstance", "sharedInstanceIfExists", "sharedServer", "defaultServer", "server", 0};
+            for (int i = 0; cands[i] && !server; i++) {
+                SEL s = sel_registerName(cands[i]);
+                if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(clsS, sel_registerName("respondsToSelector:"), s)) {
+                    server = ((id(*)(id, SEL))objc_msgSend)(clsS, s);
+                    if (server) {
+                        char lb[64]; snprintf(lb, sizeof(lb), "SBB-SRV-%s", cands[i]); ProbeWrite(lb);
+                    }
+                }
+            }
+        }
+        if (!server) {
+            // 最后兜底: 自建 BBServerConnection 走客户端发布协议
+            id clsConn = (id)objc_getClass("BBServerConnection");
+            if (clsConn) {
+                id conn = [[clsConn alloc] init];
+                SEL sp = sel_registerName("publishBulletin:destinations:alwaysToLockScreen:");
+                if (conn && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(conn, sel_registerName("respondsToSelector:"), sp)) {
+                    ((void(*)(id, SEL, id, NSUInteger, BOOL))objc_msgSend)(conn, sp, bulletin, (NSUInteger)7, YES);
+                    ProbeWrite("SBB-CONN-PUB");
+                    return;
+                }
+                ProbeWrite("SBB-CONN-NOPUB");
+            }
+            ProbeWrite("SBB-NO-SERVER");
+            return;
+        }
+        ProbeWrite("SBB-B3");
+        // 发布: 队列安全路线 (主线程直调 server 会触发 dispatch_assert 崩溃)
+        SEL sPub = sel_registerName("publishBulletin:destinations:alwaysToLockScreen:");
+        // 路线1: BBServerConnection 客户端通道 (内部转发到正确队列)
+        id clsConn = (id)objc_getClass("BBServerConnection");
+        if (clsConn) {
+            id conn = [[clsConn alloc] init];
+            if (conn && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(conn, sel_registerName("respondsToSelector:"), sPub)) {
+                ((void(*)(id, SEL, id, NSUInteger, BOOL))objc_msgSend)(conn, sPub, bulletin, (NSUInteger)7, YES);
+                ProbeWrite("SBB-PUB-CONN");
+                return;
+            }
+            ProbeWrite("SBB-CONN-NOPUB");
+        }
+        else { ProbeWrite("SBB-CONN-CLASS-NIL"); }
+        // 路线2: 扫描 ivar 找内部队列, 异步到该队列发布
+        id q = nil;
+        @try {
+            unsigned int cnt = 0;
+            void **ivars = (void **)class_copyIvarList((Class)clsS, &cnt);
+            static int ivlogged = 0;
+            for (unsigned int i = 0; i < cnt; i++) {
+                const char *nm = ivar_getName(ivars[i]);
+                if (!nm) continue;
+                if (!ivlogged && i < 40) {
+                    char lb[96]; snprintf(lb, sizeof(lb), "SBB-IVAR: %s", nm); ProbeWrite(lb);
+                }
+                if (strstr(nm, "ueue")) {
+                    id v = object_getIvar(server, ivars[i]);
+                    if (v) { q = v; char lb[96]; snprintf(lb, sizeof(lb), "SBB-QUEUE-IVAR: %s", nm); ProbeWrite(lb); break; }
+                }
+            }
+            ivlogged = 1;
+        } @catch (id e) { ProbeWrite("SBB-IVAR-EXC"); }
+        if (q) {
+            dispatch_async((__bridge void *)q, ^{
+                SEL sPub3 = sel_registerName("publishBulletin:destinations:alwaysToLockScreen:");
+                SEL sPub2 = sel_registerName("publishBulletin:destinations:");
+                SEL sSend = sel_registerName("_sendAddBulletin:toFeeds:");
+                BOOL shown = NO;
+                // 1) TrollOpen 同款底层通道: feeds 为 NSArray<NSNumber>
+                if (!shown && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(server, sel_registerName("respondsToSelector:"), sSend)) {
+                    @try {
+                        id feeds = [NSArray arrayWithObjects:[NSNumber numberWithInt:1], [NSNumber numberWithInt:2], [NSNumber numberWithInt:4], nil];
+                        ((void(*)(id, SEL, id, id))objc_msgSend)(server, sSend, bulletin, feeds);
+                        ProbeWrite("SBB-PUB-QS"); shown = YES;
+                    } @catch (id e) { LogReason("QS", e); }
+                }
+                // 2) 三参 publish
+                if (!shown && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(server, sel_registerName("respondsToSelector:"), sPub3)) {
+                    @try { ((void(*)(id, SEL, id, NSUInteger, BOOL))objc_msgSend)(server, sPub3, bulletin, (NSUInteger)7, YES); ProbeWrite("SBB-PUB-Q3"); shown = YES; }
+                    @catch (id e) { LogReason("Q3", e); }
+                }
+                // 3) 二参 publish
+                if (!shown && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(server, sel_registerName("respondsToSelector:"), sPub2)) {
+                    @try { ((void(*)(id, SEL, id, NSUInteger))objc_msgSend)(server, sPub2, bulletin, (NSUInteger)7); ProbeWrite("SBB-PUB-Q2"); shown = YES; }
+                    @catch (id e) { LogReason("Q2", e); }
+                }
+                if (!shown) ProbeWrite("SBB-ALL-FAIL");
+            });
+            ProbeWrite("SBB-QASYNC");
+            return;
+        }
+        ProbeWrite("SBB-NO-PATH");
+    } @catch (id e) {
+        @try {
+            id r = ((id(*)(id, SEL))objc_msgSend)(e, sel_registerName("reason"));
+            const char *c = r ? ((const char *(*)(id, SEL))objc_msgSend)(r, sel_registerName("UTF8String")) : 0;
+            char buf[300];
+            snprintf(buf, sizeof(buf), "SBB-EXC: %.240s", c ? c : "?");
+            ProbeWrite(buf);
+        } @catch (id e2) { ProbeWrite("SBB-EXC"); }
+    }
+}
+
+static void CheckTestNotifFlag(void) {
+    long t = time(0);
+    if (t == gNotifSec) return;
+    gNotifSec = t;
+    if (access("/var/mobile/lddgifbg/__test_notif__", 0) == 0) {
+        remove("/var/mobile/lddgifbg/__test_notif__");
+        SBPostTestNotification();
+    }
+}
+
+// ---------- 诊断占位 (红=无素材, 蓝=加载失败) ----------
+static void RemoveTagged(id self, NSInteger tag) {
+    id v = [self viewWithTag:tag];
+    if (v) [v removeFromSuperview];
+}
+static void ShowBlock(id self, int colorIsRed) {
+    RemoveTagged(self, 9999);
+    RemoveTagged(self, 9998);
+    id ph = [self viewWithTag:colorIsRed ? 9997 : 9996];
+    if (!ph) {
+        CGRect b = [self bounds];
+        UIView *v = [[UIView alloc] initWithFrame:MakeRect(b.w/2 - 15, b.h/2 - 20, 30, 40)];
+        [v setBackgroundColor:(colorIsRed ? [UIColor redColor] : [UIColor blueColor])];
+        [v setTag:(colorIsRed ? 9997 : 9996)];
+        [self insertSubview:v atIndex:0];
+    }
+}
+
+// ---------- layoutSubviews hook ----------
+static void LDDIslandLayout(id self) {
+    static int first = 0;
+    if (!first) { first = 1; ProbeWrite("ISLAND-LAYOUT-ENTERED"); }
+    void *pool = objc_autoreleasePoolPush();
+    // 过滤: 只处理挂在真实窗口、且尺寸接近灵动岛的视图 (排除整屏容器)
+    UIView *selfv = (UIView *)self;
+    id win = [selfv window];
+    if (!win) { objc_autoreleasePoolPop(pool); return; }
+    CGRect bb = [selfv bounds];
+    if (bb.w > 460.0 || bb.h > 150.0 || bb.w < 40.0 || bb.h < 10.0) {
+        objc_autoreleasePoolPop(pool); return;
+    }
+    static int aclog = 0;
+    if (aclog < 8) {
+        aclog++;
+        char al[128];
+        snprintf(al, sizeof(al), "ACCEPT-VIEW: %s %.0fx%.0f", object_getClassName(self), bb.w, bb.h);
+        ProbeWrite(al);
+    }
+
+    CheckForcePreview();
+    RefreshPrefsCache();
+    BOOL mainOn = cEnabled;
+    BOOL show = NO;
+    if (mainOn) {
+        CGRect b0 = [self bounds];
+        if (cZxh) show = YES;          // 小岛开: 常显
+        else if (b0.h >= 65.0) show = YES;               // 小岛关: 仅展开时
+    }
+    if (!show) {
+        RemoveTagged(self, 9999);
+        RemoveTagged(self, 9998);
+        objc_autoreleasePoolPop(pool);
+        return;
+    }
+
+    NSString *path = cPath;
+    if (!path) {
+        ShowBlock(self, 1);   // 红: 没读到素材(可能是 prefs 问题)
+        objc_autoreleasePoolPop(pool);
+        return;
+    }
+    NSFileManager *fm = [NSFileManager defaultManager];
+    if (![fm fileExistsAtPath:path]) {
+        ShowBlock(self, 1);
+        return objc_autoreleasePoolPop(pool), (void)0;
+    }
+    RemoveTagged(self, 9997);
+    RemoveTagged(self, 9996);
+
+    UIImageView *view = (UIImageView *)[self viewWithTag:9999];
+    if (!view) {
+        CGRect b = [self bounds];
+        view = [[UIImageView alloc] initWithFrame:MakeRect(0, 0, b.w, b.h)];
+        [view setContentMode:2];
+        [view setAutoresizingMask:18];
+        [view setTag:9999];
+        [self insertSubview:view atIndex:0];
+    }
+
+    double scale = cScale;
+    CGRect b = [self bounds];
+    double w = b.w * scale, h = b.h * scale;
+    [view setFrame:MakeRect((b.w - w) / 2.0, (b.h - h) / 2.0, w, h)];
+    // 药丸圆角, 贴合灵动岛形状
+    id vlay = [view layer];
+    [vlay setCornerRadius:h / 2.0];
+    [vlay setMasksToBounds:YES];
+
+    BOOL needReload = YES;
+    if (gLoadedPath && [gLoadedPath isEqualToString:path]) {
+        if ([view isAnimating] || gPlayerLayer) needReload = NO;
+    }
+    if (needReload) {
+        gLoadedPath = path;
+        LoadMediaWithPathIntoImageView(path, view);
+    }
+    [self insertSubview:view atIndex:0];
+    objc_autoreleasePoolPop(pool);
+}
+
+// ---------- 构造 ----------
+// 全局 UIView hook: 在每次布局时识别"灵动岛容器视图"(类名含 Aperture)并接管
+static void (*origCtrlLayout)(id, SEL);
+static void LDDIslandLayout(id self);
+static void CtrlLayoutHook(id self, SEL _cmd) {
+    static int once = 0;
+    if (!once) { once = 1; ProbeWrite("CTRL-HOOK-FIRED"); }
+    CheckForcePreviewTick();
+    const char *cn = object_getClassName(self);
+    if (cn && (strstr(cn, "Aperture") || strstr(cn, "Island"))) {
+        static int logged = 0;
+        if (!logged) {
+            logged = 1;
+            char line[160];
+            snprintf(line, sizeof(line), "MATCH-CLASS: %s", cn);
+            ProbeWrite(line);
+        }
+        LDDIslandLayout(self);
+    }
+    if (origCtrlLayout) origCtrlLayout(self, _cmd);
+}
+
+static id gPreviewWinHolder = nil;
+static id gPreviewBanner = nil;
+static id gPreviewIcon = nil;
+static id gPreviewFade = nil;
+static CGRect gPillR, gExpR, gIconPillR, gIconExpR;
+static long gPreviewGen = 0;
+static id gTicker = nil;
+static double gAnimStart = 0;
+static BOOL gCollapsing = NO;
+
+static void PreviewOverlayDismiss(void);
+static CGRect LerpRect(CGRect a2, CGRect b2, double s) {
+    CGRect r; r.ox = a2.ox + (b2.ox - a2.ox) * s; r.oy = a2.oy + (b2.oy - a2.oy) * s;
+    r.w = a2.w + (b2.w - a2.w) * s; r.h = a2.h + (b2.h - a2.h) * s; return r;
+}
+static double SpringVal(double t, double dur) {
+    if (t >= dur) return 1.0;
+    double zeta = 0.8, wn = 12.0;
+    double wd = wn * sqrt(1.0 - zeta * zeta);
+    return 1.0 - exp(-zeta * wn * t) * (cos(wd * t) + (zeta * wn / wd) * sin(wd * t));
+}
+static void ApplyPreviewState(double s) {
+    if (!gPreviewBanner) return;
+    [gPreviewBanner setFrame:LerpRect(gPillR, gExpR, s)];
+    id bl = [gPreviewBanner layer];
+    [bl setCornerRadius:20.0 + 24.0 * s];
+    if (gPreviewIcon) {
+        [gPreviewIcon setFrame:LerpRect(gIconPillR, gIconExpR, s)];
+        id icl = [gPreviewIcon layer];
+        [icl setCornerRadius:10.0 + 6.0 * s];
+    }
+    NSUInteger n = gPreviewFade ? ((NSUInteger(*)(id, SEL))objc_msgSend)(gPreviewFade, sel_registerName("count")) : 0;
+    for (NSUInteger i = 0; i < n; i++) {
+        id el = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(gPreviewFade, sel_registerName("objectAtIndex:"), i);
+        ((void(*)(id, SEL, double))objc_msgSend)(el, sel_registerName("setAlpha:"), s);
+    }
+}
+static void PreviewFinish(void) {
+    if (gPreviewBanner) { ((void(*)(id, SEL))objc_msgSend)(gPreviewBanner, sel_registerName("removeFromSuperview")); gPreviewBanner = nil; }
+    if (gPreviewWinHolder) { ((void(*)(id, SEL, BOOL))objc_msgSend)(gPreviewWinHolder, sel_registerName("setHidden:"), YES); gPreviewWinHolder = nil; }
+    gPreviewIcon = nil; gPreviewFade = nil;
+    ProbeWrite("PREV-OFF");
+}
+static void StartCollapse(void) {
+    if (!gPreviewBanner) return;
+    gPreviewGen++;
+    gCollapsing = YES;
+    gAnimStart = ((double(*)(id, SEL))objc_msgSend)((id)[(id)objc_getClass("NSDate") date], sel_registerName("timeIntervalSince1970"));
+    if (gTicker) { ((void(*)(id, SEL))objc_msgSend)(gTicker, sel_registerName("invalidate")); }
+    gTicker = [(id)objc_getClass("NSTimer") scheduledTimerWithTimeInterval:0.016 target:gPreviewDismissTarget selector:@selector(tick:) userInfo:0 repeats:YES];
+}
+static void PreviewOverlayDismiss(void) { StartCollapse(); }
+static void PreviewTick(void) {
+    double nowT = ((double(*)(id, SEL))objc_msgSend)((id)[(id)objc_getClass("NSDate") date], sel_registerName("timeIntervalSince1970"));
+    double el = nowT - gAnimStart;
+    double dur = gCollapsing ? 0.35 : 0.45;
+    double s = SpringVal(el, dur);
+    ApplyPreviewState(gCollapsing ? (1.0 - s) : s);
+    if (el >= dur) {
+        if (gTicker) { ((void(*)(id, SEL))objc_msgSend)(gTicker, sel_registerName("invalidate")); gTicker = nil; }
+        if (gCollapsing) { PreviewFinish(); }
+        else {
+            long myGen = gPreviewGen;
+            dispatch_after(dispatch_time(0, 3500000000LL), (void *)&_dispatch_main_q, ^{
+                if (myGen == gPreviewGen) StartCollapse();
+            });
+        }
+    }
+}
+static UIImage *FirstImageForPath(NSString *path) {
+    NSData *data = [NSData dataWithContentsOfFile:path];
+    if (!data) return nil;
+    void *src = CGImageSourceCreateWithData((__bridge void *)data, 0);
+    if (!src) return nil;
+    CGImageRef cg = CGImageSourceCreateImageAtIndex(src, 0, 0);
+    CFRelease(src);
+    if (!cg) return nil;
+    UIImage *img = [UIImage imageWithCGImage:cg scale:1.0 orientation:0];
+    CFRelease((void *)cg);
+    return img;
+}
+static double gLastShow = 0;
+static void ShowPreviewWindow(void) {
+    @try {
+        double nowT = ((double(*)(id, SEL))objc_msgSend)((id)[(id)objc_getClass("NSDate") date], sel_registerName("timeIntervalSince1970"));
+        if (nowT - gLastShow < 0.8) { ProbeWrite("PREV-DEDUP"); return; }
+        gLastShow = nowT;
+        if (gPreviewBanner) { if (gTicker) { ((void(*)(id, SEL))objc_msgSend)(gTicker, sel_registerName("invalidate")); gTicker = nil; } PreviewFinish(); }
+        RefreshPrefsCache();
+        NSString *path = cPath;
+        if (!path) { ProbeWrite("PREV-NOPATH"); return; }
+        id app = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIApplication"), sel_registerName("sharedApplication"));
+        id scenes = ((id(*)(id, SEL))objc_msgSend)(app, sel_registerName("connectedScenes"));
+        id sceneArr = scenes ? ((id(*)(id, SEL))objc_msgSend)(scenes, sel_registerName("allObjects")) : nil;
+        id scene = nil;
+        NSUInteger scn = sceneArr ? ((NSUInteger(*)(id, SEL))objc_msgSend)(sceneArr, sel_registerName("count")) : 0;
+        for (NSUInteger i = 0; i < scn; i++) {
+            id s = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(sceneArr, sel_registerName("objectAtIndex:"), i);
+            const char *cn = object_getClassName(s);
+            if (cn && strstr(cn, "UIWindowScene")) { scene = s; break; }
+        }
+        id scr = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIScreen"), sel_registerName("mainScreen"));
+        CGRect sb = ((CGRect(*)(id, SEL))objc_msgSend)(scr, sel_registerName("bounds"));
+        UIWindow *win = [[UIWindow alloc] initWithFrame:sb];
+        if (scene) [win setWindowScene:scene];
+        [win setWindowLevel:2001];
+        [win setBackgroundColor:[UIColor clearColor]];
+        [win setHidden:NO];
+        double W = sb.w;
+        gPillR = MakeRect((W - 126.0) / 2.0, 11.0, 126.0, 37.0);
+        gExpR = MakeRect(12.0, 11.0, W - 24.0, 110.0);
+        gIconPillR = MakeRect(4.0, 4.0, 29.0, 29.0);
+        gIconExpR = MakeRect(16.0, 33.0, 44.0, 44.0);
+        UIControl *banner = [[UIControl alloc] initWithFrame:gPillR];
+        [banner setBackgroundColor:[UIColor colorWithWhite:0.0 alpha:1.0]];
+        id bl = [banner layer];
+        [bl setCornerRadius:20.0];
+        [bl setMasksToBounds:YES];
+        [win addSubview:banner];
+        UIImageView *bg = [[UIImageView alloc] initWithFrame:MakeRect(0, 0, gExpR.w, gExpR.h)];
+        [bg setContentMode:2];
+        [bg setAlpha:0.0];
+        LoadMediaWithPathIntoImageView(path, bg);
+        double scale = cScale > 0 ? cScale : 1.0;
+        [bg setTransform:CGMakeScale(scale)];
+        [banner addSubview:bg];
+        UIView *mk = [[UIView alloc] initWithFrame:MakeRect(0, 0, gExpR.w, gExpR.h)];
+        [mk setBackgroundColor:[UIColor colorWithWhite:0.0 alpha:0.4]];
+        [mk setAlpha:0.0];
+        [banner addSubview:mk];
+        UIImageView *icon = [[UIImageView alloc] initWithFrame:gIconPillR];
+        [icon setImage:FirstImageForPath(path)];
+        [icon setContentMode:2];
+        id icl = [icon layer];
+        [icl setCornerRadius:10.0];
+        [icl setMasksToBounds:YES];
+        [banner addSubview:icon];
+        UILabel *nowL = [[UILabel alloc] initWithFrame:MakeRect(72, 10, 120, 16)];
+        [nowL setText:@"现在"];
+        [nowL setFont:[UIFont systemFontOfSize:12.0]];
+        [nowL setTextColor:[UIColor colorWithWhite:1.0 alpha:0.65]];
+        [nowL setAlpha:0.0];
+        [banner addSubview:nowL];
+        UILabel *tagL = [[UILabel alloc] initWithFrame:MakeRect(gExpR.w - 92, 10, 76, 16)];
+        [tagL setText:@"灵动通知"];
+        [tagL setFont:[UIFont systemFontOfSize:12.0]];
+        [tagL setTextColor:[UIColor colorWithWhite:1.0 alpha:0.65]];
+        [tagL setTextAlignment:2];
+        [tagL setAlpha:0.0];
+        [banner addSubview:tagL];
+        UILabel *ti = [[UILabel alloc] initWithFrame:MakeRect(72, 30, gExpR.w - 88, 20)];
+        [ti setText:@"灵动岛GIF背景给您发来的"];
+        [ti setFont:[UIFont boldSystemFontOfSize:15.0]];
+        [ti setTextColor:[UIColor whiteColor]];
+        [ti setAlpha:0.0];
+        [banner addSubview:ti];
+        UILabel *bo = [[UILabel alloc] initWithFrame:MakeRect(72, 52, gExpR.w - 88, 48)];
+        [bo setText:@"这是一条GIF背景预览通知，非常完美的展示出来了。您可以实时预览选择的窗口样式！"];
+        [bo setFont:[UIFont systemFontOfSize:14.0]];
+        [bo setTextColor:[UIColor whiteColor]];
+        [bo setNumberOfLines:2];
+        [bo setAlpha:0.0];
+        [banner addSubview:bo];
+        if (!gPreviewDismissTarget) gPreviewDismissTarget = [[LDDPreviewDismiss alloc] init];
+        [banner addTarget:gPreviewDismissTarget action:@selector(dismissPreview) forControlEvents:1 << 6];
+        gPreviewWinHolder = win;
+        gPreviewBanner = banner;
+        gPreviewIcon = icon;
+        gPreviewFade = [NSArray arrayWithObjects:bg, mk, nowL, tagL, ti, bo, nil];
+        gPreviewGen++;
+        gCollapsing = NO;
+        gAnimStart = nowT;
+        ApplyPreviewState(0.0);
+        if (gTicker) { ((void(*)(id, SEL))objc_msgSend)(gTicker, sel_registerName("invalidate")); }
+        gTicker = [(id)objc_getClass("NSTimer") scheduledTimerWithTimeInterval:0.016 target:gPreviewDismissTarget selector:@selector(tick:) userInfo:0 repeats:YES];
+        ProbeWrite("PREV-BANNER-ON");
+    } @catch (id e) { LogReason("PREV-EXC", e); }
+}
 
 static double gForceLast = 0;
 static void CheckForcePreviewTick(void) {
