@@ -174,6 +174,9 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (void)setWindowLevel:(long)l;
 - (void)setHidden:(BOOL)h;
 - (void)makeKeyAndVisible;
+- (id)scene;
+- (void)setWindowScene:(id)s;
+- (BOOL)isHidden;
 @end
 @interface UIImage : NSObject
 + (id)imageWithContentsOfFile:(NSString *)p;
@@ -427,26 +430,49 @@ static void PreviewOverlayDismiss(void);
 static id gPreviewDismissTarget = nil;
 static id gPreviewOverlay = nil;
 static long gPreviewGen = 0;
+static id gPreviewWinHolder = nil;
 static void PreviewOverlayDismiss(void) {
     gPreviewGen++;
-    if (gPreviewOverlay) { ((void(*)(id, SEL))objc_msgSend)(gPreviewOverlay, sel_registerName("removeFromSuperview")); gPreviewOverlay = nil; ProbeWrite("PREV-TAP-OFF"); }
+    if (gPreviewOverlay) { ((void(*)(id, SEL))objc_msgSend)(gPreviewOverlay, sel_registerName("removeFromSuperview")); gPreviewOverlay = nil; }
+    if (gPreviewWinHolder) { ((void(*)(id, SEL, BOOL))objc_msgSend)(gPreviewWinHolder, sel_registerName("setHidden:"), YES); gPreviewWinHolder = nil; }
+    ProbeWrite("PREV-OFF");
 }
 static void ShowPreviewWindow(void) {
     @try {
         NSString *path = GetSelectedImagePath();
         if (!path) { ProbeWrite("PREV-NOPATH"); return; }
         id app = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIApplication"), sel_registerName("sharedApplication"));
-        id kw = nil;
-        double bestArea = 0;
+        // 1) 找带 scene 的 SB 窗口, 用其 scene 建 alert 级独立窗口 (系统横幅同款, 可盖在任何 App 上)
+        id scene = nil;
         id wins = ((id(*)(id, SEL))objc_msgSend)(app, sel_registerName("windows"));
         NSUInteger wn = wins ? ((NSUInteger(*)(id, SEL))objc_msgSend)(wins, sel_registerName("count")) : 0;
-        for (NSUInteger i = 0; i < wn; i++) {
+        for (NSUInteger i = 0; i < wn && !scene; i++) {
             id wv = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(wins, sel_registerName("objectAtIndex:"), i);
-            CGRect wf = ((CGRect(*)(id, SEL))objc_msgSend)(wv, sel_registerName("bounds"));
-            double area = wf.w * wf.h;
-            if (area > bestArea) { bestArea = area; kw = wv; }
+            scene = ((id(*)(id, SEL))objc_msgSend)(wv, sel_registerName("scene"));
         }
-        if (!kw) kw = ((id(*)(id, SEL))objc_msgSend)(app, sel_registerName("keyWindow"));
+        id kw = nil;
+        BOOL ownWindow = NO;
+        if (scene) {
+            UIWindow *nw = [[UIWindow alloc] initWithFrame:MakeRect(0, 0, 0, 0)];
+            [nw setWindowScene:scene];
+            [nw setWindowLevel:2000];
+            [nw setBackgroundColor:[UIColor clearColor]];
+            [nw setHidden:NO];
+            kw = nw; ownWindow = YES;
+            ProbeWrite("PREV-SCENE-WIN");
+        } else {
+            // 2) 兜底: 最大的可见窗口
+            double bestArea = 0;
+            for (NSUInteger i = 0; i < wn; i++) {
+                id wv = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(wins, sel_registerName("objectAtIndex:"), i);
+                if (((BOOL(*)(id, SEL))objc_msgSend)(wv, sel_registerName("isHidden"))) continue;
+                CGRect wf = ((CGRect(*)(id, SEL))objc_msgSend)(wv, sel_registerName("bounds"));
+                double area = wf.w * wf.h;
+                if (area > bestArea) { bestArea = area; kw = wv; }
+            }
+            if (!kw) kw = ((id(*)(id, SEL))objc_msgSend)(app, sel_registerName("keyWindow"));
+            ProbeWrite("PREV-FALLBACK-WIN");
+        }
         if (!kw) { ProbeWrite("PREV-NOKEYWIN"); return; }
         id scr = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIScreen"), sel_registerName("mainScreen"));
         CGRect sb = ((CGRect(*)(id, SEL))objc_msgSend)(scr, sel_registerName("bounds"));
@@ -486,6 +512,7 @@ static void ShowPreviewWindow(void) {
         [kw addSubview:ov];
         [kw bringSubviewToFront:ov];
         gPreviewOverlay = ov;
+        gPreviewWinHolder = ownWindow ? kw : nil;
         gPreviewGen++;
         long myGen = gPreviewGen;
         if (!gPreviewDismissTarget) gPreviewDismissTarget = [[LDDPreviewDismiss alloc] init];
