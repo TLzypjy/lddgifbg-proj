@@ -164,6 +164,14 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (void)setTag:(NSInteger)t;
 @end
 
+@interface UILabel : UIView
+- (id)initWithFrame:(CGRect)r;
+- (void)setText:(NSString *)t;
+- (void)setFont:(id)f;
+- (void)setTextColor:(id)c;
+- (void)setTextAlignment:(NSInteger)a;
+@end
+
 @interface UIControl : UIView
 - (void)addTarget:(id)t action:(SEL)a forControlEvents:(NSUInteger)e;
 @end
