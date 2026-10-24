@@ -156,6 +156,7 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 @interface UIApplication : NSObject
 + (id)sharedApplication;
 - (id)keyWindow;
+- (void)openURL:(id)u options:(id)o completionHandler:(id)c;
 @end
 @interface UIControl : UIView
 - (void)addTarget:(id)t action:(SEL)a forControlEvents:(NSUInteger)e;
@@ -167,6 +168,7 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (void)setTextColor:(id)c;
 - (void)setTextAlignment:(NSInteger)a;
 - (void)setAlpha:(double)a;
+- (void)setNumberOfLines:(NSInteger)n;
 @end
 @interface UITextField : UIView
 - (void)setPlaceholder:(NSString *)p;
@@ -516,122 +518,6 @@ static id ThumbForPath(NSString *path) {
 - (void)closeTapped {
     [self dismissViewControllerAnimated:YES completion:0];
 }
-- (void)showBannerPreview {
-    @try {
-        NSUserDefaults *ud0 = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
-        NSString *folder = [ud0 objectForKey:@"SelectedMaterialFolder"];
-        NSString *path = nil;
-        if (folder) {
-            NSString *dir = [@"/var/mobile/lddgifbg" stringByAppendingPathComponent:folder];
-            NSArray *fs = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:dir error:nil];
-            NSArray *exts = [NSArray arrayWithObjects:@"gif", @"mp4", @"mov", @"png", @"jpg", @"jpeg", nil];
-            for (NSString *e in exts) {
-                for (NSString *f in fs) {
-                    if ([[[f pathExtension] lowercaseString] isEqualToString:e]) { path = [dir stringByAppendingPathComponent:f]; break; }
-                }
-                if (path) break;
-            }
-        }
-        if (!path) return;
-        id app = [UIApplication sharedApplication];
-        id kw = [app keyWindow];
-        id scene = kw ? [kw scene] : nil;
-        id scr = [UIScreen mainScreen];
-        CGRect sb = [scr bounds];
-        UIWindow *win = [[UIWindow alloc] initWithFrame:sb];
-        if (scene) [win setWindowScene:scene];
-        [win setWindowLevel:2001];
-        [win setBackgroundColor:[UIColor clearColor]];
-        [win setHidden:NO];
-        [win makeKeyAndVisible];
-        double W = sb.w;
-        CGRect pill = MakeRect((W - 126.0) / 2.0, 11.0, 126.0, 37.0);
-        CGRect exp = MakeRect(12.0, 11.0, W - 24.0, 110.0);
-        UIControl *banner = [[UIControl alloc] initWithFrame:pill];
-        [banner setBackgroundColor:[UIColor colorWithWhite:0.0 alpha:1.0]];
-        id bl = [banner layer];
-        [bl setCornerRadius:20.0];
-        [bl setMasksToBounds:YES];
-        [win addSubview:banner];
-        UIImageView *bg = [[UIImageView alloc] initWithFrame:MakeRect(0, 0, exp.w, exp.h)];
-        [bg setContentMode:2];
-        [bg setAlpha:0.0];
-        id frames = GIFFramesForPath(path, 24, exp.w);
-        if (frames) { [bg setAnimationImages:frames]; [bg setAnimationDuration:2.0]; [bg setAnimationRepeatCount:0]; [bg startAnimating]; }
-        else { NSString *dir = [@"/var/mobile/lddgifbg" stringByAppendingPathComponent:[path lastPathComponent]]; (void)dir; [bg setImage:ThumbForPath(path)]; }
-        [banner addSubview:bg];
-        UIView *mk = [[UIView alloc] initWithFrame:MakeRect(0, 0, exp.w, exp.h)];
-        [mk setBackgroundColor:[UIColor colorWithWhite:0.0 alpha:0.4]];
-        [mk setAlpha:0.0];
-        [banner addSubview:mk];
-        UIImageView *icon = [[UIImageView alloc] initWithFrame:MakeRect(4, 4, 29, 29)];
-        [icon setImage:ThumbForPath(path)];
-        [icon setContentMode:2];
-        id icl = [icon layer];
-        [icl setCornerRadius:10.0];
-        [icl setMasksToBounds:YES];
-        [banner addSubview:icon];
-        UILabel *nowL = [[UILabel alloc] initWithFrame:MakeRect(72, 10, 120, 16)];
-        [nowL setText:@"现在"];
-        [nowL setFont:[UIFont systemFontOfSize:12.0]];
-        [nowL setTextColor:[UIColor colorWithWhite:1.0 alpha:0.65]];
-        [nowL setAlpha:0.0];
-        [banner addSubview:nowL];
-        UILabel *tagL = [[UILabel alloc] initWithFrame:MakeRect(exp.w - 92, 10, 76, 16)];
-        [tagL setText:@"灵动通知"];
-        [tagL setFont:[UIFont systemFontOfSize:12.0]];
-        [tagL setTextColor:[UIColor colorWithWhite:1.0 alpha:0.65]];
-        [tagL setTextAlignment:2];
-        [tagL setAlpha:0.0];
-        [banner addSubview:tagL];
-        UILabel *ti = [[UILabel alloc] initWithFrame:MakeRect(72, 30, exp.w - 88, 20)];
-        [ti setText:@"灵动岛GIF背景给您发来的"];
-        [ti setFont:[UIFont boldSystemFontOfSize:15.0]];
-        [ti setTextColor:[UIColor whiteColor]];
-        [ti setAlpha:0.0];
-        [banner addSubview:ti];
-        UILabel *bo = [[UILabel alloc] initWithFrame:MakeRect(72, 52, exp.w - 88, 48)];
-        [bo setText:@"这是一条GIF背景预览通知，非常完美的展示出来了。您可以实时预览选择的窗口样式！"];
-        [bo setFont:[UIFont systemFontOfSize:14.0]];
-        [bo setTextColor:[UIColor whiteColor]];
-        [bo setNumberOfLines:2];
-        [bo setAlpha:0.0];
-        [banner addSubview:bo];
-        __block id bWin = win;
-        __block id bBanner = banner;
-        void (^collapse)(void) = ^{
-            [UIView animateWithDuration:0.35 delay:0 usingSpringWithDamping:0.8 initialSpringVelocity:0.5 options:0 animations:^{
-                [bBanner setFrame:pill];
-                [[bBanner layer] setCornerRadius:20.0];
-                [bg setAlpha:0.0]; [mk setAlpha:0.0]; [nowL setAlpha:0.0]; [tagL setAlpha:0.0]; [ti setAlpha:0.0]; [bo setAlpha:0.0];
-            } completion:^(BOOL f) {
-                [bBanner removeFromSuperview];
-                [bWin setHidden:YES];
-            }];
-        };
-        [banner addTarget:self action:@selector(previewTap:) forControlEvents:1 << 6];
-        [UIView animateWithDuration:0.45 delay:0 usingSpringWithDamping:0.8 initialSpringVelocity:0.5 options:0 animations:^{
-            [banner setFrame:exp];
-            [bl setCornerRadius:44.0];
-            [icon setFrame:MakeRect(16, 33, 44, 44)];
-            [icl setCornerRadius:16.0];
-            [bg setAlpha:1.0]; [mk setAlpha:1.0]; [nowL setAlpha:1.0]; [tagL setAlpha:1.0]; [ti setAlpha:1.0]; [bo setAlpha:1.0];
-        } completion:^(BOOL f) {
-            [NSTimer scheduledTimerWithTimeInterval:3.5 target:self selector:@selector(previewAuto:) userInfo:0 repeats:NO];
-        }];
-        objc_setAssociatedObject(self, "pvbanner", banner, 1);
-        objc_setAssociatedObject(self, "pvwin", win, 1);
-        objc_setAssociatedObject(self, "pvcollapse", collapse, 1);
-    } @catch (id e) {}
-}
-- (void)previewTap:(id)s {
-    void (^c)(void) = objc_getAssociatedObject(self, "pvcollapse");
-    if (c) c();
-}
-- (void)previewAuto:(id)t {
-    void (^c)(void) = objc_getAssociatedObject(self, "pvcollapse");
-    if (c) c();
-}
 - (void)importTapped {
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"导入素材" message:@"选择来源" preferredStyle:0];
     UIAlertAction *a1 = [UIAlertAction actionWithTitle:@"从相册" style:0 handler:^(UIAlertAction *a){
@@ -868,6 +754,122 @@ static id ThumbForPath(NSString *path) {
 - (void)tableView:(id)tv didSelectRowAtIndexPath:(id)ip;
 @end
 @implementation lddgifbgRootListController
+- (void)showBannerPreview {
+    @try {
+        NSUserDefaults *ud0 = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
+        NSString *folder = [ud0 objectForKey:@"SelectedMaterialFolder"];
+        NSString *path = nil;
+        if (folder) {
+            NSString *dir = [@"/var/mobile/lddgifbg" stringByAppendingPathComponent:folder];
+            NSArray *fs = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:dir error:nil];
+            NSArray *exts = [NSArray arrayWithObjects:@"gif", @"mp4", @"mov", @"png", @"jpg", @"jpeg", nil];
+            for (NSString *e in exts) {
+                for (NSString *f in fs) {
+                    if ([[[f pathExtension] lowercaseString] isEqualToString:e]) { path = [dir stringByAppendingPathComponent:f]; break; }
+                }
+                if (path) break;
+            }
+        }
+        if (!path) return;
+        id app = [UIApplication sharedApplication];
+        id kw = [app keyWindow];
+        id scene = kw ? [kw scene] : nil;
+        id scr = [UIScreen mainScreen];
+        CGRect sb = [scr bounds];
+        UIWindow *win = [[UIWindow alloc] initWithFrame:sb];
+        if (scene) [win setWindowScene:scene];
+        [win setWindowLevel:2001];
+        [win setBackgroundColor:[UIColor clearColor]];
+        [win setHidden:NO];
+        [win makeKeyAndVisible];
+        double W = sb.w;
+        CGRect pill = MakeRect((W - 126.0) / 2.0, 11.0, 126.0, 37.0);
+        CGRect exp = MakeRect(12.0, 11.0, W - 24.0, 110.0);
+        UIControl *banner = [[UIControl alloc] initWithFrame:pill];
+        [banner setBackgroundColor:[UIColor colorWithWhite:0.0 alpha:1.0]];
+        id bl = [banner layer];
+        [bl setCornerRadius:20.0];
+        [bl setMasksToBounds:YES];
+        [win addSubview:banner];
+        UIImageView *bg = [[UIImageView alloc] initWithFrame:MakeRect(0, 0, exp.w, exp.h)];
+        [bg setContentMode:2];
+        [bg setAlpha:0.0];
+        id frames = GIFFramesForPath(path, 24, exp.w);
+        if (frames) { [bg setAnimationImages:frames]; [bg setAnimationDuration:2.0]; [bg setAnimationRepeatCount:0]; [bg startAnimating]; }
+        else { NSString *dir = [@"/var/mobile/lddgifbg" stringByAppendingPathComponent:[path lastPathComponent]]; (void)dir; [bg setImage:ThumbForPath(path)]; }
+        [banner addSubview:bg];
+        UIView *mk = [[UIView alloc] initWithFrame:MakeRect(0, 0, exp.w, exp.h)];
+        [mk setBackgroundColor:[UIColor colorWithWhite:0.0 alpha:0.4]];
+        [mk setAlpha:0.0];
+        [banner addSubview:mk];
+        UIImageView *icon = [[UIImageView alloc] initWithFrame:MakeRect(4, 4, 29, 29)];
+        [icon setImage:ThumbForPath(path)];
+        [icon setContentMode:2];
+        id icl = [icon layer];
+        [icl setCornerRadius:10.0];
+        [icl setMasksToBounds:YES];
+        [banner addSubview:icon];
+        UILabel *nowL = [[UILabel alloc] initWithFrame:MakeRect(72, 10, 120, 16)];
+        [nowL setText:@"现在"];
+        [nowL setFont:[UIFont systemFontOfSize:12.0]];
+        [nowL setTextColor:[UIColor colorWithWhite:1.0 alpha:0.65]];
+        [nowL setAlpha:0.0];
+        [banner addSubview:nowL];
+        UILabel *tagL = [[UILabel alloc] initWithFrame:MakeRect(exp.w - 92, 10, 76, 16)];
+        [tagL setText:@"灵动通知"];
+        [tagL setFont:[UIFont systemFontOfSize:12.0]];
+        [tagL setTextColor:[UIColor colorWithWhite:1.0 alpha:0.65]];
+        [tagL setTextAlignment:2];
+        [tagL setAlpha:0.0];
+        [banner addSubview:tagL];
+        UILabel *ti = [[UILabel alloc] initWithFrame:MakeRect(72, 30, exp.w - 88, 20)];
+        [ti setText:@"灵动岛GIF背景给您发来的"];
+        [ti setFont:[UIFont boldSystemFontOfSize:15.0]];
+        [ti setTextColor:[UIColor whiteColor]];
+        [ti setAlpha:0.0];
+        [banner addSubview:ti];
+        UILabel *bo = [[UILabel alloc] initWithFrame:MakeRect(72, 52, exp.w - 88, 48)];
+        [bo setText:@"这是一条GIF背景预览通知，非常完美的展示出来了。您可以实时预览选择的窗口样式！"];
+        [bo setFont:[UIFont systemFontOfSize:14.0]];
+        [bo setTextColor:[UIColor whiteColor]];
+        [bo setNumberOfLines:2];
+        [bo setAlpha:0.0];
+        [banner addSubview:bo];
+        __block id bWin = win;
+        __block id bBanner = banner;
+        void (^collapse)(void) = ^{
+            [UIView animateWithDuration:0.35 delay:0 usingSpringWithDamping:0.8 initialSpringVelocity:0.5 options:0 animations:^{
+                [bBanner setFrame:pill];
+                [[bBanner layer] setCornerRadius:20.0];
+                [bg setAlpha:0.0]; [mk setAlpha:0.0]; [nowL setAlpha:0.0]; [tagL setAlpha:0.0]; [ti setAlpha:0.0]; [bo setAlpha:0.0];
+            } completion:^(BOOL f) {
+                [bBanner removeFromSuperview];
+                [bWin setHidden:YES];
+            }];
+        };
+        [banner addTarget:self action:@selector(previewTap:) forControlEvents:1 << 6];
+        [UIView animateWithDuration:0.45 delay:0 usingSpringWithDamping:0.8 initialSpringVelocity:0.5 options:0 animations:^{
+            [banner setFrame:exp];
+            [bl setCornerRadius:44.0];
+            [icon setFrame:MakeRect(16, 33, 44, 44)];
+            [icl setCornerRadius:16.0];
+            [bg setAlpha:1.0]; [mk setAlpha:1.0]; [nowL setAlpha:1.0]; [tagL setAlpha:1.0]; [ti setAlpha:1.0]; [bo setAlpha:1.0];
+        } completion:^(BOOL f) {
+            [NSTimer scheduledTimerWithTimeInterval:3.5 target:self selector:@selector(previewAuto:) userInfo:0 repeats:NO];
+        }];
+        objc_setAssociatedObject(self, "pvbanner", banner, 1);
+        objc_setAssociatedObject(self, "pvwin", win, 1);
+        objc_setAssociatedObject(self, "pvcollapse", collapse, 1);
+    } @catch (id e) {}
+}
+- (void)previewTap:(id)s {
+    void (^c)(void) = objc_getAssociatedObject(self, "pvcollapse");
+    if (c) c();
+}
+- (void)previewAuto:(id)t {
+    void (^c)(void) = objc_getAssociatedObject(self, "pvcollapse");
+    if (c) c();
+}
 - (void)viewDidLoad {
     LogB("ROOT-VIEWDIDLOAD");
     @try { [super viewDidLoad]; } @catch (id e) { LogB("ROOT-VD-EXC"); }
