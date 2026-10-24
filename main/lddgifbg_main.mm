@@ -437,6 +437,7 @@ static void PreviewTick(void);
 @interface LDDPreviewDismiss : NSObject
 - (void)dismissPreview;
 - (void)tick:(id)t;
+- (void)autoClose:(id)t;
 @end
 @implementation LDDPreviewDismiss
 - (void)dismissPreview;
@@ -446,6 +447,10 @@ static void PreviewTick(void);
 - (void)tick:(id)t;
 {
     PreviewTick();
+}
+- (void)autoClose:(id)t;
+{
+    PreviewAutoClose();
 }
 @end
 static id gPreviewDismissTarget = nil;
@@ -819,10 +824,20 @@ static void PreviewFinish(void) {
     if (gPreviewBanner) { ((void(*)(id, SEL))objc_msgSend)(gPreviewBanner, sel_registerName("removeFromSuperview")); gPreviewBanner = nil; }
     if (gPreviewWinHolder) { ((void(*)(id, SEL, BOOL))objc_msgSend)(gPreviewWinHolder, sel_registerName("setHidden:"), YES); gPreviewWinHolder = nil; }
     gPreviewIcon = nil; gPreviewFade = nil;
+    gPreviewing = NO;
+    gLastShow = 0;
+    gAutoTimer = nil;
     ProbeWrite("PREV-OFF");
+    ProbeWrite("PREV-RESET");
+}
+static void PreviewAutoClose(void) {
+    double nowT = ((double(*)(id, SEL))objc_msgSend)((id)[(id)objc_getClass("NSDate") date], sel_registerName("timeIntervalSince1970"));
+    char buf[64]; snprintf(buf, sizeof(buf), "PREV-AUTOCLOSE %.2fs", nowT - gShowTime); ProbeWrite(buf);
+    if (gPreviewing) StartCollapse();
 }
 static void StartCollapse(void) {
     if (!gPreviewBanner) return;
+    if (gAutoTimer) { ((void(*)(id, SEL))objc_msgSend)(gAutoTimer, sel_registerName("invalidate")); gAutoTimer = nil; }
     gPreviewGen++;
     gCollapsing = YES;
     gAnimStart = ((double(*)(id, SEL))objc_msgSend)((id)[(id)objc_getClass("NSDate") date], sel_registerName("timeIntervalSince1970"));
@@ -840,10 +855,8 @@ static void PreviewTick(void) {
         if (gTicker) { ((void(*)(id, SEL))objc_msgSend)(gTicker, sel_registerName("invalidate")); gTicker = nil; }
         if (gCollapsing) { PreviewFinish(); }
         else {
-            long myGen = gPreviewGen;
-            dispatch_after(dispatch_time(0, 3500000000LL), (void *)&_dispatch_main_q, ^{
-                if (myGen == gPreviewGen) StartCollapse();
-            });
+            if (gAutoTimer) { ((void(*)(id, SEL))objc_msgSend)(gAutoTimer, sel_registerName("invalidate")); gAutoTimer = nil; }
+            gAutoTimer = [(id)objc_getClass("NSTimer") scheduledTimerWithTimeInterval:3.5 target:gPreviewDismissTarget selector:@selector(autoClose:) userInfo:0 repeats:NO];
         }
     }
 }
@@ -860,10 +873,14 @@ static UIImage *FirstImageForPath(NSString *path) {
     return img;
 }
 static double gLastShow = 0;
+static BOOL gPreviewing = NO;
+static double gShowTime = 0;
+static id gAutoTimer = nil;
+static void PreviewAutoClose(void);
 static void ShowPreviewWindow(void) {
     @try {
         double nowT = ((double(*)(id, SEL))objc_msgSend)((id)[(id)objc_getClass("NSDate") date], sel_registerName("timeIntervalSince1970"));
-        if (nowT - gLastShow < 0.8) { ProbeWrite("PREV-DEDUP"); return; }
+        if (gPreviewing && nowT - gLastShow < 0.8) { ProbeWrite("PREV-DEDUP"); return; }
         gLastShow = nowT;
         if (gPreviewBanner) { if (gTicker) { ((void(*)(id, SEL))objc_msgSend)(gTicker, sel_registerName("invalidate")); gTicker = nil; } PreviewFinish(); }
         RefreshPrefsCache();
@@ -889,7 +906,15 @@ static void ShowPreviewWindow(void) {
             NSUInteger scn = sceneArr ? ((NSUInteger(*)(id, SEL))objc_msgSend)(sceneArr, sel_registerName("count")) : 0;
             for (NSUInteger i = 0; i < scn && !scene; i++) {
                 id s = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(sceneArr, sel_registerName("objectAtIndex:"), i);
-                if (strstr(object_getClassName(s), "UIWindowScene")) scene = s;
+                if (!strstr(object_getClassName(s), "UIWindowScene")) continue;
+                long st = ((long(*)(id, SEL))objc_msgSend)(s, sel_registerName("activationState"));
+                if (st == 1 || st == 2) { scene = s; ProbeWrite("PREV-SCENE-ACT"); }
+            }
+            if (!scene && scn > 0) {
+                for (NSUInteger i = 0; i < scn && !scene; i++) {
+                    id s = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(sceneArr, sel_registerName("objectAtIndex:"), i);
+                    if (strstr(object_getClassName(s), "UIWindowScene")) scene = s;
+                }
             }
             if (scene) ProbeWrite("PREV-SCENE-CONN");
         }
@@ -909,6 +934,7 @@ static void ShowPreviewWindow(void) {
             [win setWindowLevel:2001];
             [win setBackgroundColor:[UIColor clearColor]];
             [win setHidden:NO];
+            [win makeKeyAndVisible];
             ProbeWrite("PREV-W1-SCENE");
         } else if (hostWin) {
             win = hostWin;
@@ -978,6 +1004,8 @@ static void ShowPreviewWindow(void) {
         gPreviewFade = [NSArray arrayWithObjects:bg, mk, nowL, tagL, ti, bo, nil];
         gPreviewGen++;
         gCollapsing = NO;
+        gPreviewing = YES;
+        gShowTime = nowT;
         gAnimStart = nowT;
         ApplyPreviewState(0.0);
         if (gTicker) { ((void(*)(id, SEL))objc_msgSend)(gTicker, sel_registerName("invalidate")); }
