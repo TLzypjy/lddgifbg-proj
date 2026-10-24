@@ -65,6 +65,7 @@ extern "C" { extern void *kCGImagePropertyGIFDictionary; extern void *kCGImagePr
 - (void)setObject:(id)obj forKey:(id)k;
 @end
 @interface NSArray : NSObject
++ (id)arrayWithObjects:(id)first, ...;
 - (NSUInteger)count;
 - (NSUInteger)countByEnumeratingWithState:(void *)state objects:(id *)buf count:(NSUInteger)len;
 @end
@@ -77,6 +78,7 @@ extern "C" { extern void *kCGImagePropertyGIFDictionary; extern void *kCGImagePr
 @end
 @interface NSNumber : NSObject
 + (id)numberWithDouble:(double)d;
++ (id)numberWithInt:(int)i;
 + (id)numberWithBool:(BOOL)b;
 - (double)doubleValue;
 - (BOOL)boolValue;
@@ -385,7 +387,7 @@ static void SBPostTestNotification(void) {
         if (!clsB || !clsS) { ProbeWrite("SBB-NO-CLASS"); return; }
         // 创建 bulletin: +bulletin 不存在则 alloc/init
         id bulletin = nil;
-        if (((BOOL(*)(id, SEL))objc_msgSend)(clsB, sel_registerName("respondsToSelector:"), sel_registerName("bulletin"))) {
+        if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(clsB, sel_registerName("respondsToSelector:"), sel_registerName("bulletin"))) {
             bulletin = ((id(*)(id, SEL))objc_msgSend)(clsB, sel_registerName("bulletin"));
         }
         if (!bulletin) bulletin = [[clsB alloc] init];
@@ -403,9 +405,9 @@ static void SBPostTestNotification(void) {
         ProbeWrite("SBB-B2");
         // server 多路回退
         id server = nil;
-        if (((BOOL(*)(id, SEL))objc_msgSend)(clsS, sel_registerName("respondsToSelector:"), sel_registerName("sharedInstance")))
+        if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(clsS, sel_registerName("respondsToSelector:"), sel_registerName("sharedInstance")))
             server = ((id(*)(id, SEL))objc_msgSend)(clsS, sel_registerName("sharedInstance"));
-        if (!server && ((BOOL(*)(id, SEL))objc_msgSend)(clsS, sel_registerName("respondsToSelector:"), sel_registerName("sharedInstanceIfExists")))
+        if (!server && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(clsS, sel_registerName("respondsToSelector:"), sel_registerName("sharedInstanceIfExists")))
             server = ((id(*)(id, SEL))objc_msgSend)(clsS, sel_registerName("sharedInstanceIfExists"));
         if (!server) { ProbeWrite("SBB-NO-SERVER"); return; }
         ProbeWrite("SBB-B3");
