@@ -786,7 +786,9 @@ static void CtrlLayoutHook(id self, SEL _cmd) {
 
 static BOOL gPreviewing = NO;
 static double gShowTime = 0;
+static double gLastShow = 0;
 static id gAutoTimer = nil;
+static void StartCollapse(void);
 static void PreviewAutoClose(void);
 static id gPreviewWinHolder = nil;
 static id gPreviewBanner = nil;
@@ -877,7 +879,6 @@ static UIImage *FirstImageForPath(NSString *path) {
     CFRelease((void *)cg);
     return img;
 }
-static double gLastShow = 0;
 static void ShowPreviewWindow(void) {
     @try {
         double nowT = ((double(*)(id, SEL))objc_msgSend)((id)[(id)objc_getClass("NSDate") date], sel_registerName("timeIntervalSince1970"));
