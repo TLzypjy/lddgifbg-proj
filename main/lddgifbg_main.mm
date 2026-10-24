@@ -149,6 +149,9 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (void)setTag:(NSInteger)t;
 @end
 
+@interface UIControl : UIView
+- (void)addTarget:(id)t action:(SEL)a forControlEvents:(NSUInteger)e;
+@end
 @interface UIWindow : UIView
 - (id)initWithFrame:(CGRect)r;
 - (void)setWindowLevel:(long)l;
@@ -394,6 +397,17 @@ static void LoadMediaWithPathIntoImageView(NSString *path, UIImageView *iv) {
 
 // ---------- 强制上岛预览 (8秒, 不依赖通知系统) ----------
 static long gForceUntil = 0;
+@interface LDDPreviewDismiss : NSObject
+- (void)dismissPreview;
+@end
+@implementation LDDPreviewDismiss
+- (void)dismissPreview;
+{
+    extern id gPreviewOverlay;
+    if (gPreviewOverlay) { ((void(*)(id, SEL))objc_msgSend)(gPreviewOverlay, sel_registerName("removeFromSuperview")); gPreviewOverlay = nil; ProbeWrite("PREV-TAP-OFF"); }
+}
+@end
+static id gPreviewDismissTarget = nil;
 static id gPreviewOverlay = nil;
 static void ShowPreviewWindow(void) {
     @try {
@@ -407,7 +421,8 @@ static void ShowPreviewWindow(void) {
         double w = sb.w - 60.0; if (w > 380.0) w = 380.0;
         double h = 84.0;
         if (gPreviewOverlay) { ((void(*)(id, SEL))objc_msgSend)(gPreviewOverlay, sel_registerName("removeFromSuperview")); gPreviewOverlay = nil; }
-        UIView *ov = [[UIView alloc] initWithFrame:MakeRect((sb.w - w) / 2.0, 10.0, w, h)];
+        UIControl *ov = [[UIControl alloc] initWithFrame:MakeRect((sb.w - w) / 2.0, 10.0, w, h)];
+        [ov addTarget:gPreviewDismissTarget action:@selector(dismissPreview) forControlEvents:1 << 6];
         [ov setBackgroundColor:[UIColor clearColor]];
         id ol = [ov layer];
         [ol setCornerRadius:h / 2.0];
@@ -419,6 +434,7 @@ static void ShowPreviewWindow(void) {
         [kw bringSubviewToFront:ov];
         LoadMediaWithPathIntoImageView(path, iv);
         gPreviewOverlay = ov;
+        if (!gPreviewDismissTarget) gPreviewDismissTarget = [[LDDPreviewDismiss alloc] init];
         ProbeWrite("PREV-OVERLAY-ON");
         dispatch_after(dispatch_time(0, 8LL * 1000000000LL), (void *)&_dispatch_main_q, ^{
             if (gPreviewOverlay) { ((void(*)(id, SEL))objc_msgSend)(gPreviewOverlay, sel_registerName("removeFromSuperview")); gPreviewOverlay = nil; ProbeWrite("PREV-OVERLAY-OFF"); }
@@ -426,11 +442,11 @@ static void ShowPreviewWindow(void) {
     } @catch (id e) { LogReason("PREV-EXC", e); }
 }
 
-static long gForceSec = 0;
+static double gForceLast = 0;
 static void CheckForcePreviewTick(void) {
-    long t = time(0);
-    if (t == gForceSec) return;
-    gForceSec = t;
+    double t = ((double(*)(id, SEL))objc_msgSend)((id)[(id)objc_getClass("NSDate") date], sel_registerName("timeIntervalSince1970"));
+    if (t - gForceLast < 0.25) return;
+    gForceLast = t;
     if (access("/var/mobile/lddgifbg/__force_preview__", 0) == 0) {
         remove("/var/mobile/lddgifbg/__force_preview__");
         ShowPreviewWindow();
