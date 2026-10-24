@@ -132,6 +132,7 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (CGRect)bounds;
 - (void)setFrame:(CGRect)r;
 - (void)insertSubview:(id)v atIndex:(NSInteger)i;
+- (void)addSubview:(id)v;
 - (void)removeFromSuperview;
 - (id)viewWithTag:(NSInteger)t;
 - (id)layer;
