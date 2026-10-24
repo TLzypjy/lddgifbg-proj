@@ -417,7 +417,7 @@ static void SBPostTestNotification(void) {
         ProbeWrite("SBB-B1");
         ((void(*)(id, SEL, NSString *))objc_msgSend)(bulletin, sel_registerName("setTitle:"), @"灵动岛测试");
         ((void(*)(id, SEL, NSString *))objc_msgSend)(bulletin, sel_registerName("setMessage:"), @"查看素材显示效果");
-        ((void(*)(id, SEL, NSString *))objc_msgSend)(bulletin, sel_registerName("setSectionID:"), @"com.axs.lddgifbg");
+        ((void(*)(id, SEL, NSString *))objc_msgSend)(bulletin, sel_registerName("setSectionID:"), @"com.apple.MobileSMS");
         NSString *uid = [NSString stringWithFormat:@"ldd-%ld", (long)time(0)];
         ((void(*)(id, SEL, NSString *))objc_msgSend)(bulletin, sel_registerName("setPublisherBulletinID:"), uid);
         ((void(*)(id, SEL, NSString *))objc_msgSend)(bulletin, sel_registerName("setRecordID:"), uid);
@@ -503,11 +503,16 @@ static void SBPostTestNotification(void) {
                         ((void(*)(id, SEL, id, NSUInteger))objc_msgSend)(server, sPub2, bulletin, (NSUInteger)7);
                         ProbeWrite("SBB-PUB-Q2");
                     } else if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(server, sel_registerName("respondsToSelector:"), sSend)) {
-                        id feeds = [NSArray arrayWithObjects:[NSNumber numberWithInt:1], [NSNumber numberWithInt:2], nil];
-                        ((void(*)(id, SEL, id, id))objc_msgSend)(server, sSend, bulletin, feeds);
+                        ((void(*)(id, SEL, id, NSUInteger))objc_msgSend)(server, sSend, bulletin, (NSUInteger)3);
                         ProbeWrite("SBB-PUB-QS");
                     } else ProbeWrite("SBB-Q-NOPUBSEL");
-                } @catch (id e) { ProbeWrite("SBB-Q-EXC"); }
+                } @catch (id e) {
+                    @try {
+                        id r = ((id(*)(id, SEL))objc_msgSend)(e, sel_registerName("reason"));
+                        const char *c = r ? ((const char *(*)(id, SEL))objc_msgSend)(r, sel_registerName("UTF8String")) : 0;
+                        char buf[300]; snprintf(buf, sizeof(buf), "SBB-Q-EXC: %.220s", c ? c : "?"); ProbeWrite(buf);
+                    } @catch (id e2) { ProbeWrite("SBB-Q-EXC"); }
+                }
             });
             ProbeWrite("SBB-QASYNC");
             return;
