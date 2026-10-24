@@ -37,7 +37,8 @@ extern "C" id object_getClass(id obj);
 extern "C" void dispatch_async(void *queue, void (^block)(void));
 extern "C" void dispatch_after(long long when, void *queue, void (^block)(void));
 extern "C" long long dispatch_time(long long base, long long delta);
-extern "C" void *dispatch_get_main_queue(void);
+struct dispatch_queue_s;
+extern "C" struct dispatch_queue_s _dispatch_main_q;
 extern "C" void *class_copyIvarList(Class cls, unsigned int *count);
 extern "C" const char *ivar_getName(void *ivar);
 extern "C" id object_getIvar(id obj, void *ivar);
@@ -410,7 +411,7 @@ static void ShowPreviewWindow(void) {
         [win setHidden:NO];
         gPreviewWin = win;
         ProbeWrite("PREV-WINDOW-ON");
-        dispatch_after(dispatch_time(0, 8LL * 1000000000LL), dispatch_get_main_queue(), ^{
+        dispatch_after(dispatch_time(0, 8LL * 1000000000LL), (void *)&_dispatch_main_q, ^{
             if (gPreviewWin) { ((void(*)(id, SEL, BOOL))objc_msgSend)(gPreviewWin, sel_registerName("setHidden:"), YES); gPreviewWin = nil; ProbeWrite("PREV-WINDOW-OFF"); }
         });
     } @catch (id e) { LogReason("PREV-EXC", e); }
