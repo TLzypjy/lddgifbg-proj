@@ -22,6 +22,18 @@ extern "C" SEL sel_registerName(const char *name);
 extern "C" void *dlopen(const char *path, int mode);
 extern "C" void *dlsym(void *handle, const char *symbol);
 extern "C" void CFRelease(void *cf);
+
+typedef struct CGColor *CGColorRef;
+extern "C" void *CGImageSourceCopyPropertiesAtIndex(void *src, unsigned long idx, void *opts);
+extern "C" void *CGColorSpaceCreateDeviceRGB(void);
+extern "C" void *CGBitmapContextCreate(void *data, unsigned long w, unsigned long h, unsigned long bpc, unsigned long bpr, void *cs, unsigned long info);
+extern "C" void CGContextDrawImage(void *ctx, CGRect rect, CGImageRef img);
+extern "C" void CGColorSpaceRelease(void *cs);
+extern "C" void CGContextRelease(void *ctx);
+extern "C" void *kCGImagePropertyGIFDictionary;
+extern "C" void *kCGImagePropertyGIFDelayTime;
+extern "C" void *kCGImagePropertyGIFUnclampedDelayTime;
+
 extern "C" void objc_setAssociatedObject(id obj, const char *key, id value, unsigned long policy);
 extern "C" id objc_getAssociatedObject(id obj, const char *key);
 extern "C" int notify_post(const char *name);
@@ -126,6 +138,8 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 + (id)colorWithWhite:(double)w alpha:(double)a;
 + (id)systemBlueColor;
 + (id)colorWithWhite:(double)w alpha:(double)a;
+- (CGColorRef)CGColor;
++ (id)colorWithRed:(double)r green:(double)g blue:(double)bl alpha:(double)a;
 @end
 @interface UIFont : NSObject
 + (id)systemFontOfSize:(double)s;
@@ -181,6 +195,8 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 + (id)imageWithCGImage:(CGImageRef)cg scale:(double)s orientation:(NSInteger)o;
 - (CGSize)size;
 - (void)drawInRect:(CGRect)r;
+- (CGImageRef)CGImage;
+- (CGSize)size;
 @end
 extern "C" void UIGraphicsBeginImageContextWithOptions(CGSize sz, BOOL opaque, double scale);
 extern "C" id UIGraphicsGetImageFromCurrentImageContext(void);
@@ -247,6 +263,10 @@ extern "C" void UIGraphicsEndImageContext(void);
 - (void)pushViewController:(id)vc animated:(BOOL)a;
 - (void)popViewControllerAnimated:(BOOL)a;
 @end
+@interface NSDate : NSObject
++ (id)date;
+- (double)timeIntervalSince1970;
+@end
 @interface UIScreen : NSObject
 + (id)mainScreen;
 - (CGRect)bounds;
@@ -308,6 +328,10 @@ extern "C" void UIGraphicsEndImageContext(void);
 @interface CALayer : NSObject
 - (void)setCornerRadius:(double)r;
 - (void)setMasksToBounds:(BOOL)b;
+- (void)setShadowColor:(CGColorRef)c;
+- (void)setShadowOpacity:(float)o;
+- (void)setShadowRadius:(double)r;
+- (void)setShadowOffset:(CGSize)s;
 @end
 @interface PSListController : UIViewController
 - (id)loadSpecifiersFromPlistName:(NSString *)n target:(id)t;
@@ -756,6 +780,41 @@ static id ThumbForPath(NSString *path) {
 - (id)tableView:(id)tv cellForRowAtIndexPath:(id)ip;
 - (void)tableView:(id)tv didSelectRowAtIndexPath:(id)ip;
 @end
+
+// ---- 流式 GIF 播放状态 ----
+static void *gPrevSrc = 0;
+static id gPrevDelays = nil;
+static unsigned long gPrevIdx = 0;
+static double gPrevTime = 0, gPrevLast = 0;
+static id gPrevTimer2 = nil;
+static UIColor *AvgColorOfImage(UIImage *img) {
+    unsigned char px[4] = {128, 90, 220, 255};
+    CGImageRef cg = [img CGImage];
+    if (!cg) return [UIColor colorWithRed:0.55 green:0.4 blue:0.95 alpha:1.0];
+    void *cs = CGColorSpaceCreateDeviceRGB();
+    void *ctx = CGBitmapContextCreate(px, 1, 1, 8, 4, cs, 1);
+    if (ctx) { CGContextDrawImage(ctx, MakeRect(0, 0, 1, 1), cg); CGContextRelease(ctx); }
+    CGColorSpaceRelease(cs);
+    return [UIColor colorWithRed:px[0]/255.0 green:px[1]/255.0 blue:px[2]/255.0 alpha:1.0];
+}
+static UIImage *RenderFrameAtIndex(unsigned long idx, CGSize dst) {
+    if (!gPrevSrc) return nil;
+    CGImageRef cg = ((CGImageRef(*)(void *, NSUInteger, void *))fnCGSrcImg)(gPrevSrc, idx, 0);
+    if (!cg) return nil;
+    UIImage *tmp = [UIImage imageWithCGImage:cg];
+    CFRelease((void *)cg);
+    if (!tmp) return nil;
+    CGSize isz = [tmp size];
+    if (isz.w <= 0 || isz.h <= 0) return tmp;
+    double r = (dst.w / isz.w) > (dst.h / isz.h) ? (dst.w / isz.w) : (dst.h / isz.h);
+    double dw = isz.w * r, dh = isz.h * r;
+    UIGraphicsBeginImageContextWithOptions(dst, NO, 0.0);
+    [tmp drawInRect:MakeRect((dst.w - dw) / 2.0, (dst.h - dh) / 2.0, dw, dh)];
+    UIImage *out = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    return out;
+}
+
 @implementation lddgifbgRootListController
 - (void)showBannerPreview {
     @try {
@@ -781,19 +840,61 @@ static id ThumbForPath(NSString *path) {
         double W = sb.w;
         CGRect pill = MakeRect((W - 126.0) / 2.0, 11.0, 126.0, 37.0);
         CGRect exp = MakeRect(12.0, 11.0, W - 24.0, 110.0);
+        UIImage *probeImg = ThumbForPath(path);
+        UIColor *glowC = probeImg ? AvgColorOfImage(probeImg) : [UIColor colorWithRed:0.55 green:0.4 blue:0.95 alpha:1.0];
+        CGRect gpill; gpill.ox = pill.ox - 6; gpill.oy = pill.oy - 6; gpill.w = pill.w + 12; gpill.h = pill.h + 12;
+        UIView *glow = [[UIView alloc] initWithFrame:gpill];
+        [glow setBackgroundColor:glowC];
+        id gl = [glow layer];
+        [gl setCornerRadius:26.0];
+        [gl setShadowColor:[glowC CGColor]];
+        [gl setShadowOpacity:0.85];
+        [gl setShadowRadius:18.0];
+        CGSize zoff; zoff.w = 0; zoff.h = 0;
+        [gl setShadowOffset:zoff];
+        [win addSubview:glow];
         UIControl *banner = [[UIControl alloc] initWithFrame:pill];
         [banner setBackgroundColor:[UIColor colorWithWhite:0.0 alpha:1.0]];
         id bl = [banner layer];
         [bl setCornerRadius:20.0];
         [bl setMasksToBounds:YES];
         [win addSubview:banner];
+        // 流式 GIF: 建 source + 读全部帧延迟
+        EnsureLibs();
+        if (gPrevSrc) { CFRelease(gPrevSrc); gPrevSrc = 0; }
+        NSData *gdata = [NSData dataWithContentsOfFile:path];
+        if (gdata && fnCGSrcCreate) gPrevSrc = ((void *(*)(void *, void *))fnCGSrcCreate)((__bridge void *)gdata, 0);
+        gPrevDelays = nil; gPrevIdx = 0; gPrevTime = 0;
+        if (gPrevSrc && fnCGSrcCount) {
+            NSUInteger n = ((NSUInteger(*)(void *))fnCGSrcCount)(gPrevSrc);
+            NSMutableArray *dl = [NSMutableArray arrayWithCapacity:n];
+            for (NSUInteger k = 0; k < n; k++) {
+                void *props = CGImageSourceCopyPropertiesAtIndex(gPrevSrc, k, 0);
+                double dly = 0.08;
+                if (props) {
+                    id gd = ((id(*)(void *, void *, void *))objc_msgSend)((id)props, sel_registerName("objectForKey:"), (id)kCGImagePropertyGIFDictionary);
+                    if (gd) {
+                        id uv = ((id(*)(id, SEL, void *))objc_msgSend)(gd, sel_registerName("objectForKey:"), kCGImagePropertyGIFUnclampedDelayTime);
+                        id dv = ((id(*)(id, SEL, void *))objc_msgSend)(gd, sel_registerName("objectForKey:"), kCGImagePropertyGIFDelayTime);
+                        id v = uv ? uv : dv;
+                        if (v) dly = [v doubleValue];
+                    }
+                    CFRelease(props);
+                }
+                if (dly < 0.02) dly = 0.08;
+                [dl addObject:[NSNumber numberWithDouble:dly]];
+            }
+            gPrevDelays = dl;
+        }
         UIImageView *bg = [[UIImageView alloc] initWithFrame:MakeRect(0, 0, exp.w, exp.h)];
         [bg setContentMode:2];
         [bg setAlpha:0.0];
         [bg setUserInteractionEnabled:NO];
-        id frames = GIFFramesForPath(path, 16, exp.w);
-        if (frames) { [bg setAnimationImages:frames]; [bg setAnimationDuration:2.0]; [bg setAnimationRepeatCount:0]; [bg startAnimating]; }
-        else { NSString *dir = [@"/var/mobile/lddgifbg" stringByAppendingPathComponent:[path lastPathComponent]]; (void)dir; [bg setImage:ThumbForPath(path)]; }
+        CGSize exp_w_h; exp_w_h.w = exp.w; exp_w_h.h = exp.h;
+        UIImage *firstImg = nil;
+        if (gPrevSrc) firstImg = RenderFrameAtIndex(0, exp_w_h);
+        if (!firstImg) firstImg = ThumbForPath(path);
+        if (firstImg) [bg setImage:firstImg];
         [banner addSubview:bg];
         UIView *mk = [[UIView alloc] initWithFrame:MakeRect(0, 0, exp.w, exp.h)];
         [mk setBackgroundColor:[UIColor colorWithWhite:0.0 alpha:0.4]];
@@ -839,8 +940,11 @@ static id ThumbForPath(NSString *path) {
         [banner addSubview:bo];
         __block id bBanner = banner;
         void (^collapse)(void) = ^{
+            if (gPrevTimer2) { [gPrevTimer2 invalidate]; gPrevTimer2 = nil; }
             [UIView animateWithDuration:0.35 delay:0 usingSpringWithDamping:0.8 initialSpringVelocity:0.5 options:0 animations:^{
                 [bBanner setFrame:pill];
+                [glow setFrame:gpill];
+                [gl setCornerRadius:26.0];
                 [[bBanner layer] setCornerRadius:20.0];
                 [bg setAlpha:0.0];
         [bg setUserInteractionEnabled:NO]; [mk setAlpha:0.0];
@@ -851,21 +955,53 @@ static id ThumbForPath(NSString *path) {
         [bo setUserInteractionEnabled:NO];
             } completion:^(BOOL f) {
                 [bBanner removeFromSuperview];
+                [glow removeFromSuperview];
+                if (gPrevSrc) { CFRelease(gPrevSrc); gPrevSrc = 0; }
             }];
         };
         [banner addTarget:self action:@selector(previewTap:) forControlEvents:1 << 6];
+        CGRect gexp; gexp.ox = exp.ox - 6; gexp.oy = exp.oy - 6; gexp.w = exp.w + 12; gexp.h = exp.h + 12;
         [UIView animateWithDuration:0.45 delay:0 usingSpringWithDamping:0.8 initialSpringVelocity:0.5 options:0 animations:^{
             [banner setFrame:exp];
+            [glow setFrame:gexp];
+            [gl setCornerRadius:50.0];
             [bl setCornerRadius:44.0];
             [icon setFrame:MakeRect(16, 33, 44, 44)];
             [icl setCornerRadius:16.0];
             [bg setAlpha:1.0]; [mk setAlpha:1.0]; [nowL setAlpha:1.0]; [tagL setAlpha:1.0]; [ti setAlpha:1.0]; [bo setAlpha:1.0];
         } completion:^(BOOL f) {
+            if (gPrevSrc && gPrevDelays) {
+                gPrevLast = [[NSDate date] timeIntervalSince1970];
+                if (gPrevTimer2) [gPrevTimer2 invalidate];
+                gPrevTimer2 = [NSTimer scheduledTimerWithTimeInterval:1.0/30.0 target:self selector:@selector(previewTick:) userInfo:0 repeats:YES];
+            }
             [NSTimer scheduledTimerWithTimeInterval:10.0 target:self selector:@selector(previewAuto:) userInfo:0 repeats:NO];
         }];
+        objc_setAssociatedObject(self, "pvbg", bg, 1);
         objc_setAssociatedObject(self, "pvbanner", banner, 1);
         objc_setAssociatedObject(self, "pvcollapse", collapse, 1);
     } @catch (id e) {}
+}
+- (void)previewTick:(id)t {
+    if (!gPrevSrc || !gPrevDelays) return;
+    double now = [[NSDate date] timeIntervalSince1970];
+    double dt = now - gPrevLast; gPrevLast = now;
+    if (dt > 0.5) dt = 0.5;
+    if (dt < 0) dt = 0;
+    gPrevTime += dt;
+    NSUInteger count = [gPrevDelays count];
+    if (count == 0) return;
+    int guard = 0;
+    while (gPrevTime >= [gPrevDelays[gPrevIdx] doubleValue] && guard < 200) {
+        gPrevTime -= [gPrevDelays[gPrevIdx] doubleValue];
+        gPrevIdx = (gPrevIdx + 1) % count;
+        guard++;
+    }
+    id bg = objc_getAssociatedObject(self, "pvbg");
+    if (!bg) return;
+    CGSize dst = [bg bounds].size;
+    UIImage *out = RenderFrameAtIndex(gPrevIdx, dst);
+    if (out) [bg setImage:out];
 }
 - (void)previewTap:(id)s {
     void (^c)(void) = objc_getAssociatedObject(self, "pvcollapse");
