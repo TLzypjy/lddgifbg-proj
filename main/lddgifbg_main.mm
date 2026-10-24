@@ -120,6 +120,10 @@ typedef struct CGRect { double ox, oy, w, h; } CGRect;
 static void LogReason(const char *tag, id e);
 static void CheckForcePreviewTick(void);
 static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, y, w, h}; return r; }
+typedef struct UIEdgeInsets { double top, left, bottom, right; } UIEdgeInsets;
+typedef struct CGAffineTransform { double a, b, c, d, tx, ty; } CGAffineTransform;
+static CGAffineTransform CGMakeScale(double s) { CGAffineTransform t = {s, 0, 0, s, 0, 0}; return t; }
+static void ShowPreviewWindow(void);
 @interface UIApplication : NSObject
 + (id)sharedApplication;
 - (id)keyWindow;
