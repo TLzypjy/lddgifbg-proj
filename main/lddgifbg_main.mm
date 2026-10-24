@@ -416,6 +416,18 @@ static void ShowPreviewWindow(void) {
         });
     } @catch (id e) { LogReason("PREV-EXC", e); }
 }
+
+static long gForceSec = 0;
+static void CheckForcePreviewTick(void) {
+    long t = time(0);
+    if (t == gForceSec) return;
+    gForceSec = t;
+    if (access("/var/mobile/lddgifbg/__force_preview__", 0) == 0) {
+        remove("/var/mobile/lddgifbg/__force_preview__");
+        ShowPreviewWindow();
+    }
+}
+
 static void CheckForcePreview(void) {
     if (access("/var/mobile/lddgifbg/__force_preview__", 0) == 0) {
         remove("/var/mobile/lddgifbg/__force_preview__");
@@ -719,6 +731,7 @@ static void CtrlLayoutHook(id self, SEL _cmd) {
     static int once = 0;
     if (!once) { once = 1; ProbeWrite("CTRL-HOOK-FIRED"); }
     CheckTestNotifFlag();
+    CheckForcePreviewTick();
     const char *cn = object_getClassName(self);
     if (cn && (strstr(cn, "Aperture") || strstr(cn, "Island"))) {
         static int logged = 0;
