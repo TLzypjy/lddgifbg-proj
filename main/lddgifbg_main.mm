@@ -879,10 +879,23 @@ static void ShowPreviewWindow(void) {
             const char *cn = object_getClassName(s);
             if (cn && strstr(cn, "UIWindowScene")) { scene = s; break; }
         }
+        if (!scene) {
+            id wins = ((id(*)(id, SEL))objc_msgSend)(app, sel_registerName("windows"));
+            NSUInteger wn = wins ? ((NSUInteger(*)(id, SEL))objc_msgSend)(wins, sel_registerName("count")) : 0;
+            double best = 0;
+            for (NSUInteger i = 0; i < wn; i++) {
+                id wv = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(wins, sel_registerName("objectAtIndex:"), i);
+                if (((BOOL(*)(id, SEL))objc_msgSend)(wv, sel_registerName("isHidden"))) continue;
+                CGRect wf = ((CGRect(*)(id, SEL))objc_msgSend)(wv, sel_registerName("bounds"));
+                if (wf.w * wf.h > best) { best = wf.w * wf.h; scene = wv; }
+            }
+            ProbeWrite("PREV-SCENE-FALLBACK");
+        }
         id scr = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIScreen"), sel_registerName("mainScreen"));
         CGRect sb = ((CGRect(*)(id, SEL))objc_msgSend)(scr, sel_registerName("bounds"));
         UIWindow *win = [[UIWindow alloc] initWithFrame:sb];
-        if (scene) [win setWindowScene:scene];
+        if (scene && strstr(object_getClassName(scene), "UIWindowScene")) [win setWindowScene:scene];
+        ProbeWrite("PREV-W1");
         [win setWindowLevel:2001];
         [win setBackgroundColor:[UIColor clearColor]];
         [win setHidden:NO];
@@ -897,6 +910,7 @@ static void ShowPreviewWindow(void) {
         [bl setCornerRadius:20.0];
         [bl setMasksToBounds:YES];
         [win addSubview:banner];
+        ProbeWrite("PREV-W2");
         UIImageView *bg = [[UIImageView alloc] initWithFrame:MakeRect(0, 0, gExpR.w, gExpR.h)];
         [bg setContentMode:2];
         [bg setAlpha:0.0];
@@ -953,7 +967,7 @@ static void ShowPreviewWindow(void) {
         ApplyPreviewState(0.0);
         if (gTicker) { ((void(*)(id, SEL))objc_msgSend)(gTicker, sel_registerName("invalidate")); }
         gTicker = [(id)objc_getClass("NSTimer") scheduledTimerWithTimeInterval:0.016 target:gPreviewDismissTarget selector:@selector(tick:) userInfo:0 repeats:YES];
-        ProbeWrite("PREV-BANNER-ON");
+        ProbeWrite("PREV-W3-TIMER");
     } @catch (id e) { LogReason("PREV-EXC", e); }
 }
 
