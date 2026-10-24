@@ -155,6 +155,15 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (void)setContentMode:(NSInteger)m;
 - (void)setClipsToBounds:(BOOL)b;
 @end
+
+@interface UIWindow : UIView
+- (id)initWithFrame:(CGRect)r;
+- (void)setWindowLevel:(long)l;
+- (void)setHidden:(BOOL)h;
+- (void)makeKeyAndVisible;
+- (void)setWindowScene:(id)s;
+- (id)scene;
+@end
 @interface UILabel : UIView
 - (id)initWithFrame:(CGRect)r;
 - (void)setText:(NSString *)t;
@@ -516,7 +525,20 @@ static id ThumbForPath(NSString *path) {
 }
 - (void)showBannerPreview {
     @try {
-        NSString *path = SelectedMaterialPath();
+        NSUserDefaults *ud0 = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
+        NSString *folder = [ud0 objectForKey:@"SelectedMaterialFolder"];
+        NSString *path = nil;
+        if (folder) {
+            NSString *dir = [@"/var/mobile/lddgifbg" stringByAppendingPathComponent:folder];
+            NSArray *fs = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:dir error:nil];
+            NSArray *exts = [NSArray arrayWithObjects:@"gif", @"mp4", @"mov", @"png", @"jpg", @"jpeg", nil];
+            for (NSString *e in exts) {
+                for (NSString *f in fs) {
+                    if ([[[f pathExtension] lowercaseString] isEqualToString:e]) { path = [dir stringByAppendingPathComponent:f]; break; }
+                }
+                if (path) break;
+            }
+        }
         if (!path) return;
         id app = [UIApplication sharedApplication];
         id kw = [app keyWindow];
