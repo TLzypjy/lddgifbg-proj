@@ -58,6 +58,7 @@ static id CLSSTR(const char *n) { return (id)objc_getClass(n); }
 - (BOOL)containsObject:(id)o;
 - (id)mutableCopy;
 - (NSUInteger)countByEnumeratingWithState:(void *)state objects:(id *)buf count:(NSUInteger)len;
+- (id)objectAtIndexedSubscript:(NSUInteger)i;
 @end
 @interface NSMutableArray : NSArray
 + (id)array;
@@ -325,6 +326,7 @@ extern "C" void UIGraphicsEndImageContext(void);
 @end
 @interface NSTimer : NSObject
 + (id)scheduledTimerWithTimeInterval:(double)t target:(id)target selector:(SEL)s userInfo:(id)info repeats:(BOOL)r;
+- (void)invalidate;
 @end
 @interface CALayer : NSObject
 - (void)setCornerRadius:(double)r;
@@ -1000,7 +1002,7 @@ static UIImage *RenderFrameAtIndex(unsigned long idx, CGSize dst) {
     }
     id bg = objc_getAssociatedObject(self, "pvbg");
     if (!bg) return;
-    CGSize dst = [bg bounds].size;
+    CGRect bbb = [bg bounds]; CGSize dst; dst.w = bbb.w; dst.h = bbb.h;
     UIImage *out = RenderFrameAtIndex(gPrevIdx, dst);
     if (out) [bg setImage:out];
 }
