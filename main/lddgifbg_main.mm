@@ -798,13 +798,15 @@ static void ShowPreviewWindow(void) {
         // 取 foreground UIWindowScene (iOS16 必须)
         id scenes = ((id(*)(id, SEL))objc_msgSend)(app, sel_registerName("connectedScenes"));
         id scene = nil;
-        NSUInteger scn = scenes ? ((NSUInteger(*)(id, SEL))objc_msgSend)(scenes, sel_registerName("count")) : 0;
+        id sceneArr = scenes ? ((id(*)(id, SEL))objc_msgSend)(scenes, sel_registerName("allObjects")) : nil;
+        NSUInteger scn = sceneArr ? ((NSUInteger(*)(id, SEL))objc_msgSend)(sceneArr, sel_registerName("count")) : 0;
+        ProbeWrite("PREV-SCENES");
         for (NSUInteger i = 0; i < scn; i++) {
-            id s = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(scenes, sel_registerName("objectAtIndex:"), i);
+            id s = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(sceneArr, sel_registerName("objectAtIndex:"), i);
             const char *cn = object_getClassName(s);
             if (cn && strstr(cn, "UIWindowScene")) { scene = s; break; }
         }
-        if (!scene && scn > 0) scene = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(scenes, sel_registerName("objectAtIndex:"), 0);
+        if (!scene && scn > 0) scene = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(sceneArr, sel_registerName("objectAtIndex:"), 0);
         id scr = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIScreen"), sel_registerName("mainScreen"));
         CGRect sb = ((CGRect(*)(id, SEL))objc_msgSend)(scr, sel_registerName("bounds"));
         UIWindow *win = [[UIWindow alloc] initWithFrame:sb];
