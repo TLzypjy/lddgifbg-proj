@@ -33,6 +33,7 @@ extern "C" void *objc_autoreleasePoolPush(void);
 extern "C" void objc_autoreleasePoolPop(void *pool);
 extern "C" void CFRelease(void *cf);
 extern "C" const char *object_getClassName(id obj);
+extern "C" id object_getClass(id obj);
 extern "C" CGImageRef CGImageSourceCreateImageAtIndex(void *src, NSUInteger idx, void *opts);
 extern "C" NSUInteger CGImageSourceGetCount(void *src);
 extern "C" void *CGImageSourceCreateWithData(void *data, void *opts);
@@ -382,7 +383,13 @@ static id gCapturedServer = nil;
 static id (*origBBInit)(id, SEL);
 static id HookBBInit(id self, SEL _c) {
     id r = origBBInit(self, _c);
-    if (!gCapturedServer) { gCapturedServer = r; ProbeWrite("SBB-CAPTURED"); }
+    if (!gCapturedServer) { gCapturedServer = r; ProbeWrite("SBB-CAPTURED-INIT"); }
+    return r;
+}
+static id (*origBBAlloc)(Class, SEL);
+static id HookBBAlloc(Class cls, SEL _c) {
+    id r = origBBAlloc(cls, _c);
+    if (!gCapturedServer) { gCapturedServer = r; ProbeWrite("SBB-CAPTURED-ALLOC"); }
     return r;
 }
 
@@ -428,7 +435,22 @@ static void SBPostTestNotification(void) {
                 }
             }
         }
-        if (!server) { ProbeWrite("SBB-NO-SERVER"); return; }
+        if (!server) {
+            // 最后兜底: 自建 BBServerConnection 走客户端发布协议
+            id clsConn = (id)objc_getClass("BBServerConnection");
+            if (clsConn) {
+                id conn = [[clsConn alloc] init];
+                SEL sp = sel_registerName("publishBulletin:destinations:alwaysToLockScreen:");
+                if (conn && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(conn, sel_registerName("respondsToSelector:"), sp)) {
+                    ((void(*)(id, SEL, id, NSUInteger, BOOL))objc_msgSend)(conn, sp, bulletin, (NSUInteger)7, YES);
+                    ProbeWrite("SBB-CONN-PUB");
+                    return;
+                }
+                ProbeWrite("SBB-CONN-NOPUB");
+            }
+            ProbeWrite("SBB-NO-SERVER");
+            return;
+        }
         ProbeWrite("SBB-B3");
         // 发布: 三种 selector 回退
         SEL sPub = sel_registerName("publishBulletin:destinations:alwaysToLockScreen:");
@@ -618,7 +640,11 @@ static void LDDInit(void) {
     if (clsS0) {
         dlopen("/System/Library/PrivateFrameworks/BulletinBoard.framework/BulletinBoard", 2);
         clsS0 = objc_getClass("BBServer");
-        if (clsS0) MSHookMessageEx((Class)clsS0, sel_registerName("init"), (IMP)HookBBInit, (IMP *)&origBBInit);
+        if (clsS0) {
+            MSHookMessageEx((Class)clsS0, sel_registerName("init"), (IMP)HookBBInit, (IMP *)&origBBInit);
+            Class meta = (Class)object_getClass((id)clsS0);
+            if (meta) { MSHookMessageEx((Class)meta, sel_registerName("alloc"), (IMP)HookBBAlloc, (IMP *)&origBBAlloc); ProbeWrite("SBB-ALLOCHOOK"); }
+        }
     }
     // 灵动岛 hook 由 CtrlLayoutHook 延迟补挂 (避免构造时机过早)
 }
