@@ -120,16 +120,16 @@ extern "C" { extern void *kCGImagePropertyGIFDictionary; extern void *kCGImagePr
 typedef struct CGRect { double ox, oy, w, h; } CGRect;
 static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, y, w, h}; return r; }
 
+@interface UIColor : NSObject
++ (id)redColor;
++ (id)blueColor;
++ (id)clearColor;
+@end
 @interface UIWindow : UIView
 - (id)initWithFrame:(CGRect)r;
 - (void)setWindowLevel:(long)l;
 - (void)setHidden:(BOOL)h;
 - (void)makeKeyAndVisible;
-@end
-@interface UIColor : NSObject
-+ (id)redColor;
-+ (id)blueColor;
-+ (id)clearColor;
 @end
 @interface UIView : NSObject
 - (id)initWithFrame:(CGRect)r;
@@ -387,7 +387,8 @@ static void ShowPreviewWindow(void) {
     @try {
         NSString *path = GetSelectedImagePath();
         if (!path) { ProbeWrite("PREV-NOPATH"); return; }
-        CGRect sb = [((id)objc_getClass("UIScreen")) bounds];
+        id scr = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIScreen"), sel_registerName("mainScreen"));
+        CGRect sb = ((CGRect(*)(id, SEL))objc_msgSend)(scr, sel_registerName("bounds"));
         double w = sb.w - 60.0; if (w > 380.0) w = 380.0;
         double h = 84.0;
         CGRect r = MakeRect((sb.w - w) / 2.0, 10.0, w, h);
