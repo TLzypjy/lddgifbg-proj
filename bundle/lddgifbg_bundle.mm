@@ -352,7 +352,7 @@ static void EnsureLibs(void) {
     if (!gAVF) gAVF = dlopen("/System/Library/Frameworks/AVFoundation.framework/AVFoundation", 2);
 }
 // GIF 低分辨率帧序列 (动态预览用): 最多 maxFrames 帧, 缩到 maxW 宽
-static id GIFFramesForPath(NSString *path, int maxFrames, double maxW) {
+__attribute__((unused)) static id GIFFramesForPath(NSString *path, int maxFrames, double maxW) {
     EnsureLibs();
     if (!gImageIO || !fnCGSrcCreate || !fnCGSrcImg) return nil;
     NSData *data = [NSData dataWithContentsOfFile:path];
@@ -669,26 +669,7 @@ static id ThumbForPath(NSString *path) {
         if (thumb) [_thumbs setObject:thumb forKeyedSubscript:name];
     }
     UIImageView *iv = [[UIImageView alloc] initWithFrame:MakeRect(0, 0, cb.w, imgH)];
-    id frames = [_anims objectForKeyedSubscript:name];
-    if (!frames && thumb) {
-        NSString *full0 = [@"/var/mobile/lddgifbg" stringByAppendingPathComponent:name];
-        NSArray *fs0 = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:full0 error:nil];
-        for (NSString *f0 in fs0) {
-            if ([[[f0 pathExtension] lowercaseString] isEqualToString:@"gif"]) {
-                frames = GIFFramesForPath([full0 stringByAppendingPathComponent:f0], 24, cb.w);
-                break;
-            }
-        }
-        if (frames) [_anims setObject:frames forKeyedSubscript:name];
-    }
-    if (frames) {
-        [iv setAnimationImages:frames];
-        [iv setAnimationDuration:2.0];
-        [iv setAnimationRepeatCount:0];
-        [iv startAnimating];
-    } else {
-        [iv setImage:thumb];
-    }
+    [iv setImage:thumb];
     [iv setContentMode:2];
     [card addSubview:iv];
     UILabel *badge = [[UILabel alloc] initWithFrame:MakeRect(6, 6, 34, 16)];
