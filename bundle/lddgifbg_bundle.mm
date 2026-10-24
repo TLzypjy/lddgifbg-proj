@@ -143,6 +143,7 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (void)setContentMode:(NSInteger)m;
 - (void)setClipsToBounds:(BOOL)b;
 - (void)setAlpha:(double)a;
+- (id)window;
 @end
 
 @interface UIWindow : UIView
@@ -828,7 +829,6 @@ static id ThumbForPath(NSString *path) {
         [bo setNumberOfLines:2];
         [bo setAlpha:0.0];
         [banner addSubview:bo];
-        __block id bWin = win;
         __block id bBanner = banner;
         void (^collapse)(void) = ^{
             [UIView animateWithDuration:0.35 delay:0 usingSpringWithDamping:0.8 initialSpringVelocity:0.5 options:0 animations:^{
@@ -850,7 +850,6 @@ static id ThumbForPath(NSString *path) {
             [NSTimer scheduledTimerWithTimeInterval:3.5 target:self selector:@selector(previewAuto:) userInfo:0 repeats:NO];
         }];
         objc_setAssociatedObject(self, "pvbanner", banner, 1);
-        objc_setAssociatedObject(self, "pvwin", win, 1);
         objc_setAssociatedObject(self, "pvcollapse", collapse, 1);
     } @catch (id e) {}
 }
