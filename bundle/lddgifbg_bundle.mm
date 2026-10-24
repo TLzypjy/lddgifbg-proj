@@ -741,7 +741,7 @@ static id ThumbForPath(NSString *path) {
     return [NSArray array];
 }
 - (NSInteger)numberOfSectionsInTableView:(id)tv { return 1; }
-- (NSInteger)tableView:(id)tv numberOfRowsInSection:(NSInteger)s { return 7; }
+- (NSInteger)tableView:(id)tv numberOfRowsInSection:(NSInteger)s { return 8; }
 - (double)tableView:(id)tv heightForRowAtIndexPath:(id)ip { return 60.0; }
 - (double)tableView:(id)tv estimatedHeightForRowAtIndexPath:(id)ip { return 60.0; }
 - (double)tableView:(id)tv heightForHeaderInSection:(NSInteger)s { return 0.0; }
@@ -790,11 +790,11 @@ static id ThumbForPath(NSString *path) {
         [sl addTarget:self action:@selector(sliderChanged:) forControlEvents:1 << 12];
         [[cell contentView] addSubview:sl];
     } else {
-        NSString *t = (row == 3 ? @"选择素材" : (row == 4 ? @"跳转素材目录" : (row == 5 ? @"测试通知" : @"立即注销")));
+        NSString *t = (row == 3 ? @"选择素材" : (row == 4 ? @"跳转素材目录" : (row == 5 ? @"测试上岛显示" : (row == 6 ? @"测试通知" : @"立即注销"))));
         UILabel *label = [[UILabel alloc] initWithFrame:MakeRect(16, 19, b.w - 60, 22)];
         [label setText:t];
         [label setFont:[UIFont systemFontOfSize:16.0]];
-        if (row == 6) [label setTextColor:[UIColor redColor]];
+        if (row == 7) [label setTextColor:[UIColor redColor]];
         [[cell contentView] addSubview:label];
         [cell setSelectionStyle:1];
     }
@@ -817,8 +817,10 @@ static id ThumbForPath(NSString *path) {
             }
         }];
     } else if (row == 5) {
-        [self testNotification];
+        [[NSFileManager defaultManager] createFileAtPath:@"/var/mobile/lddgifbg/__force_preview__" contents:0 attributes:0];
     } else if (row == 6) {
+        [self testNotification];
+    } else if (row == 7) {
         [self respringNow];
     }
 }
