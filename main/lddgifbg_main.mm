@@ -35,6 +35,9 @@ extern "C" void CFRelease(void *cf);
 extern "C" const char *object_getClassName(id obj);
 extern "C" id object_getClass(id obj);
 extern "C" void dispatch_async(void *queue, void (^block)(void));
+extern "C" void dispatch_after(long long when, void *queue, void (^block)(void));
+extern "C" long long dispatch_time(long long base, long long delta);
+extern "C" void *dispatch_get_main_queue(void);
 extern "C" void *class_copyIvarList(Class cls, unsigned int *count);
 extern "C" const char *ivar_getName(void *ivar);
 extern "C" id object_getIvar(id obj, void *ivar);
@@ -103,6 +106,10 @@ extern "C" { extern void *kCGImagePropertyGIFDictionary; extern void *kCGImagePr
 + (id)defaultCenter;
 - (void)addObserver:(id)o selector:(SEL)s name:(NSString *)n object:(id)obj;
 @end
+@interface UIScreen : NSObject
++ (id)mainScreen;
+- (CGRect)bounds;
+@end
 @interface NSDate : NSObject
 + (id)date;
 @end
@@ -113,6 +120,12 @@ extern "C" { extern void *kCGImagePropertyGIFDictionary; extern void *kCGImagePr
 typedef struct CGRect { double ox, oy, w, h; } CGRect;
 static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, y, w, h}; return r; }
 
+@interface UIWindow : UIView
+- (id)initWithFrame:(CGRect)r;
+- (void)setWindowLevel:(long)l;
+- (void)setHidden:(BOOL)h;
+- (void)makeKeyAndVisible;
+@end
 @interface UIColor : NSObject
 + (id)redColor;
 + (id)blueColor;
@@ -369,11 +382,38 @@ static void LoadMediaWithPathIntoImageView(NSString *path, UIImageView *iv) {
 
 // ---------- 强制上岛预览 (8秒, 不依赖通知系统) ----------
 static long gForceUntil = 0;
+static id gPreviewWin = nil;
+static void ShowPreviewWindow(void) {
+    @try {
+        NSString *path = GetSelectedImagePath();
+        if (!path) { ProbeWrite("PREV-NOPATH"); return; }
+        CGRect sb = [((id)objc_getClass("UIScreen")) bounds];
+        double w = sb.w - 60.0; if (w > 380.0) w = 380.0;
+        double h = 84.0;
+        CGRect r = MakeRect((sb.w - w) / 2.0, 10.0, w, h);
+        if (gPreviewWin) { ((void(*)(id, SEL, BOOL))objc_msgSend)(gPreviewWin, sel_registerName("setHidden:"), YES); gPreviewWin = nil; }
+        UIWindow *win = [[UIWindow alloc] initWithFrame:r];
+        [win setWindowLevel:2000];
+        [win setBackgroundColor:[UIColor clearColor]];
+        id wl = [win layer];
+        [wl setCornerRadius:h / 2.0];
+        [wl setMasksToBounds:YES];
+        UIImageView *iv = [[UIImageView alloc] initWithFrame:MakeRect(0, 0, w, h)];
+        [iv setContentMode:2];
+        [win addSubview:iv];
+        LoadMediaWithPathIntoImageView(path, iv);
+        [win setHidden:NO];
+        gPreviewWin = win;
+        ProbeWrite("PREV-WINDOW-ON");
+        dispatch_after(dispatch_time(0, 8LL * 1000000000LL), dispatch_get_main_queue(), ^{
+            if (gPreviewWin) { ((void(*)(id, SEL, BOOL))objc_msgSend)(gPreviewWin, sel_registerName("setHidden:"), YES); gPreviewWin = nil; ProbeWrite("PREV-WINDOW-OFF"); }
+        });
+    } @catch (id e) { LogReason("PREV-EXC", e); }
+}
 static void CheckForcePreview(void) {
     if (access("/var/mobile/lddgifbg/__force_preview__", 0) == 0) {
         remove("/var/mobile/lddgifbg/__force_preview__");
-        gForceUntil = time(0) + 8;
-        ProbeWrite("FORCE-PREVIEW-ON");
+        ShowPreviewWindow();
     }
 }
 static BOOL ForcePreviewActive(void) { return time(0) < gForceUntil; }
@@ -606,36 +646,7 @@ static void LDDIslandLayout(id self) {
 
     CheckForcePreview();
     RefreshPrefsCache();
-    if (ForcePreviewActive()) {
-        NSString *fpath = cPath;
-        if (fpath && [[NSFileManager defaultManager] fileExistsAtPath:fpath]) {
-            UIImageView *fv = (UIImageView *)[self viewWithTag:9999];
-            if (!fv) {
-                CGRect fb = [self bounds];
-                fv = [[UIImageView alloc] initWithFrame:MakeRect(0, 0, fb.w, fb.h)];
-                [fv setContentMode:2];
-                [fv setAutoresizingMask:18];
-                [fv setTag:9999];
-                [self insertSubview:fv atIndex:0];
-            }
-            double fs = cScale;
-            CGRect fb2 = [self bounds];
-            double fw = fb2.w * fs, fh = fb2.h * fs;
-            [fv setFrame:MakeRect((fb2.w - fw) / 2.0, (fb2.h - fh) / 2.0, fw, fh)];
-            id flay = [fv layer];
-            [flay setCornerRadius:fh / 2.0];
-            [flay setMasksToBounds:YES];
-            BOOL freload = YES;
-            if (gLoadedPath && [gLoadedPath isEqualToString:fpath]) {
-                if ([fv isAnimating] || gPlayerLayer) freload = NO;
-            }
-            if (freload) { gLoadedPath = fpath; LoadMediaWithPathIntoImageView(fpath, fv); }
-            [self insertSubview:fv atIndex:0];
-            objc_autoreleasePoolPop(pool);
-            return;
-        }
-    }
-    BOOL mainOn = cEnabled;
+    BOOL mainOn = cEnabled;    BOOL mainOn = cEnabled;
     BOOL show = NO;
     if (mainOn) {
         CGRect b0 = [self bounds];
