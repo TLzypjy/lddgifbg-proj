@@ -34,6 +34,7 @@ extern "C" void objc_autoreleasePoolPop(void *pool);
 extern "C" void CFRelease(void *cf);
 extern "C" const char *object_getClassName(id obj);
 extern "C" id object_getClass(id obj);
+extern "C" void dispatch_async(void *queue, void (^block)(void));
 extern "C" CGImageRef CGImageSourceCreateImageAtIndex(void *src, NSUInteger idx, void *opts);
 extern "C" NSUInteger CGImageSourceGetCount(void *src);
 extern "C" void *CGImageSourceCreateWithData(void *data, void *opts);
