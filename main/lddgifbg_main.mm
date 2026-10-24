@@ -141,13 +141,6 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 + (id)systemFontOfSize:(double)s;
 + (id)boldSystemFontOfSize:(double)s;
 @end
-@interface UILabel : UIView
-- (id)initWithFrame:(CGRect)r;
-- (void)setText:(NSString *)t;
-- (void)setFont:(id)f;
-- (void)setTextColor:(id)c;
-- (void)setTextAlignment:(NSInteger)a;
-@end
 @interface UIView : NSObject
 - (id)initWithFrame:(CGRect)r;
 - (CGRect)bounds;
