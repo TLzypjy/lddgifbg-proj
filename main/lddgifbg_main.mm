@@ -8,6 +8,7 @@
 #include <string.h>
 #include <time.h>
 #include <math.h>
+extern "C" double CFAbsoluteTimeGetCurrent(void);
 #include <unistd.h>
 
 typedef struct objc_class *Class;
@@ -197,7 +198,6 @@ static void PreviewAutoClose(void);
 @interface UIImage : NSObject
 + (id)imageWithContentsOfFile:(NSString *)p;
 + (id)imageWithCGImage:(CGImageRef)cg scale:(double)s orientation:(NSInteger)o;
-+ (id)imageWithCGImage:(CGImageRef)cg;
 @end
 @interface UIImageView : UIView
 - (id)initWithFrame:(CGRect)r;
@@ -478,7 +478,7 @@ static BOOL ForcePreviewActive(void) { return time(0) < gForceUntil; }
 
 // ---------- prefs 缓存 (1秒节流, 避免每帧读文件/扫目录) ----------
 static long gCacheSec = 0;
-static BOOL cEnabled, cZxh, cDance;
+static BOOL cEnabled, cZxh;
 static double cScale;
 static NSString *cPath;
 static void RefreshPrefsCache(void) {
@@ -488,7 +488,6 @@ static void RefreshPrefsCache(void) {
     cEnabled = IsLddGifBgEnabled();
     cZxh = IsZxhLddGifBgEnabled();
     cScale = GetLddGifBgScale();
-    { id dv = LoadPrefsValue(@"EnableDance"); cDance = dv ? ((BOOL(*)(id, SEL))objc_msgSend)(dv, sel_registerName("boolValue")) : YES; }
     cPath = GetSelectedImagePath();
 }
 
@@ -684,102 +683,16 @@ static void ShowBlock(id self, int colorIsRed) {
 
 // ---------- layoutSubviews hook ----------
 
-// ---------- 跳舞功能 ----------
-static BOOL MusicPlaying(void) {
-    static long last = -1; static BOOL playing = NO;
-    long t = time(0);
-    if (t == last) return playing;
-    last = t;
-    @try {
-        id mc = (id)objc_getClass("SBMediaController");
-        if (!mc) { playing = NO; return playing; }
-        id inst = ((id(*)(id, SEL))objc_msgSend)(mc, sel_registerName("sharedInstance"));
-        if (!inst) { playing = NO; return playing; }
-        if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(inst, sel_registerName("respondsToSelector:"), sel_registerName("isPlaying")))
-            playing = ((BOOL(*)(id, SEL))objc_msgSend)(inst, sel_registerName("isPlaying"));
-        else playing = NO;
-    } @catch (id e) { playing = NO; }
-    return playing;
-}
-static id gDanceFrames = nil;
-static int gDanceTried = 0;
-static id DanceFrames(void) {
-    if (gDanceFrames) return gDanceFrames;
-    if (gDanceTried) return nil;
-    gDanceTried = 1;
-    NSString *dir = @"/var/mobile/DynamicIsland/dance";
-    NSArray *fs = ((id(*)(id, SEL, NSString *, void *))objc_msgSend)((id)objc_getClass("NSFileManager"), sel_registerName("contentsOfDirectoryAtPath:error:"), dir, 0);
-    if (!fs || ((NSUInteger(*)(id, SEL))objc_msgSend)(fs, sel_registerName("count")) == 0) return nil;
-    NSMutableArray *frames = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("NSMutableArray"), sel_registerName("array"));
-    // gif 优先: 解码全部帧
-    NSUInteger n = ((NSUInteger(*)(id, SEL))objc_msgSend)(fs, sel_registerName("count"));
-    for (NSUInteger i = 0; i < n && ((NSUInteger(*)(id, SEL))objc_msgSend)(frames, sel_registerName("count")) == 0; i++) {
-        NSString *f = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(fs, sel_registerName("objectAtIndex:"), i);
-        NSString *e = ((NSString *(*)(id, SEL))objc_msgSend)(((NSString *(*)(id, SEL))objc_msgSend)(f, sel_registerName("pathExtension")), sel_registerName("lowercaseString"));
-        if (![e isEqualToString:@"gif"]) continue;
-        NSString *full = ((NSString *(*)(id, SEL, NSString *))objc_msgSend)(dir, sel_registerName("stringByAppendingPathComponent:"), f);
-        NSData *data = ((NSData *(*)(id, SEL, NSString *))objc_msgSend)((id)objc_getClass("NSData"), sel_registerName("dataWithContentsOfFile:"), full);
-        if (!data) continue;
-        void *src = CGImageSourceCreateWithData((__bridge void *)data, 0);
-        if (!src) continue;
-        NSUInteger cnt = CGImageSourceGetCount(src);
-        for (NSUInteger k = 0; k < cnt && k < 96; k++) {
-            CGImageRef cg = CGImageSourceCreateImageAtIndex(src, k, 0);
-            if (!cg) continue;
-            UIImage *im = [UIImage imageWithCGImage:cg];
-            CFRelease((void *)cg);
-            if (im) ((void(*)(id, SEL, id))objc_msgSend)(frames, sel_registerName("addObject:"), im);
-        }
-        CFRelease(src);
+// ---------- 展开态防抖: 高度>=65 需持续 0.25s 才认定展开 ----------
+static double gExpandSince = 0;
+static BOOL ExpandedDebounced(double h) {
+    double now = CFAbsoluteTimeGetCurrent();
+    if (h >= 65.0) {
+        if (gExpandSince <= 0) gExpandSince = now;
+        return (now - gExpandSince) >= 0.25;
     }
-    // png/jpg 序列
-    if (((NSUInteger(*)(id, SEL))objc_msgSend)(frames, sel_registerName("count")) == 0) {
-        NSMutableArray *names = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("NSMutableArray"), sel_registerName("array"));
-        for (NSUInteger i = 0; i < n; i++) {
-            NSString *f = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(fs, sel_registerName("objectAtIndex:"), i);
-            NSString *e = ((NSString *(*)(id, SEL))objc_msgSend)(((NSString *(*)(id, SEL))objc_msgSend)(f, sel_registerName("pathExtension")), sel_registerName("lowercaseString"));
-            if ([e isEqualToString:@"png"] || [e isEqualToString:@"jpg"] || [e isEqualToString:@"jpeg"])
-                ((void(*)(id, SEL, id))objc_msgSend)(names, sel_registerName("addObject:"), f);
-        }
-        names = ((id(*)(id, SEL, SEL))objc_msgSend)(names, sel_registerName("sortedArrayUsingSelector:"), sel_registerName("compare:"));
-        NSUInteger nn = ((NSUInteger(*)(id, SEL))objc_msgSend)(names, sel_registerName("count"));
-        for (NSUInteger i = 0; i < nn; i++) {
-            NSString *f = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(names, sel_registerName("objectAtIndex:"), i);
-            NSString *full = ((NSString *(*)(id, SEL, NSString *))objc_msgSend)(dir, sel_registerName("stringByAppendingPathComponent:"), f);
-            UIImage *im = ((UIImage *(*)(id, SEL, NSString *))objc_msgSend)((id)objc_getClass("UIImage"), sel_registerName("imageWithContentsOfFile:"), full);
-            if (im) ((void(*)(id, SEL, id))objc_msgSend)(frames, sel_registerName("addObject:"), im);
-        }
-    }
-    if (((NSUInteger(*)(id, SEL))objc_msgSend)(frames, sel_registerName("count")) > 0) { gDanceFrames = frames; ProbeWrite("DANCE-FRAMES-OK"); }
-    else ProbeWrite("DANCE-NO-FRAMES");
-    return gDanceFrames;
-}
-static void UpdateDanceView(id self, CGRect bb, BOOL expanded) {
-    UIImageView *dv = (UIImageView *)((id(*)(id, SEL, NSInteger))objc_msgSend)(self, sel_registerName("viewWithTag:"), 9997);
-    BOOL want = expanded && cDance && MusicPlaying();
-    id frames = want ? DanceFrames() : nil;
-    if (want && frames) {
-        if (!dv) {
-            dv = [[UIImageView alloc] initWithFrame:MakeRect(0, 0, 10, 10)];
-            ((void(*)(id, SEL, NSInteger))objc_msgSend)(dv, sel_registerName("setTag:"), 9997);
-            ((void(*)(id, SEL, NSInteger))objc_msgSend)(dv, sel_registerName("setContentMode:"), 1);
-            ((void(*)(id, SEL, BOOL))objc_msgSend)(dv, sel_registerName("setUserInteractionEnabled:"), NO);
-            ((void(*)(id, SEL, id))objc_msgSend)(self, sel_registerName("addSubview:"), dv);
-        }
-        double hh = bb.h - 8.0; if (hh > 64.0) hh = 64.0; if (hh < 20.0) hh = 20.0;
-        ((void(*)(id, SEL, CGRect))objc_msgSend)(dv, sel_registerName("setFrame:"), MakeRect(bb.w - hh - 4.0, (bb.h - hh) / 2.0, hh, hh));
-        if (!((BOOL(*)(id, SEL))objc_msgSend)(dv, sel_registerName("isAnimating"))) {
-            ((void(*)(id, SEL, id))objc_msgSend)(dv, sel_registerName("setAnimationImages:"), frames);
-            ((void(*)(id, SEL, double))objc_msgSend)(dv, sel_registerName("setAnimationDuration:"), ((NSUInteger(*)(id, SEL))objc_msgSend)(frames, sel_registerName("count")) * 0.07);
-            ((void(*)(id, SEL, NSInteger))objc_msgSend)(dv, sel_registerName("setAnimationRepeatCount:"), 0);
-            ((void(*)(id, SEL))objc_msgSend)(dv, sel_registerName("startAnimating"));
-        }
-        ((void(*)(id, SEL, BOOL))objc_msgSend)(dv, sel_registerName("setHidden:"), NO);
-        ((void(*)(id, SEL, id))objc_msgSend)(self, sel_registerName("bringSubviewToFront:"), dv);
-    } else if (dv) {
-        ((void(*)(id, SEL, BOOL))objc_msgSend)(dv, sel_registerName("setHidden:"), YES);
-        ((void(*)(id, SEL))objc_msgSend)(dv, sel_registerName("stopAnimating"));
-    }
+    gExpandSince = 0;
+    return NO;
 }
 static void LDDIslandLayout(id self) {
     static int first = 0;
@@ -803,13 +716,12 @@ static void LDDIslandLayout(id self) {
 
     CheckForcePreview();
     RefreshPrefsCache();
-    UpdateDanceView(self, bb, bb.h >= 65.0);
     BOOL mainOn = cEnabled;
     BOOL show = NO;
     if (mainOn) {
         CGRect b0 = [self bounds];
         if (cZxh) show = YES;          // 小岛开: 常显
-        else if (b0.h >= 65.0) show = YES;               // 小岛关: 仅展开时
+        else if (ExpandedDebounced(b0.h)) show = YES;    // 小岛关: 仅展开时(防抖)
     }
     if (!show) {
         RemoveTagged(self, 9999);
