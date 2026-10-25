@@ -683,13 +683,31 @@ static void ShowBlock(id self, int colorIsRed) {
 
 // ---------- layoutSubviews hook ----------
 
+static BOOL gMusicCache = NO;
+static double gMusicCacheT = 0;
+static BOOL MusicPlayingNow(void) {
+    double t = CFAbsoluteTimeGetCurrent();
+    if (t - gMusicCacheT < 1.0) return gMusicCache;
+    gMusicCacheT = t;
+    gMusicCache = NO;
+    @try {
+        id mc = (id)objc_getClass("SBMediaController");
+        if (mc) {
+            id inst = ((id(*)(id, SEL))objc_msgSend)(mc, sel_registerName("sharedInstance"));
+            if (inst && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(inst, sel_registerName("respondsToSelector:"), sel_registerName("isPlaying")))
+                gMusicCache = ((BOOL(*)(id, SEL))objc_msgSend)(inst, sel_registerName("isPlaying"));
+        }
+    } @catch (id e) {}
+    return gMusicCache;
+}
+
 // ---------- 展开态防抖: 高度>=65 需持续 0.25s 才认定展开 ----------
 static double gExpandSince = 0;
 static BOOL ExpandedDebounced(double h) {
     double now = CFAbsoluteTimeGetCurrent();
     if (h >= 65.0) {
         if (gExpandSince <= 0) gExpandSince = now;
-        return (now - gExpandSince) >= 0.25;
+        return (now - gExpandSince) >= 0.15;
     }
     gExpandSince = 0;
     return NO;
@@ -717,13 +735,16 @@ static void LDDIslandLayout(id self) {
     CheckForcePreview();
     RefreshPrefsCache();
     BOOL mainOn = cEnabled;
-    BOOL show = NO;
+    BOOL attach = NO, visible = NO;
     if (mainOn) {
         CGRect b0 = [self bounds];
-        if (cZxh) show = YES;          // 小岛开: 常显
-        else if (ExpandedDebounced(b0.h)) show = YES;    // 小岛关: 仅展开时(防抖)
+        if (cZxh) { attach = YES; visible = YES; }                    // 小岛开: 常显
+        else if (b0.h >= 65.0) {                                       // 展开态: 预挂载
+            attach = YES;
+            visible = ExpandedDebounced(b0.h) || MusicPlayingNow();    // 播放中立即显, 否则防抖后显
+        }
     }
-    if (!show) {
+    if (!attach) {
         RemoveTagged(self, 9999);
         RemoveTagged(self, 9998);
         objc_autoreleasePoolPop(pool);
@@ -772,6 +793,12 @@ static void LDDIslandLayout(id self) {
         LoadMediaWithPathIntoImageView(path, view);
     }
     [self insertSubview:view atIndex:0];
+    BOOL wasH = ((BOOL(*)(id, SEL))objc_msgSend)(view, sel_registerName("isHidden"));
+    ((void(*)(id, SEL, BOOL))objc_msgSend)(view, sel_registerName("setHidden:"), !visible);
+    if (wasH && visible) {
+        ((void(*)(id, SEL, double))objc_msgSend)(view, sel_registerName("setAlpha:"), 0.0);
+        ((void(*)(id, SEL, double, double, double, double, NSUInteger, void(^)(void), void(^)(BOOL)))objc_msgSend)((id)objc_getClass("UIView"), sel_registerName("animateWithDuration:delay:usingSpringWithDamping:initialSpringVelocity:options:animations:completion:"), 0.12, 0.0, 1.0, 1.0, (NSUInteger)0, ^{ ((void(*)(id, SEL, double))objc_msgSend)(view, sel_registerName("setAlpha:"), 1.0); }, ^(BOOL f){});
+    }
     objc_autoreleasePoolPop(pool);
 }
 
