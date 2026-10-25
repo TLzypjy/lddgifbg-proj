@@ -89,6 +89,8 @@ static id CLSSTR(const char *n) { return (id)objc_getClass(n); }
 + (id)numberWithBool:(BOOL)b;
 - (double)doubleValue;
 - (BOOL)boolValue;
+- (int)intValue;
++ (id)numberWithInt:(int)v;
 @end
 @interface NSFileManager : NSObject
 + (id)defaultManager;
@@ -169,6 +171,7 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (void)makeKeyAndVisible;
 - (void)setWindowScene:(id)s;
 - (id)scene;
+- (long)windowLevel;
 @end
 @interface UIApplication : NSObject
 + (id)sharedApplication;
@@ -850,6 +853,9 @@ static UIImage *RenderFrameAtIndex(unsigned long idx, CGSize dst) {
         id win = [[self view] window];
         if (!win) win = [[UIApplication sharedApplication] keyWindow];
         if (!win) return;
+        long oldLevel = ((long(*)(id, SEL))objc_msgSend)(win, sel_registerName("windowLevel"));
+        objc_setAssociatedObject(self, "pvlevel", [NSNumber numberWithInt:(int)oldLevel], 1);
+        ((void(*)(id, SEL, long))objc_msgSend)(win, sel_registerName("setWindowLevel:"), 3000);
         CGRect sb = [win bounds];
         double W = sb.w;
         CGRect pill = MakeRect((W - 126.0) / 2.0, 11.0, 126.0, 37.0);
@@ -957,6 +963,8 @@ static UIImage *RenderFrameAtIndex(unsigned long idx, CGSize dst) {
             } completion:^(BOOL f) {
                 [bBanner removeFromSuperview];
                 if (gPrevSrc) { CFRelease(gPrevSrc); gPrevSrc = 0; }
+                id lv = objc_getAssociatedObject(self, "pvlevel");
+                if (lv && win) ((void(*)(id, SEL, long))objc_msgSend)(win, sel_registerName("setWindowLevel:"), (long)[lv intValue]);
             }];
         };
         [banner addTarget:self action:@selector(previewTap:) forControlEvents:1 << 6];
