@@ -835,6 +835,13 @@ static UIImage *RenderFrameAtIndex(unsigned long idx, CGSize dst) {
 @implementation lddgifbgRootListController
 - (void)showBannerPreview {
     @try {
+        // 清理上一次预览残留 (防连点卡死)
+        id oldB = objc_getAssociatedObject(self, "pvbanner");
+        if (oldB) ((void(*)(id, SEL))objc_msgSend)(oldB, sel_registerName("removeFromSuperview"));
+        id oldA = objc_getAssociatedObject(self, "pvauto");
+        if (oldA) { ((void(*)(id, SEL))objc_msgSend)(oldA, sel_registerName("invalidate")); objc_setAssociatedObject(self, "pvauto", nil, 1); }
+        if (gPrevTimer2) { ((void(*)(id, SEL))objc_msgSend)(gPrevTimer2, sel_registerName("invalidate")); gPrevTimer2 = nil; }
+        if (gPrevSrc) { CFRelease(gPrevSrc); gPrevSrc = 0; }
         NSUserDefaults *ud0 = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
         NSString *folder = [ud0 objectForKey:@"SelectedMaterialFolder"];
         NSString *path = nil;
