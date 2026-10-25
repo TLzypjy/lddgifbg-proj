@@ -820,6 +820,21 @@ static void CtrlLayoutHook(id self, SEL _cmd) {
             ProbeWrite(line);
         }
         LDDIslandLayout(self);
+    } else if (cn && (strstr(cn, "DIMini") || (strstr(cn, "TOJB") && !strstr(cn, "MultiScreen") && !strstr(cn, "EdgeIcon") && !strstr(cn, "Menu")))) {
+        // TrollOpen 岛界面: 宿主窗口为 TOJB 系 + 尺寸在岛范围 => 复用同一套背景逻辑
+        id w = ((id(*)(id, SEL))objc_msgSend)(self, sel_registerName("window"));
+        const char *wcn = w ? object_getClassName(w) : 0;
+        CGRect bb = ((CGRect(*)(id, SEL))objc_msgSend)(self, sel_registerName("bounds"));
+        if (wcn && strstr(wcn, "TOJB") && bb.w >= 40 && bb.w <= 460 && bb.h >= 30 && bb.h <= 150) {
+            static int tlogged = 0;
+            if (tlogged < 6) {
+                tlogged++;
+                char line[220];
+                snprintf(line, sizeof(line), "TOJB-MATCH: %s %.0fx%.0f win=%s", cn, bb.w, bb.h, wcn);
+                ProbeWrite(line);
+            }
+            LDDIslandLayout(self);
+        }
     }
     if (origCtrlLayout) origCtrlLayout(self, _cmd);
 }
