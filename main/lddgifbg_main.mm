@@ -43,6 +43,7 @@ extern "C" long long dispatch_time(long long base, long long delta);
 struct dispatch_queue_s;
 extern "C" struct dispatch_queue_s _dispatch_main_q;
 extern "C" void *class_copyIvarList(Class cls, unsigned int *count);
+extern "C" double CFAbsoluteTimeGetCurrent(void);
 extern "C" const char *ivar_getName(void *ivar);
 extern "C" id object_getIvar(id obj, void *ivar);
 extern "C" CGImageRef CGImageSourceCreateImageAtIndex(void *src, NSUInteger idx, void *opts);
@@ -322,7 +323,7 @@ static NSString *GetSelectedImagePath(void) {
 }
 
 // ---------- 流式 GIF 播放 (优化3: 不再全帧解码, 每帧按时间轴解码, 内存 O(1)) ----------
-static CGImageSourceRef gStreamSrc = NULL;
+static void *gStreamSrc = NULL;
 static NSArray *gStreamDelays = nil;
 static NSUInteger gStreamCount = 0;
 static NSUInteger gStreamIdx = 0;
@@ -365,9 +366,13 @@ static void StreamRestartTimer(void) {
     if (!gStreamSrc || gStreamCount == 0) return;
     if (!gStreamTarget) gStreamTarget = [[LDDStreamTarget alloc] init];
     double d = 0.1;
-    if (gStreamDelays && gStreamIdx < (NSUInteger)[gStreamDelays count]) {
-        double dd = [[gStreamDelays objectAtIndex:gStreamIdx] doubleValue];
-        if (dd >= 0.02) d = dd;
+    if (gStreamDelays) {
+        NSUInteger dcnt = ((NSUInteger(*)(id, SEL))objc_msgSend)((id)gStreamDelays, sel_registerName("count"));
+        if (gStreamIdx < dcnt) {
+            id dobj = ((id(*)(id, SEL, NSUInteger))objc_msgSend)((id)gStreamDelays, sel_registerName("objectAtIndex:"), gStreamIdx);
+            double dd = dobj ? ((double(*)(id, SEL))objc_msgSend)(dobj, sel_registerName("doubleValue")) : 0.1;
+            if (dd >= 0.02) d = dd;
+        }
     }
     gStreamTimer = [NSTimer scheduledTimerWithTimeInterval:d target:gStreamTarget selector:@selector(streamTick:) userInfo:nil repeats:NO];
 }
@@ -821,7 +826,9 @@ static void LDDIslandLayout(id self) {
         LoadMediaWithPathIntoImageView(path, view);
     }
     // 优化5: 仅在不在 index0 时才重插 (避免布局涟漪)
-    if ([[self subviews] firstObject] != view) [self insertSubview:view atIndex:0];
+    id subs = ((id(*)(id, SEL))objc_msgSend)(self, sel_registerName("subviews"));
+    id firstSub = subs ? ((id(*)(id, SEL))objc_msgSend)(subs, sel_registerName("firstObject")) : nil;
+    if (firstSub != view) [self insertSubview:view atIndex:0];
     objc_autoreleasePoolPop(pool);
 }
 
