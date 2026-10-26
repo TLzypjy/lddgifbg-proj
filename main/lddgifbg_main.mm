@@ -1066,6 +1066,9 @@ static UIImage *FirstImageForPath(NSString *path) {
     CFRelease((void *)cg);
     return img;
 }
+// 给 UNNotificationRequest 动态补 sectionIdentifier（iOS16 的 initWithNotificationRequest: 内部会访问它，iOS16 上该 selector 不存在导致 unrecognized selector 崩溃）
+static NSString *LDDUnreqSection(id self, SEL _c) { return @"com.apple.MobileSMS"; }
+
 // ---------- 真实通知呈现 (灵动通知同款: 直接驱动 SB 横幅呈现层, 不入通知中心) ----------
 static void PostRealNotification(void) {
     ProbeWrite("RN-START");
@@ -1097,16 +1100,34 @@ static void PostRealNotification(void) {
         if (unreq) ProbeWrite("RN-UN-BUILT");
 
         // === 2. NCNotificationRequest + ContentProvider ===
-        // 注意: initWithNotificationRequest: 在 iOS16 系统实现内部会访问 UNNotificationRequest.sectionIdentifier,
-        // 该 selector 在 iOS16 的 UNNotificationRequest 上不存在, 系统方法内部抛 unrecognized selector 崩溃。
-        // 因此禁用 2a, 强制走灵动通知同款 2b 路径: alloc/init + NCNotificationRequestContentProvider。
+        // 修复思路: iOS16 的 initWithNotificationRequest: 内部会访问 UNNotificationRequest.sectionIdentifier,
+        // 该 selector 在 iOS16 上不存在导致崩溃。这里先动态给 UNNotificationRequest 补上该方法,
+        // 让系统转换能走通, 构造出的 req 字段完整, postNotificationRequest: 内部字典不会插入 nil。
         id clsReq = (id)objc_getClass("NCNotificationRequest");
         id req = nil;
         if (clsReq) {
+            // 动态补 sectionIdentifier
+            id clsUNR = (id)objc_getClass("UNNotificationRequest");
+            if (clsUNR) {
+                SEL sSec = sel_registerName("sectionIdentifier");
+                if (!((BOOL(*)(id, SEL, SEL))objc_msgSend)((id)clsUNR, sel_registerName("respondsToSelector:"), sSec)) {
+                    class_addMethod((Class)clsUNR, sSec, (IMP)LDDUnreqSection, "@@:");
+                    ProbeWrite("RN-REQ-ADDSECTION");
+                }
+            }
             id inst = ((id(*)(id, SEL))objc_msgSend)((id)clsReq, sel_registerName("alloc"));
             ProbeWrite(inst ? "RN-REQ-ALLOC-OK" : "RN-REQ-ALLOC-FAIL");
-            // 2b. alloc/init + setContentProvider
-            if (inst) {
+            // 2a. initWithNotificationRequest: (UN 层转系统层, 补方法后应可走通)
+            SEL sInitN = sel_registerName("initWithNotificationRequest:");
+            if (inst && unreq && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(inst, sel_registerName("respondsToSelector:"), sInitN)) {
+                ProbeWrite("RN-REQ-INITN-TRY");
+                req = ((id(*)(id, SEL, id))objc_msgSend)(inst, sInitN, unreq);
+                if (req) ProbeWrite("RN-REQ-INITN-OK"); else ProbeWrite("RN-REQ-INITN-NIL");
+            } else {
+                ProbeWrite(inst ? (unreq ? "RN-REQ-NOINITN" : "RN-REQ-NOUNREQ") : "RN-REQ-NOALLOC");
+            }
+            // 2b. 兜底: alloc/init + setContentProvider
+            if (!req && inst) {
                 ProbeWrite("RN-REQ-FB-TRY");
                 req = ((id(*)(id, SEL))objc_msgSend)(inst, sel_registerName("init"));
                 id clsCP = (id)objc_getClass("NCNotificationRequestContentProvider");
@@ -1118,7 +1139,7 @@ static void PostRealNotification(void) {
                     for (int i = 0; cpInits[i] && !cp; i++) {
                         SEL sCPI = sel_registerName(cpInits[i]);
                         if (cpinst && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(cpinst, sel_registerName("respondsToSelector:"), sCPI)) {
-                            ProbeWrite(cpInits[i][0] == 'i' && strstr(cpInits[i], "WithObject") ? "RN-REQ-CP-IOI" : "RN-REQ-CP-ALT");
+                            ProbeWrite(i == 0 ? "RN-REQ-CP-IOI" : "RN-REQ-CP-ALT");
                             if (i == 0) cp = ((id(*)(id, SEL, id, id))objc_msgSend)(cpinst, sCPI, (unreq ? (id)unreq : (id)content), uid);
                             else if (i == 1) cp = ((id(*)(id, SEL, id))objc_msgSend)(cpinst, sCPI, unreq);
                             else cp = ((id(*)(id, SEL, id, id, id))objc_msgSend)(cpinst, sCPI, uid, content, trigger);
