@@ -602,12 +602,8 @@ static void SBPostTestNotification(void) {
         id clsB = (id)objc_getClass("BBBulletin");
         id clsS = (id)objc_getClass("BBServer");
         if (!clsB || !clsS) { ProbeWrite("SBB-NO-CLASS"); return; }
-        // 创建 bulletin: +bulletin 不存在则 alloc/init
-        id bulletin = nil;
-        if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(clsB, sel_registerName("respondsToSelector:"), sel_registerName("bulletin"))) {
-            bulletin = ((id(*)(id, SEL))objc_msgSend)(clsB, sel_registerName("bulletin"));
-        }
-        if (!bulletin) bulletin = [[clsB alloc] init];
+        // 创建 bulletin: 仅 alloc/init (+bulletin 在 iOS16 不存在, 不调用)
+        id bulletin = [[clsB alloc] init];
         if (!bulletin) { ProbeWrite("SBB-NO-BULLETIN"); return; }
         ProbeWrite("SBB-B1");
         ((void(*)(id, SEL, NSString *))objc_msgSend)(bulletin, sel_registerName("setTitle:"), @"灵动岛测试");
@@ -1003,132 +999,102 @@ static UIImage *FirstImageForPath(NSString *path) {
     CFRelease((void *)cg);
     return img;
 }
-// ---------- 真实系统通知发布 (SB 进程, 系统自己渲染岛横幅) ----------
+// ---------- 真实系统通知发布 (SB 进程, iOS16 正确注入: UN层构造 -> NCDispatcher) ----------
 static void PostRealNotification(void) {
     ProbeWrite("RN-START");
     @try {
-        // 路线C: NCNotificationRequest + dispatcher postNotificationRequest: (灵动通知同款, 最易被其 hook 美化)
-        @try {
-        dlopen("/System/Library/PrivateFrameworks/NotificationCenter.framework/NotificationCenter", 2);
-        id clsContent = (id)objc_getClass("NCNotificationContent");
-        id clsReq = (id)objc_getClass("NCNotificationRequest");
-        if (clsContent && clsReq) {
-            id content = [[clsContent alloc] init];
-            if (content) {
-                SEL sT = sel_registerName("setTitle:"), sS = sel_registerName("setSubtitle:"), sB = sel_registerName("setBody:"), sSec = sel_registerName("setSectionIdentifier:");
-                if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(content, sel_registerName("respondsToSelector:"), sT)) ((void(*)(id, SEL, id))objc_msgSend)(content, sT, @"灵动岛GIF背景");
-                if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(content, sel_registerName("respondsToSelector:"), sS)) ((void(*)(id, SEL, id))objc_msgSend)(content, sS, @"预览通知");
-                if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(content, sel_registerName("respondsToSelector:"), sB)) ((void(*)(id, SEL, id))objc_msgSend)(content, sB, @"岛展开即显示您的背景");
-                if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(content, sel_registerName("respondsToSelector:"), sSec)) ((void(*)(id, SEL, id))objc_msgSend)(content, sSec, @"com.apple.MobileSMS");
-                id trigger = nil;
-                id clsTrig = (id)objc_getClass("NCNotificationTrigger");
-                if (clsTrig) {
-                    SEL sTr = sel_registerName("triggerWithType:");
-                    if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(clsTrig, sel_registerName("respondsToSelector:"), sTr))
-                        trigger = ((id(*)(id, SEL, long))objc_msgSend)(clsTrig, sTr, 1L);
-                    if (!trigger) trigger = [[clsTrig alloc] init];
-                }
-                NSString *uid = [NSString stringWithFormat:@"lddnc-%ld", (long)time(0)];
-                SEL sInit = sel_registerName("initWithIdentifier:content:trigger:");
-                id inst = ((id(*)(id, SEL))objc_msgSend)((id)clsReq, sel_registerName("alloc"));
-                id req = inst ? ((id(*)(id, SEL, id, id, id))objc_msgSend)(inst, sInit, uid, content, trigger) : nil;
-                if (req) {
-                    // 找 dispatcher: NCNotificationDispatcher 单例 / SpringBoard ivar
-                    id disp = nil;
-                    id clsD = (id)objc_getClass("NCNotificationDispatcher");
-                    if (clsD) {
-                        const char *sels[] = {"sharedInstance", "defaultDispatcher", "sharedDispatcher", 0};
-                        for (int i = 0; sels[i] && !disp; i++) {
-                            SEL s = sel_registerName(sels[i]);
-                            if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(clsD, sel_registerName("respondsToSelector:"), s))
-                                disp = ((id(*)(id, SEL))objc_msgSend)(clsD, s);
-                        }
-                    }
-                    if (!disp) {
-                        id sb = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("SpringBoard"), sel_registerName("sharedApplication"));
-                        if (sb) {
-                            unsigned int cnt = 0;
-                            void **ivars = (void **)class_copyIvarList((Class)objc_getClass("SpringBoard"), &cnt);
-                            for (unsigned int i = 0; i < cnt && !disp; i++) {
-                                const char *nm = ivar_getName(ivars[i]);
-                                if (nm && (strstr(nm, "otificationDispatcher") || strstr(nm, "otificationController"))) {
-                                    id v = object_getIvar(sb, ivars[i]);
-                                    if (v) disp = v;
-                                }
-                            }
-                        }
-                    }
-                    SEL sPost = sel_registerName("postNotificationRequest:");
-                    if (disp && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(disp, sel_registerName("respondsToSelector:"), sPost)) {
-                        ((void(*)(id, SEL, id))objc_msgSend)(disp, sPost, req);
-                        ProbeWrite("RN-NC-SENT");
-                        return;
-                    }
-                    ProbeWrite("RN-NC-NODISP");
-                }
-            }
-        }
-        } @catch (id eC) { LogReason("RN-NC-EXC", eC); }
-        // 路线A: UNUserNotificationCenter (SB 是通知宿主, 有权限)
+        // === 1. UN 层构造: UNMutableNotificationContent + UNTimeIntervalNotificationTrigger + UNNotificationRequest ===
         dlopen("/System/Library/Frameworks/UserNotifications.framework/UserNotifications", 2);
-        id clsC = (id)objc_getClass("UNUserNotificationCenter");
-        if (clsC) {
-            id center = ((id(*)(id, SEL))objc_msgSend)(clsC, sel_registerName("currentNotificationCenter"));
-            if (center) {
-                id clsContent = (id)objc_getClass("UNMutableNotificationContent");
-                id content = clsContent ? ((id(*)(id, SEL))objc_msgSend)((id)clsContent, sel_registerName("new")) : nil;
-                if (content) {
-                    ((void(*)(id, SEL, id))objc_msgSend)(content, sel_registerName("setTitle:"), @"灵动岛GIF背景");
-                    ((void(*)(id, SEL, id))objc_msgSend)(content, sel_registerName("setSubtitle:"), @"预览通知");
-                    ((void(*)(id, SEL, id))objc_msgSend)(content, sel_registerName("setBody:"), @"这是一条真实系统通知，岛展开即显示您的背景");
-                    id clsTrig = (id)objc_getClass("UNTimeIntervalNotificationTrigger");
-                    id trigger = nil;
-                    if (clsTrig) {
-                        SEL sT = sel_registerName("triggerWithTimeInterval:repeats:");
-                        if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(clsTrig, sel_registerName("respondsToSelector:"), sT))
-                            trigger = ((id(*)(id, SEL, double, BOOL))objc_msgSend)(clsTrig, sT, 0.1, NO);
-                    }
-                    id clsReq = (id)objc_getClass("UNNotificationRequest");
-                    if (clsReq && trigger) {
-                        NSString *uid = [NSString stringWithFormat:@"lddprev-%ld", (long)time(0)];
-                        SEL sR = sel_registerName("requestWithIdentifier:content:trigger:");
-                        id req = ((id(*)(id, SEL, id, id, id))objc_msgSend)(clsReq, sR, uid, content, trigger);
-                        if (req) {
-                            ((void(*)(id, SEL, id, id))objc_msgSend)(center, sel_registerName("addNotificationRequest:withCompletionHandler:"), req, nil);
-                            ProbeWrite("RN-UN-SENT");
-                            return;
+        id clsContent = (id)objc_getClass("UNMutableNotificationContent");
+        id clsTrig = (id)objc_getClass("UNTimeIntervalNotificationTrigger");
+        id clsUNReq = (id)objc_getClass("UNNotificationRequest");
+        id unreq = nil;
+        if (clsContent && clsTrig && clsUNReq) {
+            id content = ((id(*)(id, SEL))objc_msgSend)((id)clsContent, sel_registerName("new"));
+            if (content) {
+                ((void(*)(id, SEL, id))objc_msgSend)(content, sel_registerName("setTitle:"), @"灵动岛GIF背景");
+                ((void(*)(id, SEL, id))objc_msgSend)(content, sel_registerName("setBody:"), @"预览通知：岛展开显示您的背景");
+                SEL sT = sel_registerName("triggerWithTimeInterval:repeats:");
+                id trigger = ((BOOL(*)(id, SEL, SEL))objc_msgSend)(clsTrig, sel_registerName("respondsToSelector:"), sT)
+                    ? ((id(*)(id, SEL, double, BOOL))objc_msgSend)(clsTrig, sT, 0.1, NO) : nil;
+                NSString *uid = [NSString stringWithFormat:@"lddprev-%ld", (long)time(0)];
+                SEL sR = sel_registerName("requestWithIdentifier:content:trigger:");
+                unreq = ((id(*)(id, SEL, id, id, id))objc_msgSend)(clsUNReq, sR, uid, content, trigger);
+            }
+        }
+        if (unreq) ProbeWrite("RN-UN-BUILT"); else ProbeWrite("RN-UN-BUILD-FAIL");
+
+        // === 2. 找 NCNotificationDispatcher (单例 / SpringBoard ivar) ===
+        id disp = nil;
+        if (unreq) {
+            dlopen("/System/Library/PrivateFrameworks/NotificationCenter.framework/NotificationCenter", 2);
+            id clsD = (id)objc_getClass("NCNotificationDispatcher");
+            if (clsD) {
+                const char *sels[] = {"sharedInstance", "defaultDispatcher", "sharedDispatcher", 0};
+                for (int i = 0; sels[i] && !disp; i++) {
+                    SEL s = sel_registerName(sels[i]);
+                    if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(clsD, sel_registerName("respondsToSelector:"), s))
+                        disp = ((id(*)(id, SEL))objc_msgSend)(clsD, s);
+                }
+            }
+            if (!disp) {
+                id sb = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("SpringBoard"), sel_registerName("sharedApplication"));
+                if (sb) {
+                    unsigned int cnt = 0;
+                    void **ivars = (void **)class_copyIvarList((Class)objc_getClass("SpringBoard"), &cnt);
+                    for (unsigned int i = 0; i < cnt && !disp; i++) {
+                        const char *nm = ivar_getName(ivars[i]);
+                        if (nm && (strstr(nm, "otificationDispatcher") || strstr(nm, "otificationController"))) {
+                            id v = object_getIvar(sb, ivars[i]);
+                            if (v) disp = v;
                         }
                     }
                 }
             }
         }
-        ProbeWrite("RN-UN-FAIL");
-        // 路线B: BBServer publishBulletin (已捕获 server, SB 主线程直调)
-        id server = gCapturedServer;
-        if (server) {
-            id clsB = (id)objc_getClass("BBBulletin");
-            if (clsB) {
-                id bulletin = [[clsB alloc] init];
-                if (bulletin) {
-                    ((void(*)(id, SEL, id))objc_msgSend)(bulletin, sel_registerName("setTitle:"), @"灵动岛GIF背景");
-                    ((void(*)(id, SEL, id))objc_msgSend)(bulletin, sel_registerName("setMessage:"), @"预览通知：岛展开显示您的背景");
-                    ((void(*)(id, SEL, id))objc_msgSend)(bulletin, sel_registerName("setSectionID:"), @"com.apple.MobileSMS");
-                    NSString *uid = [NSString stringWithFormat:@"ldd-%ld", (long)time(0)];
-                    ((void(*)(id, SEL, id))objc_msgSend)(bulletin, sel_registerName("setPublisherBulletinID:"), uid);
-                    ((void(*)(id, SEL, id))objc_msgSend)(bulletin, sel_registerName("setRecordID:"), uid);
-                    ((void(*)(id, SEL, id))objc_msgSend)(bulletin, sel_registerName("setDate:"), [(id)objc_getClass("NSDate") date]);
-                    ((void(*)(id, SEL, BOOL))objc_msgSend)(bulletin, sel_registerName("setShowsMessagePreview:"), YES);
-                    SEL sPub = sel_registerName("publishBulletin:destinations:alwaysToLockScreen:");
-                    if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(server, sel_registerName("respondsToSelector:"), sPub)) {
-                        ((void(*)(id, SEL, id, NSUInteger, BOOL))objc_msgSend)(server, sPub, bulletin, (NSUInteger)7, YES);
-                        ProbeWrite("RN-BB-SENT");
-                        return;
-                    }
+        if (disp) ProbeWrite("RN-DISP-FOUND"); else ProbeWrite("RN-DISP-NIL");
+
+        // === 3a. dispatcher addNotificationRequest:withCompletionHandler: (接收 UNNotificationRequest) ===
+        if (unreq && disp) {
+            SEL sAdd = sel_registerName("addNotificationRequest:withCompletionHandler:");
+            if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(disp, sel_registerName("respondsToSelector:"), sAdd)) {
+                ((void(*)(id, SEL, id, id))objc_msgSend)(disp, sAdd, unreq, nil);
+                ProbeWrite("RN-DISP-SENT");
+                return;
+            }
+            // === 3b. NCNotificationRequest initWithNotificationRequest: + postNotificationRequest: ===
+            id clsNC = (id)objc_getClass("NCNotificationRequest");
+            if (clsNC) {
+                SEL sInitN = sel_registerName("initWithNotificationRequest:");
+                id inst = ((id(*)(id, SEL))objc_msgSend)((id)clsNC, sel_registerName("alloc"));
+                id ncreq = nil;
+                if (inst && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(inst, sel_registerName("respondsToSelector:"), sInitN))
+                    ncreq = ((id(*)(id, SEL, id))objc_msgSend)(inst, sInitN, unreq);
+                SEL sPost = sel_registerName("postNotificationRequest:");
+                if (ncreq && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(disp, sel_registerName("respondsToSelector:"), sPost)) {
+                    ((void(*)(id, SEL, id))objc_msgSend)(disp, sPost, ncreq);
+                    ProbeWrite("RN-NC-SENT");
+                    return;
+                }
+                ProbeWrite("RN-NC-NOMETHOD");
+            }
+        }
+
+        // === 4. UN center addNotificationRequest: (兜底, 进通知中心) ===
+        if (unreq) {
+            id clsC = (id)objc_getClass("UNUserNotificationCenter");
+            if (clsC) {
+                id center = ((id(*)(id, SEL))objc_msgSend)(clsC, sel_registerName("currentNotificationCenter"));
+                if (center) {
+                    ((void(*)(id, SEL, id, id))objc_msgSend)(center, sel_registerName("addNotificationRequest:withCompletionHandler:"), unreq, nil);
+                    ProbeWrite("RN-UN-SENT");
+                    return;
                 }
             }
         }
+
         ProbeWrite("RN-ALL-FAIL");
-        ShowPreviewWindow();  // 兜底: 真通知全失败时自绘横幅, 保证有反馈
+        ShowPreviewWindow();
     } @catch (id e) { LogReason("RN-EXC", e); ShowPreviewWindow(); }
 }
 
