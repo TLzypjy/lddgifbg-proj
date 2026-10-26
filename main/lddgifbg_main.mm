@@ -110,6 +110,7 @@ extern "C" { extern void *kCGImagePropertyGIFDictionary; extern void *kCGImagePr
 @interface NSNotificationCenter : NSObject
 + (id)defaultCenter;
 - (void)addObserver:(id)o selector:(SEL)s name:(NSString *)n object:(id)obj;
+- (void)removeObserver:(id)o name:(NSString *)n object:(id)obj;
 @end
 @interface NSDate : NSObject
 + (id)date;
@@ -451,6 +452,11 @@ static void LoadVideoWithPathIntoView(NSString *path, UIView *view) {
     if (gPlayer && gPlayerItem) {
         id item = fna((id)objc_getClass("AVPlayerItem"), sel_registerName("playerItemWithURL:"), url);
         [gPlayer replaceCurrentItemWithPlayerItem:item];
+        // replace 后通知对象变成新 item: 换绑循环观察者, 否则第二次通知起视频播完不循环
+        NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
+        [nc removeObserver:gObserver name:@"AVPlayerItemDidPlayToEndTimeNotification" object:gPlayerItem];
+        gPlayerItem = item;
+        [nc addObserver:gObserver selector:@selector(videoDidEnd:) name:@"AVPlayerItemDidPlayToEndTimeNotification" object:gPlayerItem];
     } else {
         gPlayerItem = fna((id)objc_getClass("AVPlayerItem"), sel_registerName("playerItemWithURL:"), url);
         typedef id (*FnB)(id, SEL, id);
@@ -834,7 +840,14 @@ static void LDDIslandLayout(id self) {
 
     BOOL needReload = YES;
     if (gLoadedPath && [gLoadedPath isEqualToString:path]) {
-        if ([view isAnimating] || gPlayerLayer) needReload = NO;
+        // 视频"播放中"必须 layer 还挂在 view 上 (StopVideo 已移除 layer 但 gPlayerLayer 非 nil -> 旧判定误判跳过重载 = 二次通知无背景 bug)
+        BOOL playing = [view isAnimating];
+        if (!playing && gPlayerLayer) {
+            id sl = ((id(*)(id, SEL))objc_msgSend)(gPlayerLayer, sel_registerName("superlayer"));
+            id vly = ((id(*)(id, SEL))objc_msgSend)(view, sel_registerName("layer"));
+            if (sl == vly) playing = YES;
+        }
+        if (playing) needReload = NO;
     }
     if (needReload) {
         gLoadedPath = path;
