@@ -339,8 +339,12 @@ static __weak UIImageView *gStreamIV = nil;
 @end
 
 static void StreamRestartTimer(void);
-static void StreamStop(void) {
+static void StreamPause(void) {
+    // 只停 timer, 保留素材/帧状态 -> 岛再次展开时走最稳的续播路径
     if (gStreamTimer) { [gStreamTimer invalidate]; gStreamTimer = nil; }
+}
+static void StreamStop(void) {
+    StreamPause();
     if (gStreamSrc) { CFRelease(gStreamSrc); gStreamSrc = NULL; }
     gStreamDelays = nil; gStreamCount = 0; gStreamIdx = 0;
     gStreamPath = nil; gStreamCur = nil; gStreamFrameCacheIdx = -1;
@@ -348,6 +352,8 @@ static void StreamStop(void) {
 }
 static void StreamAdvance(void) {
     if (!gStreamSrc || gStreamCount == 0) { StreamStop(); return; }
+    static int tlog = 0;
+    if (tlog < 5) { tlog++; char tb[64]; snprintf(tb, sizeof(tb), "STREAM-TICK %lu", (unsigned long)gStreamIdx); ProbeWrite(tb); }
     gStreamIdx = (gStreamIdx + 1) % gStreamCount;
     if ((int)gStreamIdx != gStreamFrameCacheIdx) {
         CGImageRef cg = CGImageSourceCreateImageAtIndex(gStreamSrc, (size_t)gStreamIdx, 0);
@@ -380,11 +386,14 @@ static void LoadGIFWithPathIntoImageView(NSString *path, UIImageView *iv) {
     if (!path || !iv) return;
     if (gStreamPath && [gStreamPath isEqualToString:path] && gStreamSrc) {
         // 同素材续播 (隐藏时 timer 已停); 布局高频时仅 timer 停止才恢复, 避免反复重启卡帧
+        static int rlog = 0;
+        if (rlog < 10) { rlog++; ProbeWrite("STREAM-RESUME"); }
         gStreamIV = iv;
         if (gStreamCur) [iv setImage:gStreamCur];
         if (!gStreamTimer) StreamRestartTimer();
         return;
     }
+    ProbeWrite("STREAM-RELOAD");
     StreamStop();
     NSData *data = [NSData dataWithContentsOfFile:path];
     if (!data) return;
@@ -772,13 +781,19 @@ static void LDDIslandLayout(id self) {
         if (cZxh) show = YES;          // 小岛开: 常显
         else if (b0.h >= 65.0) show = YES;               // 小岛关: 仅展开时
     }
+    static int slog2 = 0;
+    if (slog2 < 20) {
+        slog2++;
+        char sb[96];
+        snprintf(sb, sizeof(sb), "SHOW-%d h=%.0f", show ? 1 : 0, bb.h);
+        ProbeWrite(sb);
+    }
     if (!show) {
-        // 优化4: 岛隐藏时真正停止一切播放 (旧版 GIF/视频后台空转 -> 卡顿发烫)
+        // 优化4: 岛隐藏时停止一切播放; 保留素材状态与视图 -> 下次通知走续播秒恢复
         UIImageView *oldV = (UIImageView *)[self viewWithTag:9999];
         if (oldV) { [oldV stopAnimating]; [oldV setImage:nil]; [oldV setAnimationImages:nil]; }
         StopVideo();
-        StreamStop();
-        RemoveTagged(self, 9999);
+        StreamPause();
         RemoveTagged(self, 9998);
         objc_autoreleasePoolPop(pool);
         return;
