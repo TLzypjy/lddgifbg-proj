@@ -1097,35 +1097,40 @@ static void PostRealNotification(void) {
         if (unreq) ProbeWrite("RN-UN-BUILT");
 
         // === 2. NCNotificationRequest + ContentProvider ===
+        // 注意: initWithNotificationRequest: 在 iOS16 系统实现内部会访问 UNNotificationRequest.sectionIdentifier,
+        // 该 selector 在 iOS16 的 UNNotificationRequest 上不存在, 系统方法内部抛 unrecognized selector 崩溃。
+        // 因此禁用 2a, 强制走灵动通知同款 2b 路径: alloc/init + NCNotificationRequestContentProvider。
         id clsReq = (id)objc_getClass("NCNotificationRequest");
         id req = nil;
         if (clsReq) {
             id inst = ((id(*)(id, SEL))objc_msgSend)((id)clsReq, sel_registerName("alloc"));
-            // 2a. initWithNotificationRequest: (UN 层转系统层)
-            SEL sInitN = sel_registerName("initWithNotificationRequest:");
-            if (inst && unreq && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(inst, sel_registerName("respondsToSelector:"), sInitN)) {
-                ProbeWrite("RN-REQ-INITN-TRY");
-                req = ((id(*)(id, SEL, id))objc_msgSend)(inst, sInitN, unreq);
-                if (req) ProbeWrite("RN-REQ-INITN-OK"); else ProbeWrite("RN-REQ-INITN-NIL");
-            } else {
-                ProbeWrite(inst ? (unreq ? "RN-REQ-NOINITN" : "RN-REQ-NOUNREQ") : "RN-REQ-NOALLOC");
-            }
-            // 2b. 否则 alloc/init + setContentProvider
-            if (!req && inst) {
+            ProbeWrite(inst ? "RN-REQ-ALLOC-OK" : "RN-REQ-ALLOC-FAIL");
+            // 2b. alloc/init + setContentProvider
+            if (inst) {
                 ProbeWrite("RN-REQ-FB-TRY");
                 req = ((id(*)(id, SEL))objc_msgSend)(inst, sel_registerName("init"));
                 id clsCP = (id)objc_getClass("NCNotificationRequestContentProvider");
                 if (req && clsCP) {
-                    SEL sCPI = sel_registerName("initWithObject:identifier:");
                     id cpinst = ((id(*)(id, SEL))objc_msgSend)((id)clsCP, sel_registerName("alloc"));
                     id cp = nil;
-                    if (cpinst && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(cpinst, sel_registerName("respondsToSelector:"), sCPI))
-                        cp = ((id(*)(id, SEL, id, id))objc_msgSend)(cpinst, sCPI, (unreq ? unreq : content), uid);
+                    // 依次尝试 ContentProvider 初始化方法
+                    const char *cpInits[] = {"initWithObject:identifier:", "initWithNotificationRequest:", "initWithIdentifier:content:trigger:", 0};
+                    for (int i = 0; cpInits[i] && !cp; i++) {
+                        SEL sCPI = sel_registerName(cpInits[i]);
+                        if (cpinst && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(cpinst, sel_registerName("respondsToSelector:"), sCPI)) {
+                            ProbeWrite(cpInits[i][0] == 'i' && strstr(cpInits[i], "WithObject") ? "RN-REQ-CP-IOI" : "RN-REQ-CP-ALT");
+                            if (i == 0) cp = ((id(*)(id, SEL, id, id))objc_msgSend)(cpinst, sCPI, (unreq ? (id)unreq : (id)content), uid);
+                            else if (i == 1) cp = ((id(*)(id, SEL, id))objc_msgSend)(cpinst, sCPI, unreq);
+                            else cp = ((id(*)(id, SEL, id, id, id))objc_msgSend)(cpinst, sCPI, uid, content, trigger);
+                        }
+                    }
                     if (cp) {
                         ProbeWrite("RN-REQ-CP-OK");
                         SEL sSetCP = sel_registerName("setContentProvider:");
-                        if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(req, sel_registerName("respondsToSelector:"), sSetCP))
+                        if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(req, sel_registerName("respondsToSelector:"), sSetCP)) {
                             ((void(*)(id, SEL, id))objc_msgSend)(req, sSetCP, cp);
+                            ProbeWrite("RN-REQ-CP-SET");
+                        } else ProbeWrite("RN-REQ-NOSETCP");
                     } else ProbeWrite("RN-REQ-CP-FAIL");
                 } else {
                     ProbeWrite(req ? "RN-REQ-NOCP" : "RN-REQ-EMPTYINIT");
