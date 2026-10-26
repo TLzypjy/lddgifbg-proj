@@ -1103,10 +1103,16 @@ static void PostRealNotification(void) {
             id inst = ((id(*)(id, SEL))objc_msgSend)((id)clsReq, sel_registerName("alloc"));
             // 2a. initWithNotificationRequest: (UN 层转系统层)
             SEL sInitN = sel_registerName("initWithNotificationRequest:");
-            if (inst && unreq && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(inst, sel_registerName("respondsToSelector:"), sInitN))
+            if (inst && unreq && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(inst, sel_registerName("respondsToSelector:"), sInitN)) {
+                ProbeWrite("RN-REQ-INITN-TRY");
                 req = ((id(*)(id, SEL, id))objc_msgSend)(inst, sInitN, unreq);
+                if (req) ProbeWrite("RN-REQ-INITN-OK"); else ProbeWrite("RN-REQ-INITN-NIL");
+            } else {
+                ProbeWrite(inst ? (unreq ? "RN-REQ-NOINITN" : "RN-REQ-NOUNREQ") : "RN-REQ-NOALLOC");
+            }
             // 2b. 否则 alloc/init + setContentProvider
             if (!req && inst) {
+                ProbeWrite("RN-REQ-FB-TRY");
                 req = ((id(*)(id, SEL))objc_msgSend)(inst, sel_registerName("init"));
                 id clsCP = (id)objc_getClass("NCNotificationRequestContentProvider");
                 if (req && clsCP) {
@@ -1116,12 +1122,17 @@ static void PostRealNotification(void) {
                     if (cpinst && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(cpinst, sel_registerName("respondsToSelector:"), sCPI))
                         cp = ((id(*)(id, SEL, id, id))objc_msgSend)(cpinst, sCPI, (unreq ? unreq : content), uid);
                     if (cp) {
+                        ProbeWrite("RN-REQ-CP-OK");
                         SEL sSetCP = sel_registerName("setContentProvider:");
                         if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(req, sel_registerName("respondsToSelector:"), sSetCP))
                             ((void(*)(id, SEL, id))objc_msgSend)(req, sSetCP, cp);
-                    }
+                    } else ProbeWrite("RN-REQ-CP-FAIL");
+                } else {
+                    ProbeWrite(req ? "RN-REQ-NOCP" : "RN-REQ-EMPTYINIT");
                 }
             }
+        } else {
+            ProbeWrite("RN-REQ-NOCLS");
         }
         if (req) ProbeWrite("RN-REQ-BUILT"); else ProbeWrite("RN-REQ-FAIL");
 
@@ -1134,16 +1145,19 @@ static void PostRealNotification(void) {
             if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(layer, sel_registerName("respondsToSelector:"), sPersist)) {
                 id set = ((id(*)(id, SEL, id))objc_msgSend)((id)objc_getClass("NSSet"), sel_registerName("setWithObject:"), @"com.apple.mobilesms");
                 ((void(*)(id, SEL, id))objc_msgSend)(layer, sPersist, set);
+                ProbeWrite("RN-PRES-PERSIST-SET");
             }
             // 3b. 投递: postNotificationRequest: / prepareForIncomingNotificationRequest:
             SEL sPost = sel_registerName("postNotificationRequest:");
             SEL sPrep = sel_registerName("prepareForIncomingNotificationRequest:");
             if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(layer, sel_registerName("respondsToSelector:"), sPost)) {
+                ProbeWrite("RN-PRES-TRYPOST");
                 ((void(*)(id, SEL, id))objc_msgSend)(layer, sPost, req);
                 ProbeWrite("RN-PRES-SENT");
                 return;
             }
             if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(layer, sel_registerName("respondsToSelector:"), sPrep)) {
+                ProbeWrite("RN-PRES-TRYPREP");
                 ((void(*)(id, SEL, id))objc_msgSend)(layer, sPrep, req);
                 ProbeWrite("RN-PRES-PREP");
                 return;
@@ -1296,6 +1310,7 @@ static void ShowPreviewWindow(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
+    ProbeWrite("LDD-BUILD actions-1.9.86-noSEC");
     ProbeWrite("CONSTRUCTOR-RAN");
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
     // 对照组 hook (兼启动延迟器)
