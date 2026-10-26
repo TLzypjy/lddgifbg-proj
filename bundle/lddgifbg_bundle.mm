@@ -117,6 +117,7 @@ static id CLSSTR(const char *n) { return (id)objc_getClass(n); }
 @end
 @interface NSException : NSObject @end
 
+typedef struct CGPoint { double x, y; } CGPoint;
 typedef struct CGRect { double ox, oy, w, h; } CGRect;
 
 typedef struct CGColor *CGColorRef;
@@ -172,6 +173,16 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (void)setWindowScene:(id)s;
 - (id)scene;
 - (long)windowLevel;
+- (id)hitTest:(CGPoint)p withEvent:(id)e;
+@end
+// 透传 window: 自身不接触摸(背景区域点穿到设置页), 子视图(banner)正常接收
+@interface LDDPassWindow : UIWindow
+@end
+@implementation LDDPassWindow
+- (id)hitTest:(CGPoint)p withEvent:(id)e {
+    id v = [super hitTest:p withEvent:e];
+    return (v == (id)self) ? nil : v;
+}
 @end
 @interface UIApplication : NSObject
 + (id)sharedApplication;
@@ -838,6 +849,8 @@ static UIImage *RenderFrameAtIndex(unsigned long idx, CGSize dst) {
         // 清理上一次预览残留 (防连点卡死)
         id oldB = objc_getAssociatedObject(self, "pvbanner");
         if (oldB) ((void(*)(id, SEL))objc_msgSend)(oldB, sel_registerName("removeFromSuperview"));
+        id oldW = objc_getAssociatedObject(self, "pvwin");
+        if (oldW) { ((void(*)(id, SEL, BOOL))objc_msgSend)(oldW, sel_registerName("setHidden:"), YES); objc_setAssociatedObject(self, "pvwin", nil, 1); }
         id oldA = objc_getAssociatedObject(self, "pvauto");
         if (oldA) { ((void(*)(id, SEL))objc_msgSend)(oldA, sel_registerName("invalidate")); objc_setAssociatedObject(self, "pvauto", nil, 1); }
         if (gPrevTimer2) { ((void(*)(id, SEL))objc_msgSend)(gPrevTimer2, sel_registerName("invalidate")); gPrevTimer2 = nil; }
@@ -857,13 +870,26 @@ static UIImage *RenderFrameAtIndex(unsigned long idx, CGSize dst) {
             }
         }
         if (!path) return;
-        id win = [[self view] window];
-        if (!win) win = [[UIApplication sharedApplication] keyWindow];
-        if (!win) return;
-        long oldLevel = ((long(*)(id, SEL))objc_msgSend)(win, sel_registerName("windowLevel"));
-        objc_setAssociatedObject(self, "pvlevel", [NSNumber numberWithInt:(int)oldLevel], 1);
-        ((void(*)(id, SEL, long))objc_msgSend)(win, sel_registerName("setWindowLevel:"), 3000);
-        CGRect sb = [win bounds];
+        // 全屏独立 window (覆盖状态栏+岛区域), 横幅用屏幕坐标 -> 与系统通知位置一致
+        id baseWin = [[self view] window];
+        if (!baseWin) baseWin = [[UIApplication sharedApplication] keyWindow];
+        if (!baseWin) return;
+        id scene = ((id(*)(id, SEL))objc_msgSend)(baseWin, sel_registerName("windowScene"));
+        id win = nil;
+        if (scene) {
+            win = [[LDDPassWindow alloc] initWithFrame:[[UIScreen mainScreen] bounds]];
+            ((void(*)(id, SEL, id))objc_msgSend)(win, sel_registerName("setWindowScene:"), scene);
+            ((void(*)(id, SEL, long))objc_msgSend)(win, sel_registerName("setWindowLevel:"), 3000);
+            ((void(*)(id, SEL, id))objc_msgSend)(win, sel_registerName("setBackgroundColor:"), ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIColor"), sel_registerName("clearColor")));
+            ((void(*)(id, SEL, BOOL))objc_msgSend)(win, sel_registerName("setHidden:"), NO);
+            objc_setAssociatedObject(self, "pvwin", win, 1);
+        } else {
+            win = baseWin;
+            long oldLevel = ((long(*)(id, SEL))objc_msgSend)(win, sel_registerName("windowLevel"));
+            objc_setAssociatedObject(self, "pvlevel", [NSNumber numberWithInt:(int)oldLevel], 1);
+            ((void(*)(id, SEL, long))objc_msgSend)(win, sel_registerName("setWindowLevel:"), 3000);
+        }
+        CGRect sb = [[UIScreen mainScreen] bounds];
         double W = sb.w;
         CGRect pill = MakeRect((W - 126.0) / 2.0, 11.0, 126.0, 37.0);
         CGRect exp = MakeRect(12.0, 11.0, W - 24.0, 110.0);
@@ -970,6 +996,8 @@ static UIImage *RenderFrameAtIndex(unsigned long idx, CGSize dst) {
             } completion:^(BOOL f) {
                 [bBanner removeFromSuperview];
                 if (gPrevSrc) { CFRelease(gPrevSrc); gPrevSrc = 0; }
+                id pvwin = objc_getAssociatedObject(self, "pvwin");
+                if (pvwin) { ((void(*)(id, SEL, BOOL))objc_msgSend)(pvwin, sel_registerName("setHidden:"), YES); objc_setAssociatedObject(self, "pvwin", nil, 1); }
                 id lv = objc_getAssociatedObject(self, "pvlevel");
                 if (lv && win) ((void(*)(id, SEL, long))objc_msgSend)(win, sel_registerName("setWindowLevel:"), (long)[lv intValue]);
             }];
