@@ -8,7 +8,6 @@
 #include <string.h>
 #include <time.h>
 #include <math.h>
-extern "C" double CFAbsoluteTimeGetCurrent(void);
 #include <unistd.h>
 
 typedef struct objc_class *Class;
@@ -235,7 +234,7 @@ static AVPlayer *gPlayer;
 static id gPlayerItem;
 static CALayer *gPlayerLayer;
 static id gObserver;
-static id gFramesCache, gDurationCache;
+// (1.9.77: 移除全帧缓存, 改流式播放)
 
 struct CMTimeRaw { long long value; int timescale; unsigned flags; long long epoch; };
 
@@ -322,33 +321,77 @@ static NSString *GetSelectedImagePath(void) {
     return videoPick ? videoPick : imgPick;
 }
 
-// ---------- GIF 载入 ----------
+// ---------- 流式 GIF 播放 (优化3: 不再全帧解码, 每帧按时间轴解码, 内存 O(1)) ----------
+static CGImageSourceRef gStreamSrc = NULL;
+static NSArray *gStreamDelays = nil;
+static NSUInteger gStreamCount = 0;
+static NSUInteger gStreamIdx = 0;
+static NSTimer *gStreamTimer = nil;
+static id gStreamTarget = nil;
+static NSString *gStreamPath = nil;
+static UIImage *gStreamCur = nil;
+static int gStreamFrameCacheIdx = -1;
+static __weak UIImageView *gStreamIV = nil;
+
+@interface LDDStreamTarget : NSObject
+- (void)streamTick:(id)t;
+@end
+
+static void StreamRestartTimer(void);
+static void StreamStop(void) {
+    if (gStreamTimer) { [gStreamTimer invalidate]; gStreamTimer = nil; }
+    if (gStreamSrc) { CFRelease(gStreamSrc); gStreamSrc = NULL; }
+    gStreamDelays = nil; gStreamCount = 0; gStreamIdx = 0;
+    gStreamPath = nil; gStreamCur = nil; gStreamFrameCacheIdx = -1;
+    gStreamIV = nil;
+}
+static void StreamAdvance(void) {
+    if (!gStreamSrc || gStreamCount == 0) { StreamStop(); return; }
+    gStreamIdx = (gStreamIdx + 1) % gStreamCount;
+    if ((int)gStreamIdx != gStreamFrameCacheIdx) {
+        CGImageRef cg = CGImageSourceCreateImageAtIndex(gStreamSrc, (size_t)gStreamIdx, 0);
+        if (cg) {
+            gStreamCur = [UIImage imageWithCGImage:cg scale:1.0 orientation:0];
+            gStreamFrameCacheIdx = (int)gStreamIdx;
+            CFRelease((void *)cg);
+        }
+    }
+    if (gStreamIV) [gStreamIV setImage:gStreamCur];
+    else { StreamStop(); return; }
+    StreamRestartTimer();
+}
+static void StreamRestartTimer(void) {
+    if (gStreamTimer) { [gStreamTimer invalidate]; gStreamTimer = nil; }
+    if (!gStreamSrc || gStreamCount == 0) return;
+    if (!gStreamTarget) gStreamTarget = [[LDDStreamTarget alloc] init];
+    double d = 0.1;
+    if (gStreamDelays && gStreamIdx < (NSUInteger)[gStreamDelays count]) {
+        double dd = [[gStreamDelays objectAtIndex:gStreamIdx] doubleValue];
+        if (dd >= 0.02) d = dd;
+    }
+    gStreamTimer = [NSTimer scheduledTimerWithTimeInterval:d target:gStreamTarget selector:@selector(streamTick:) userInfo:nil repeats:NO];
+}
 static void LoadGIFWithPathIntoImageView(NSString *path, UIImageView *iv) {
     if (!path || !iv) return;
-    id frames = [gFramesCache objectForKeyedSubscript:path];
-    id durObj = [gDurationCache objectForKeyedSubscript:path];
-    if (frames && durObj) {
-        [iv setAnimationImages:frames];
-        [iv setAnimationDuration:[durObj doubleValue]];
-        [iv setAnimationRepeatCount:0];
-        [iv startAnimating];
+    if (gStreamPath && [gStreamPath isEqualToString:path] && gStreamSrc) {
+        // 同素材续播 (隐藏时 timer 已停); 布局高频时仅 timer 停止才恢复, 避免反复重启卡帧
+        gStreamIV = iv;
+        if (gStreamCur) [iv setImage:gStreamCur];
+        if (!gStreamTimer) StreamRestartTimer();
         return;
     }
+    StreamStop();
     NSData *data = [NSData dataWithContentsOfFile:path];
     if (!data) return;
     void *src = CGImageSourceCreateWithData((__bridge void *)data, 0);
     if (!src) return;
     NSUInteger count = CGImageSourceGetCount(src);
     if (count == 0) { CFRelease(src); return; }
-    NSMutableArray *arr = [NSMutableArray arrayWithCapacity:count];
-    double total = 0.0;
+    // 只读帧延迟表 (不解码图像, 毫秒级)
+    NSMutableArray *delays = [NSMutableArray arrayWithCapacity:count];
     for (NSUInteger i = 0; i < count; i++) {
-        CGImageRef cg = CGImageSourceCreateImageAtIndex(src, i, 0);
-        if (!cg) continue;
-        void *props = CGImageSourceCopyPropertiesAtIndex(src, i, 0);
-        UIImage *img = [UIImage imageWithCGImage:cg scale:1.0 orientation:0];
-        [arr addObject:img];
         double delay = 0.1;
+        void *props = CGImageSourceCopyPropertiesAtIndex(src, i, 0);
         if (props) {
             NSDictionary *gd = [(__bridge NSDictionary *)props objectForKeyedSubscript:(__bridge id)kCGImagePropertyGIFDictionary];
             if (gd) {
@@ -361,17 +404,24 @@ static void LoadGIFWithPathIntoImageView(NSString *path, UIImageView *iv) {
             }
             CFRelease(props);
         }
-        total += delay;
-        CFRelease((void *)cg);
+        [delays addObject:[NSNumber numberWithDouble:delay]];
     }
-    CFRelease(src);
-    [gFramesCache setObject:arr forKeyedSubscript:path];
-    NSNumber *dur = [NSNumber numberWithDouble:total];
-    [gDurationCache setObject:dur forKeyedSubscript:path];
-    [iv setAnimationImages:arr];
-    [iv setAnimationDuration:total];
-    [iv setAnimationRepeatCount:0];
-    [iv startAnimating];
+    // 首帧立即显示
+    CGImageRef cg0 = CGImageSourceCreateImageAtIndex(src, 0, 0);
+    UIImage *img0 = cg0 ? [UIImage imageWithCGImage:cg0 scale:1.0 orientation:0] : nil;
+    if (cg0) CFRelease((void *)cg0);
+    [iv setImage:img0];
+    gStreamSrc = src;
+    gStreamDelays = delays;
+    gStreamCount = count;
+    gStreamIdx = 0;
+    gStreamPath = path;
+    gStreamIV = iv;
+    gStreamFrameCacheIdx = 0;
+    gStreamCur = img0;
+    StreamRestartTimer();
+    static int slog = 0;
+    if (slog < 3) { slog++; char lb[96]; snprintf(lb, sizeof(lb), "STREAM-START %lu", (unsigned long)count); ProbeWrite(lb); }
 }
 
 // ---------- 视频载入 ----------
@@ -441,6 +491,12 @@ static void PreviewTick(void);
 - (void)tick:(id)t;
 - (void)autoClose:(id)t;
 @end
+@implementation LDDStreamTarget
+- (void)streamTick:(id)t;
+{
+    StreamAdvance();
+}
+@end
 @implementation LDDPreviewDismiss
 - (void)dismissPreview;
 {
@@ -459,7 +515,7 @@ static id gPreviewDismissTarget = nil;
 
 static double gForceLast = 0;
 static void CheckForcePreviewTick(void) {
-    double t = ((double(*)(id, SEL))objc_msgSend)((id)[(id)objc_getClass("NSDate") date], sel_registerName("timeIntervalSince1970"));
+    double t = CFAbsoluteTimeGetCurrent();
     if (t - gForceLast < 0.25) return;
     gForceLast = t;
     if (access("/var/mobile/lddgifbg/__force_preview__", 0) == 0) {
@@ -682,36 +738,6 @@ static void ShowBlock(id self, int colorIsRed) {
 }
 
 // ---------- layoutSubviews hook ----------
-
-static BOOL gMusicCache = NO;
-static double gMusicCacheT = 0;
-static BOOL MusicPlayingNow(void) {
-    double t = CFAbsoluteTimeGetCurrent();
-    if (t - gMusicCacheT < 1.0) return gMusicCache;
-    gMusicCacheT = t;
-    gMusicCache = NO;
-    @try {
-        id mc = (id)objc_getClass("SBMediaController");
-        if (mc) {
-            id inst = ((id(*)(id, SEL))objc_msgSend)(mc, sel_registerName("sharedInstance"));
-            if (inst && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(inst, sel_registerName("respondsToSelector:"), sel_registerName("isPlaying")))
-                gMusicCache = ((BOOL(*)(id, SEL))objc_msgSend)(inst, sel_registerName("isPlaying"));
-        }
-    } @catch (id e) {}
-    return gMusicCache;
-}
-
-// ---------- 展开态防抖: 高度>=65 需持续 0.25s 才认定展开 ----------
-static double gExpandSince = 0;
-static BOOL ExpandedDebounced(double h) {
-    double now = CFAbsoluteTimeGetCurrent();
-    if (h >= 65.0) {
-        if (gExpandSince <= 0) gExpandSince = now;
-        return (now - gExpandSince) >= 0.15;
-    }
-    gExpandSince = 0;
-    return NO;
-}
 static void LDDIslandLayout(id self) {
     static int first = 0;
     if (!first) { first = 1; ProbeWrite("ISLAND-LAYOUT-ENTERED"); }
@@ -735,16 +761,18 @@ static void LDDIslandLayout(id self) {
     CheckForcePreview();
     RefreshPrefsCache();
     BOOL mainOn = cEnabled;
-    BOOL attach = NO, visible = NO;
+    BOOL show = NO;
     if (mainOn) {
         CGRect b0 = [self bounds];
-        if (cZxh) { attach = YES; visible = YES; }                    // 小岛开: 常显
-        else if (b0.h >= 65.0) {                                       // 展开态: 预挂载
-            attach = YES;
-            visible = ExpandedDebounced(b0.h) || MusicPlayingNow();    // 播放中立即显, 否则防抖后显
-        }
+        if (cZxh) show = YES;          // 小岛开: 常显
+        else if (b0.h >= 65.0) show = YES;               // 小岛关: 仅展开时
     }
-    if (!attach) {
+    if (!show) {
+        // 优化4: 岛隐藏时真正停止一切播放 (旧版 GIF/视频后台空转 -> 卡顿发烫)
+        UIImageView *oldV = (UIImageView *)[self viewWithTag:9999];
+        if (oldV) { [oldV stopAnimating]; [oldV setImage:nil]; [oldV setAnimationImages:nil]; }
+        StopVideo();
+        StreamStop();
         RemoveTagged(self, 9999);
         RemoveTagged(self, 9998);
         objc_autoreleasePoolPop(pool);
@@ -792,13 +820,8 @@ static void LDDIslandLayout(id self) {
         gLoadedPath = path;
         LoadMediaWithPathIntoImageView(path, view);
     }
-    [self insertSubview:view atIndex:0];
-    BOOL wasH = ((BOOL(*)(id, SEL))objc_msgSend)(view, sel_registerName("isHidden"));
-    ((void(*)(id, SEL, BOOL))objc_msgSend)(view, sel_registerName("setHidden:"), !visible);
-    if (wasH && visible) {
-        ((void(*)(id, SEL, double))objc_msgSend)(view, sel_registerName("setAlpha:"), 0.0);
-        ((void(*)(id, SEL, double, double, double, double, NSUInteger, void(^)(void), void(^)(BOOL)))objc_msgSend)((id)objc_getClass("UIView"), sel_registerName("animateWithDuration:delay:usingSpringWithDamping:initialSpringVelocity:options:animations:completion:"), 0.12, 0.0, 1.0, 1.0, (NSUInteger)0, ^{ ((void(*)(id, SEL, double))objc_msgSend)(view, sel_registerName("setAlpha:"), 1.0); }, ^(BOOL f){});
-    }
+    // 优化5: 仅在不在 index0 时才重插 (避免布局涟漪)
+    if ([[self subviews] firstObject] != view) [self insertSubview:view atIndex:0];
     objc_autoreleasePoolPop(pool);
 }
 
@@ -809,31 +832,41 @@ static void LDDIslandLayout(id self);
 static void CtrlLayoutHook(id self, SEL _cmd) {
     static int once = 0;
     if (!once) { once = 1; ProbeWrite("CTRL-HOOK-FIRED"); }
+    // 优化1: 尺寸快速过滤 (绝大多数视图整屏/极小, 直接跳过, 零消息开销之外的成本)
+    CGRect bb = ((CGRect(*)(id, SEL))objc_msgSend)(self, sel_registerName("bounds"));
+    if (bb.w > 460.0 || bb.h > 150.0 || bb.w < 40.0 || bb.h < 10.0) {
+        if (origCtrlLayout) origCtrlLayout(self, _cmd);
+        return;
+    }
     CheckForcePreviewTick();
+    // 优化2: 类名匹配缓存 (同一类只做一次 strstr, 之后指针比较)
+    static const char *gMatchNames[16]; static int gMatchN = 0;
+    static const char *gSkipNames[64]; static int gSkipN = 0;
     const char *cn = object_getClassName(self);
-    if (cn && (strstr(cn, "Aperture") || strstr(cn, "Island"))) {
-        static int logged = 0;
-        if (!logged) {
-            logged = 1;
-            char line[160];
-            snprintf(line, sizeof(line), "MATCH-CLASS: %s", cn);
-            ProbeWrite(line);
+    if (cn) {
+        for (int i = 0; i < gMatchN; i++) {
+            if (gMatchNames[i] == cn) { LDDIslandLayout(self); break; }
         }
-        LDDIslandLayout(self);
-    } else if (cn && (strstr(cn, "DIMini") || (strstr(cn, "TOJB") && !strstr(cn, "MultiScreen") && !strstr(cn, "EdgeIcon") && !strstr(cn, "Menu")))) {
-        // TrollOpen 岛界面: 宿主窗口为 TOJB 系 + 尺寸在岛范围 => 复用同一套背景逻辑
-        id w = ((id(*)(id, SEL))objc_msgSend)(self, sel_registerName("window"));
-        const char *wcn = w ? object_getClassName(w) : 0;
-        CGRect bb = ((CGRect(*)(id, SEL))objc_msgSend)(self, sel_registerName("bounds"));
-        if (wcn && strstr(wcn, "TOJB") && bb.w >= 40 && bb.w <= 460 && bb.h >= 30 && bb.h <= 150) {
-            static int tlogged = 0;
-            if (tlogged < 6) {
-                tlogged++;
-                char line[220];
-                snprintf(line, sizeof(line), "TOJB-MATCH: %s %.0fx%.0f win=%s", cn, bb.w, bb.h, wcn);
-                ProbeWrite(line);
+        int hit = 0;
+        for (int i = 0; i < gMatchN; i++) if (gMatchNames[i] == cn) hit = 1;
+        if (!hit) {
+            int skip = 0;
+            for (int i = 0; i < gSkipN; i++) if (gSkipNames[i] == cn) { skip = 1; break; }
+            if (!skip) {
+                if (strstr(cn, "Aperture") || strstr(cn, "Island")) {
+                    if (gMatchN < 16) gMatchNames[gMatchN++] = cn;
+                    static int logged = 0;
+                    if (!logged) {
+                        logged = 1;
+                        char line[160];
+                        snprintf(line, sizeof(line), "MATCH-CLASS: %s", cn);
+                        ProbeWrite(line);
+                    }
+                    LDDIslandLayout(self);
+                } else if (gSkipN < 64) {
+                    gSkipNames[gSkipN++] = cn;
+                }
             }
-            LDDIslandLayout(self);
         }
     }
     if (origCtrlLayout) origCtrlLayout(self, _cmd);
@@ -1093,10 +1126,6 @@ static void LDDInit(void) {
     gGifExt = @"gif";
     gVideoExtMp4 = @"mp4";
     gVideoExtMov = @"mov";
-    NSMutableDictionary *fc = [NSMutableDictionary dictionary];
-    NSMutableDictionary *dc = [NSMutableDictionary dictionary];
-    gFramesCache = fc;
-    gDurationCache = dc;
     // 捕获 BBServer (供测试通知用)
     id clsS0 = objc_getClass("BBServer");
     if (clsS0) {
@@ -1110,7 +1139,7 @@ static void LDDInit(void) {
     }
     // Darwin notify: 设置端点"预览通知"即时触发 (灵动通知同款机制)
     static int notifyTok = 0;
-    notify_register_dispatch("com.axs.lddgifbg/TestNotification", &notifyTok, (void *)&_dispatch_main_q, ^(int tok){
+    notify_register_dispatch("com.tlzypjy.github/TestNotification", &notifyTok, (void *)&_dispatch_main_q, ^(int tok){
         ShowPreviewWindow();
     });
     // 灵动岛 hook 由 CtrlLayoutHook 延迟补挂 (避免构造时机过早)
