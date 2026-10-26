@@ -540,14 +540,14 @@ static void CheckForcePreviewTick(void) {
     gForceLast = t;
     if (access("/var/mobile/lddgifbg/__force_preview__", 0) == 0) {
         remove("/var/mobile/lddgifbg/__force_preview__");
-        ShowPreviewWindow();
+        PostRealNotification();
     }
 }
 
 static void CheckForcePreview(void) {
     if (access("/var/mobile/lddgifbg/__force_preview__", 0) == 0) {
         remove("/var/mobile/lddgifbg/__force_preview__");
-        ShowPreviewWindow();
+        PostRealNotification();
     }
 }
 static BOOL ForcePreviewActive(void) { return time(0) < gForceUntil; }
@@ -1002,6 +1002,72 @@ static UIImage *FirstImageForPath(NSString *path) {
     CFRelease((void *)cg);
     return img;
 }
+// ---------- 真实系统通知发布 (SB 进程, 系统自己渲染岛横幅) ----------
+static void PostRealNotification(void) {
+    ProbeWrite("RN-START");
+    @try {
+        // 路线A: UNUserNotificationCenter (SB 是通知宿主, 有权限)
+        dlopen("/System/Library/Frameworks/UserNotifications.framework/UserNotifications", 2);
+        id clsC = (id)objc_getClass("UNUserNotificationCenter");
+        if (clsC) {
+            id center = ((id(*)(id, SEL))objc_msgSend)(clsC, sel_registerName("currentNotificationCenter"));
+            if (center) {
+                id clsContent = (id)objc_getClass("UNMutableNotificationContent");
+                id content = clsContent ? ((id(*)(id, SEL))objc_msgSend)((id)clsContent, sel_registerName("new")) : nil;
+                if (content) {
+                    ((void(*)(id, SEL, id))objc_msgSend)(content, sel_registerName("setTitle:"), @"灵动岛GIF背景");
+                    ((void(*)(id, SEL, id))objc_msgSend)(content, sel_registerName("setSubtitle:"), @"预览通知");
+                    ((void(*)(id, SEL, id))objc_msgSend)(content, sel_registerName("setBody:"), @"这是一条真实系统通知，岛展开即显示您的背景");
+                    id clsTrig = (id)objc_getClass("UNTimeIntervalNotificationTrigger");
+                    id trigger = nil;
+                    if (clsTrig) {
+                        SEL sT = sel_registerName("triggerWithTimeInterval:repeats:");
+                        if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(clsTrig, sel_registerName("respondsToSelector:"), sT))
+                            trigger = ((id(*)(id, SEL, double, BOOL))objc_msgSend)(clsTrig, sT, 0.1, NO);
+                    }
+                    id clsReq = (id)objc_getClass("UNNotificationRequest");
+                    if (clsReq && trigger) {
+                        NSString *uid = [NSString stringWithFormat:@"lddprev-%ld", (long)time(0)];
+                        SEL sR = sel_registerName("requestWithIdentifier:content:trigger:");
+                        id req = ((id(*)(id, SEL, id, id, id))objc_msgSend)(clsReq, sR, uid, content, trigger);
+                        if (req) {
+                            ((void(*)(id, SEL, id, id))objc_msgSend)(center, sel_registerName("addNotificationRequest:withCompletionHandler:"), req, nil);
+                            ProbeWrite("RN-UN-SENT");
+                            return;
+                        }
+                    }
+                }
+            }
+        }
+        ProbeWrite("RN-UN-FAIL");
+        // 路线B: BBServer publishBulletin (已捕获 server, SB 主线程直调)
+        id server = gCapturedServer;
+        if (server) {
+            id clsB = (id)objc_getClass("BBBulletin");
+            if (clsB) {
+                id bulletin = [[clsB alloc] init];
+                if (bulletin) {
+                    ((void(*)(id, SEL, id))objc_msgSend)(bulletin, sel_registerName("setTitle:"), @"灵动岛GIF背景");
+                    ((void(*)(id, SEL, id))objc_msgSend)(bulletin, sel_registerName("setMessage:"), @"预览通知：岛展开显示您的背景");
+                    ((void(*)(id, SEL, id))objc_msgSend)(bulletin, sel_registerName("setSectionID:"), @"com.apple.MobileSMS");
+                    NSString *uid = [NSString stringWithFormat:@"ldd-%ld", (long)time(0)];
+                    ((void(*)(id, SEL, id))objc_msgSend)(bulletin, sel_registerName("setPublisherBulletinID:"), uid);
+                    ((void(*)(id, SEL, id))objc_msgSend)(bulletin, sel_registerName("setRecordID:"), uid);
+                    ((void(*)(id, SEL, id))objc_msgSend)(bulletin, sel_registerName("setDate:"), [(id)objc_getClass("NSDate") date]);
+                    ((void(*)(id, SEL, BOOL))objc_msgSend)(bulletin, sel_registerName("setShowsMessagePreview:"), YES);
+                    SEL sPub = sel_registerName("publishBulletin:destinations:alwaysToLockScreen:");
+                    if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(server, sel_registerName("respondsToSelector:"), sPub)) {
+                        ((void(*)(id, SEL, id, NSUInteger, BOOL))objc_msgSend)(server, sPub, bulletin, (NSUInteger)7, YES);
+                        ProbeWrite("RN-BB-SENT");
+                        return;
+                    }
+                }
+            }
+        }
+        ProbeWrite("RN-ALL-FAIL");
+    } @catch (id e) { LogReason("RN-EXC", e); }
+}
+
 static void ShowPreviewWindow(void) {
     @try {
         double nowT = ((double(*)(id, SEL))objc_msgSend)((id)[(id)objc_getClass("NSDate") date], sel_registerName("timeIntervalSince1970"));
@@ -1175,7 +1241,7 @@ static void LDDInit(void) {
     // Darwin notify: 设置端点"预览通知"即时触发 (灵动通知同款机制)
     static int notifyTok = 0;
     notify_register_dispatch("com.tlzypjy.github/TestNotification", &notifyTok, (void *)&_dispatch_main_q, ^(int tok){
-        ShowPreviewWindow();
+        PostRealNotification();
     });
     // 灵动岛 hook 由 CtrlLayoutHook 延迟补挂 (避免构造时机过早)
 }
