@@ -9,6 +9,8 @@
 #include <time.h>
 #include <math.h>
 #include <unistd.h>
+#include <objc/runtime.h>
+#include <objc/message.h>
 
 typedef struct objc_class *Class;
 typedef struct objc_object { Class isa; } *id;
