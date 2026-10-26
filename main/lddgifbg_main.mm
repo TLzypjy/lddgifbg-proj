@@ -1008,6 +1008,7 @@ static void PostRealNotification(void) {
     ProbeWrite("RN-START");
     @try {
         // 路线C: NCNotificationRequest + dispatcher postNotificationRequest: (灵动通知同款, 最易被其 hook 美化)
+        @try {
         dlopen("/System/Library/PrivateFrameworks/NotificationCenter.framework/NotificationCenter", 2);
         id clsContent = (id)objc_getClass("NCNotificationContent");
         id clsReq = (id)objc_getClass("NCNotificationRequest");
@@ -1029,7 +1030,8 @@ static void PostRealNotification(void) {
                 }
                 NSString *uid = [NSString stringWithFormat:@"lddnc-%ld", (long)time(0)];
                 SEL sInit = sel_registerName("initWithIdentifier:content:trigger:");
-                id req = ((id(*)(id, SEL, id, id, id))objc_msgSend)((id)clsReq, sInit, uid, content, trigger);
+                id inst = ((id(*)(id, SEL))objc_msgSend)((id)clsReq, sel_registerName("alloc"));
+                id req = inst ? ((id(*)(id, SEL, id, id, id))objc_msgSend)(inst, sInit, uid, content, trigger) : nil;
                 if (req) {
                     // 找 dispatcher: NCNotificationDispatcher 单例 / SpringBoard ivar
                     id disp = nil;
@@ -1066,6 +1068,7 @@ static void PostRealNotification(void) {
                 }
             }
         }
+        } @catch (id eC) { LogReason("RN-NC-EXC", eC); }
         // 路线A: UNUserNotificationCenter (SB 是通知宿主, 有权限)
         dlopen("/System/Library/Frameworks/UserNotifications.framework/UserNotifications", 2);
         id clsC = (id)objc_getClass("UNUserNotificationCenter");
