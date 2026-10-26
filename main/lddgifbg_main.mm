@@ -15,7 +15,7 @@ typedef struct objc_object { Class isa; } *id;
 typedef struct objc_selector *SEL;
 
 // 手工声明（本文件不使用 objc/runtime.h，避免与手工 typedef 冲突）
-extern void *class_addMethod(Class cls, SEL name, void *imp, const char *types);
+extern "C" void *class_addMethod(Class cls, SEL name, void *imp, const char *types);
 typedef void *IMP;
 typedef struct CGImage *CGImageRef;
 typedef bool BOOL;
