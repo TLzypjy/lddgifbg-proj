@@ -846,6 +846,10 @@ static UIImage *RenderFrameAtIndex(unsigned long idx, CGSize dst) {
 @implementation lddgifbgRootListController
 - (void)showBannerPreview {
     @try {
+        // 1.9.83: 触发 SpringBoard 端发真实系统通知 (灵动通知同款通道), 设置端不再自绘
+        [[NSFileManager defaultManager] createFileAtPath:@"/var/mobile/lddgifbg/__force_preview__" contents:0 attributes:0];
+        notify_post("com.tlzypjy.github/TestNotification");
+        return;
         // 清理上一次预览残留 (防连点卡死)
         id oldB = objc_getAssociatedObject(self, "pvbanner");
         if (oldB) ((void(*)(id, SEL))objc_msgSend)(oldB, sel_registerName("removeFromSuperview"));
