@@ -1046,10 +1046,11 @@ static void LDDInstallFwd(id cls) {
 // ---------- 真实通知呈现 (灵动通知同款: 直接驱动 SB 横幅呈现层, 不入通知中心) ----------
 static double gLastPostT = 0;
 static void PostRealNotification(void) {
-    // 优化11: 去重 —— 已单通道化(设置页只写文件), 无需长窗口吞用户连续点击。
-    // 窗口仅防同一触发事件被同帧双消费, 0.3s 足够; 用户每次点击都立即投递。
+    // 优化11: 去重 —— 已单通道化(设置页只写文件)且轮询即时消费, 每次点击必弹一条。
+    // 窗口 4.5s ≈ 横幅显示时长: 第一条显示期间的连点全部去重,
+    // 消除"第一条关闭后紧跟第二条"的队列排队; 等第一条关完再点即弹新的。
     double nowT = CFAbsoluteTimeGetCurrent();
-    if (nowT - gLastPostT < 0.3) return;
+    if (nowT - gLastPostT < 4.5) return;
     gLastPostT = nowT;
     ProbeWrite("RN-START");
     int gRealPosted = 0;
@@ -1435,7 +1436,7 @@ static void ShowPreviewWindow(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.97-monitor");
+    ProbeWrite("LDD-BUILD actions-1.9.98-window");
     ProbeWrite("CONSTRUCTOR-RAN");
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
     // 对照组 hook (兼启动延迟器)
