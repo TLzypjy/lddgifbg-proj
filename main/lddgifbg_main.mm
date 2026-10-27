@@ -671,6 +671,7 @@ static id FindPresentLayer(void) {
     return nil;
 }
 
+static long gNotifSec = 0;
 static void CheckTestNotifFlag(void) {
     long t = time(0);
     if (t == gNotifSec) return;
