@@ -636,48 +636,6 @@ static id HookBNDInit(id self, SEL _c) {
     if (!gPresentLayer) { gPresentLayer = r; ProbeWrite("BND-CAPTURED"); }
     return r;
 }
-// 优化18: 一次 post 会被呈现成两条(岛横幅常驻 + 标准横幅3秒), 用户只要标准横幅。
-// 投递成功后扫描 window 树, 隐藏 SBSystemAperture 的展开横幅视图(高>=55), 保留标准横幅。
-// 注意: 不触碰 38 高以内的岛药丸视图 —— 灵动岛GIF背景(核心功能)画在其上, 不受影响。
-static void LDDScanHideIsland(id v, BOOL *done) {
-    if (*done) return;
-    @try {
-        const char *cn = object_getClassName(v);
-        if (cn && strstr(cn, "Aperture")) {
-            CGRect fr = ((CGRect(*)(id, SEL))objc_msgSend)(v, sel_registerName("frame"));
-            BOOL hid = ((BOOL(*)(id, SEL))objc_msgSend)(v, sel_registerName("isHidden"));
-            if (!hid && fr.h >= 55.0) {
-                ((void(*)(id, SEL, BOOL))objc_msgSend)(v, sel_registerName("setHidden:"), YES);
-                char line[128];
-                snprintf(line, sizeof(line), "HIDE-ISLAND-%s %.0fx%.0f", cn, fr.w, fr.h);
-                ProbeWrite(line);
-                *done = 1;
-                return;
-            }
-        }
-        id subs = ((id(*)(id, SEL))objc_msgSend)(v, sel_registerName("subviews"));
-        if (subs) {
-            NSUInteger n = ((NSUInteger(*)(id, SEL))objc_msgSend)(subs, sel_registerName("count"));
-            for (NSUInteger i = 0; i < n && !*done; i++) {
-                id c = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(subs, sel_registerName("objectAtIndex:"), i);
-                LDDScanHideIsland(c, done);
-            }
-        }
-    } @catch (id e) {}
-}
-static void LDDHideIslandBanner(void) {
-    @try {
-        id app = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIApplication"), sel_registerName("sharedApplication"));
-        id wins = ((id(*)(id, SEL))objc_msgSend)(app, sel_registerName("windows"));
-        NSUInteger wn = wins ? ((NSUInteger(*)(id, SEL))objc_msgSend)(wins, sel_registerName("count")) : 0;
-        BOOL done = 0;
-        for (NSUInteger i = 0; i < wn && !done; i++) {
-            id w = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(wins, sel_registerName("objectAtIndex:"), i);
-            LDDScanHideIsland(w, &done);
-        }
-        ProbeWrite("HIDE-ISLAND-DONE");
-    } @catch (id e) { ProbeWrite("HIDE-ISLAND-EXC"); }
-}
 // 运行时兜底: 从 dispatcher destinations / SB ivar 找呈现层
 static void FindLayerConsider(id o, SEL sPrep, SEL sPost, id *bestPrep, id *bestPost) {
     if (!o) return;
@@ -1045,13 +1003,13 @@ static UIImage *FirstImageForPath(NSString *path) {
     return img;
 }
 // 给 UNNotificationRequest 动态补 iOS16 缺失的私有方法（initWithNotificationRequest: 内部会依次访问这些 selector）
-static NSString *LDDUnreqSection(id self, SEL _c) { return @"com.apple.MobileSMS"; }
+static NSString *LDDUnreqSection(id self, SEL _c) { return @"com.apple.MobileMail"; }
 static NSString *LDDUnreqNotifID(id self, SEL _c) {
     // 基于公开的 identifier 生成通知唯一标识
     id ident = ((id(*)(id, SEL))objc_msgSend)(self, sel_registerName("identifier"));
     return ident ? ident : @"ldd-preview";
 }
-static NSString *LDDUnreqSectionLegacy(id self, SEL _c) { return @"com.apple.MobileSMS"; }
+static NSString *LDDUnreqSectionLegacy(id self, SEL _c) { return @"com.apple.MobileMail"; }
 static id LDDUnreqSource(id self, SEL _c) { return nil; }
 static BOOL LDDUnreqFromNC(id self, SEL _c) { return NO; }
 static BOOL LDDUnreqIsRemote(id self, SEL _c) { return YES; }
@@ -1255,7 +1213,7 @@ static void PostRealNotification(void) {
                     if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(req, sel_registerName("respondsToSelector:"), sSetId))
                         ((void(*)(id, SEL, id))objc_msgSend)(req, sSetId, uid);
                     if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(req, sel_registerName("respondsToSelector:"), sSetSec))
-                        ((void(*)(id, SEL, id))objc_msgSend)(req, sSetSec, @"com.apple.MobileSMS");
+                        ((void(*)(id, SEL, id))objc_msgSend)(req, sSetSec, @"com.apple.MobileMail");
                     if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(req, sel_registerName("respondsToSelector:"), sSetContent)) {
                         // 尝试构造 NCNotificationContent
                         id clsNCContent = (id)objc_getClass("NCNotificationContent");
@@ -1332,10 +1290,6 @@ static void PostRealNotification(void) {
                 ((void(*)(id, SEL, id))objc_msgSend)(layer, sPrep, req);
                 ProbeWrite("RN-PRES-PREP");
                 gRealPosted = 1;
-                LDDHideIslandBanner();
-                dispatch_after(dispatch_time(0, 500 * 1000000LL), &_dispatch_main_q, ^{ LDDHideIslandBanner(); });
-                dispatch_after(dispatch_time(0, 1500 * 1000000LL), &_dispatch_main_q, ^{ LDDHideIslandBanner(); });
-                dispatch_after(dispatch_time(0, 3000 * 1000000LL), &_dispatch_main_q, ^{ LDDHideIslandBanner(); });
                 return;
             }
             if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(layer, sel_registerName("respondsToSelector:"), sPost)) {
@@ -1343,10 +1297,6 @@ static void PostRealNotification(void) {
                 ((void(*)(id, SEL, id))objc_msgSend)(layer, sPost, req);
                 ProbeWrite("RN-PRES-SENT");
                 gRealPosted = 1;
-                LDDHideIslandBanner();
-                dispatch_after(dispatch_time(0, 500 * 1000000LL), &_dispatch_main_q, ^{ LDDHideIslandBanner(); });
-                dispatch_after(dispatch_time(0, 1500 * 1000000LL), &_dispatch_main_q, ^{ LDDHideIslandBanner(); });
-                dispatch_after(dispatch_time(0, 3000 * 1000000LL), &_dispatch_main_q, ^{ LDDHideIslandBanner(); });
                 return;
             }
             ProbeWrite("RN-PRES-NOMETHOD");
@@ -1500,7 +1450,7 @@ static void ShowPreviewWindow(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.102-hide");
+    ProbeWrite("LDD-BUILD actions-1.9.103-mail");
     ProbeWrite("CONSTRUCTOR-RAN");
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
     // 对照组 hook (兼启动延迟器)
