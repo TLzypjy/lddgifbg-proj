@@ -1073,6 +1073,14 @@ static void PostRealNotification(void) {
                     {"requestDestinations",       (void*)LDDUnreqZeroQ,        "Q@:"},
                     {"options",                   (void*)LDDUnreqZeroQ,        "Q@:"},
                     {"alertOptions",               (void*)LDDUnreqZeroQ,        "Q@:"},
+                    // iOS17+ 私有 getter 一次性补齐 (id→nil / BOOL→NO / NSUInteger→0)
+                    {"context",                    (void*)LDDUnreqNil,          "@@:"},
+                    {"contentImage",               (void*)LDDUnreqNil,          "@@:"},
+                    {"attachments",                (void*)LDDUnreqArray,        "@@:"},
+                    {"associatedIconIdentifier",   (void*)LDDUnreqNil,          "@@:"},
+                    {"shouldPreserveContent",      (void*)LDDUnreqFromNC,       "c@:"},
+                    {"destinations",               (void*)LDDUnreqZeroQ,        "Q@:"},
+                    {"shouldHideFromGroup",        (void*)LDDUnreqFromNC,       "c@:"},
                 };
                 for (size_t i = 0; i < sizeof(patches)/sizeof(patches[0]); i++) {
                     SEL sSel = sel_registerName(patches[i].name);
@@ -1189,13 +1197,23 @@ static void PostRealNotification(void) {
                 const char *contentSel[] = {
                     "customHeader", "defaultHeader", "topHeader",
                     "hiddenPreviewsHeaderPlaceholder",
-                    "attributedCustomHeader", "attributedDefaultHeader", "attributedTopHeader"
+                    "attributedCustomHeader", "attributedDefaultHeader", "attributedTopHeader",
+                    // iOS17+ 私有 getter 一次性补齐 (id→nil)
+                    "soundPath", "summaryText", "categorySummaryFormat",
+                    "dateComponents", "alertSuppressionContext",
+                    "contentImage", "icon", "headerIcon", "headerImage", "backgroundImage",
+                    "attributedTitle", "attributedBody", "attributedSubtitle",
+                    "attributedSummary"
                 };
                 for (size_t ci = 0; ci < sizeof(contentSel)/sizeof(contentSel[0]); ci++) {
                     SEL sM = sel_registerName(contentSel[ci]);
                     if (!class_getInstanceMethod((Class)clsUNC, sM))
                         class_addMethod((Class)clsUNC, sM, (IMP)LDDUnreqNil, "@@:");
                 }
+                // isDateAllDay 是 BOOL 方法, 单独补 (返回 NO)
+                SEL sD = sel_registerName("isDateAllDay");
+                if (!class_getInstanceMethod((Class)clsUNC, sD))
+                    class_addMethod((Class)clsUNC, sD, (IMP)LDDUnreqFromNC, "c@:");
             }
             SEL sPost = sel_registerName("postNotificationRequest:");
             SEL sPrep = sel_registerName("prepareForIncomingNotificationRequest:");
@@ -1364,7 +1382,7 @@ static void ShowPreviewWindow(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.93-contentbatch");
+    ProbeWrite("LDD-BUILD actions-1.9.94-batchall");
     ProbeWrite("CONSTRUCTOR-RAN");
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
     // 对照组 hook (兼启动延迟器)
