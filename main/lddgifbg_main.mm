@@ -995,7 +995,12 @@ static NSUInteger LDDUnreqZeroQ(id self, SEL _c) { return 0; }
 static NSUInteger LDDUnreqLevel(id self, SEL _c) { return 1; }
 
 // ---------- 真实通知呈现 (灵动通知同款: 直接驱动 SB 横幅呈现层, 不入通知中心) ----------
+static double gLastPostT = 0;
 static void PostRealNotification(void) {
+    // 优化11: 去重 —— 设置页预览按钮同时走"触发文件+notify"双通道, 0.8s 窗口内只投一次
+    double nowT = CFAbsoluteTimeGetCurrent();
+    if (nowT - gLastPostT < 0.8) return;
+    gLastPostT = nowT;
     ProbeWrite("RN-START");
     int gRealPosted = 0;
     @try {
@@ -1048,6 +1053,7 @@ static void PostRealNotification(void) {
                     {"highestPrioritySubSectionIdentifier", (void*)LDDUnreqNil, "@@:"},
                     {"intentIdentifiers",        (void*)LDDUnreqArray,        "@@:"},
                     {"peopleIdentifiers",        (void*)LDDUnreqArray,        "@@:"},
+                    {"parentSectionIdentifier",  (void*)LDDUnreqEmpty,        "@@:"},
                     {"date",                     (void*)LDDUnreqDate2,        "@@:"},
                     {"subtitle",                 (void*)LDDUnreqEmpty,        "@@:"},
                     {"launchImageName",          (void*)LDDUnreqEmpty,        "@@:"},
@@ -1335,7 +1341,7 @@ static void ShowPreviewWindow(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.86-noSEC");
+    ProbeWrite("LDD-BUILD actions-1.9.87-dedupe");
     ProbeWrite("CONSTRUCTOR-RAN");
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
     // 对照组 hook (兼启动延迟器)
