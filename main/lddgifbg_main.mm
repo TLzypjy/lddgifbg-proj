@@ -132,8 +132,6 @@ typedef struct CGRect { double ox, oy, w, h; } CGRect;
 static void LogReason(const char *tag, id e);
 static void CheckForcePreviewTick(void);
 static void PostRealNotification(void);
-static void LDDIsolateStageTwo(id layer, id req);
-static void LDDDismissStageTwoBanner(void);
 static void ConsumeForcePreview(void);
 static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, y, w, h}; return r; }
 typedef struct UIEdgeInsets { double top, left, bottom, right; } UIEdgeInsets;
@@ -648,7 +646,7 @@ static id HookBNDInit(id self, SEL _c) {
     return r;
 }
 // 运行时兜底: 从 dispatcher destinations / SB ivar 找呈现层
-static void FindLayerConsider(id o, SEL sLL, SEL sPrep, SEL sPost, id *bestLL, id *bestPrep, id *bestPost) {
+static void FindLayerConsider(id o, SEL sISL, SEL sPost, id *bestISL, id *bestPost) {
     if (!o) return;
     const char *cn = class_getName((__bridge void *)object_getClass(o));
     if (cn) {
@@ -676,17 +674,15 @@ static void FindLayerConsider(id o, SEL sLL, SEL sPrep, SEL sPost, id *bestLL, i
             }
         }
     }
-    if (!*bestLL && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(o, sel_registerName("respondsToSelector:"), sLL)) *bestLL = o;
-    if (!*bestPrep && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(o, sel_registerName("respondsToSelector:"), sPrep)) *bestPrep = o;
+    if (!*bestISL && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(o, sel_registerName("respondsToSelector:"), sISL)) *bestISL = o;
     if (!*bestPost && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(o, sel_registerName("respondsToSelector:"), sPost)) *bestPost = o;
 }
 static id FindPresentLayer(void) {
     // 优化17: 不再被 BND-CAPTURED 锁死 —— 遍历全部候选呈现层,
-    // 优先选支持 prepareForIncomingNotificationRequest: 的(灵动通知同款路径, 期望只出一条),
+    // 优先选支持 presentModalBannerAndExpandForNotificationRequest: 的(直接上岛, 一条),
     // 其次支持 postNotificationRequest: 的; BND 缓存仅作最后兜底。
-    id bestLL = nil, bestPrep = nil, bestPost = nil;
-    SEL sLL = sel_registerName("presentLongLookAnimated:trigger:completion:");
-    SEL sPrep = sel_registerName("prepareForIncomingNotificationRequest:");
+    id bestISL = nil, bestPost = nil;
+    SEL sISL = sel_registerName("presentModalBannerAndExpandForNotificationRequest:");
     SEL sPost = sel_registerName("postNotificationRequest:");
     // 路线1: NCNotificationDispatcher 的 destinations 集合
     id clsD = (id)objc_getClass("NCNotificationDispatcher");
@@ -733,12 +729,11 @@ static id FindPresentLayer(void) {
                 }
                 for (NSUInteger k = 0; k < n; k++) {
                     id obj = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(arr, sel_registerName("objectAtIndex:"), k);
-                    FindLayerConsider(obj, sLL, sPrep, sPost, &bestLL, &bestPrep, &bestPost);
+                    FindLayerConsider(obj, sISL, sPost, &bestISL, &bestPost);
                 }
             }
         }
-        if (bestLL) { ProbeWrite("PRES-CHOOSE-DEST-LL"); gPresentLayer = bestLL; return bestLL; }
-        if (bestPrep) { ProbeWrite("PRES-CHOOSE-DEST-PREP"); gPresentLayer = bestPrep; return bestPrep; }
+        if (bestISL) { ProbeWrite("PRES-CHOOSE-DEST-ISL"); gPresentLayer = bestISL; return bestISL; }
         if (bestPost) { ProbeWrite("PRES-CHOOSE-DEST-POST"); gPresentLayer = bestPost; return bestPost; }
     }
     // 路线2: UIApplication(SpringBoard 实例) ivar 扫 —— iOS16.4 呈现层由 SpringBoard 持有
@@ -765,11 +760,10 @@ static id FindPresentLayer(void) {
                         ProbeWrite(vn);
                     }
                 }
-                FindLayerConsider(v, sLL, sPrep, sPost, &bestLL, &bestPrep, &bestPost);
+                FindLayerConsider(v, sISL, sPost, &bestISL, &bestPost);
             }
         }
-        if (bestLL) { ProbeWrite("PRES-CHOOSE-SB-LL"); gPresentLayer = bestLL; return bestLL; }
-        if (bestPrep) { ProbeWrite("PRES-CHOOSE-SB-PREP"); gPresentLayer = bestPrep; return bestPrep; }
+        if (bestISL) { ProbeWrite("PRES-CHOOSE-SB-ISL"); gPresentLayer = bestISL; return bestISL; }
         if (bestPost) { ProbeWrite("PRES-CHOOSE-SB-POST"); gPresentLayer = bestPost; return bestPost; }
     }
     // 路线3: BND-CAPTURED 缓存兜底
@@ -1345,93 +1339,26 @@ static void PostRealNotification(void) {
                 // 万能转发兜底: 未预知的 UNNotificationContent 私有 getter 不再抛异常
                 LDDInstallFwd(clsUNC);
             }
-            // 优化24: TrollOpen 式直接上岛 —— iOS16 SBNotificationBannerDestination 私有方法
-            // presentModalBannerAndExpandForNotificationRequest: 直接"模态呈现并展开"通知,
-            // 不经过通知中心 post 流程, 无两阶段呈现 -> 只弹一条岛展开(GIF)。
+            // 优化24: TrollOpen 式直接上岛 (复用已构造的 req, 无 trigger 抽象构造)
+            // SBNotificationBannerDestination.presentModalBannerAndExpandForNotificationRequest:
+            // 直接"模态呈现并展开"通知, 不经过通知中心 post 流程, 无两阶段呈现 -> 只弹一条岛展开(GIF)。
             SEL sISL = sel_registerName("presentModalBannerAndExpandForNotificationRequest:");
             if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(layer, sel_registerName("respondsToSelector:"), sISL)) {
-                ProbeWrite("ISL-TRY");
+                ProbeWrite("ISL-TRY2");
                 @try {
-                    id clsUNMC = (id)objc_getClass("UNMutableNotificationContent");
-                    id clsUNTrg = (id)objc_getClass("UNPushNotificationTrigger");
-                    id clsUNReq = (id)objc_getClass("UNNotificationRequest");
-                    id clsNCNR = (id)objc_getClass("NCNotificationRequest");
-                    ProbeWrite(clsUNMC ? "ISL-UNMC-YES" : "ISL-UNMC-NO");
-                    ProbeWrite(clsUNTrg ? "ISL-UNTRG-YES" : "ISL-UNTRG-NO");
-                    ProbeWrite(clsUNReq ? "ISL-UNREQ-YES" : "ISL-UNREQ-NO");
-                    ProbeWrite(clsNCNR ? "ISL-NCNR-YES" : "ISL-NCNR-NO");
-                    if (clsUNMC && clsUNTrg && clsUNReq && clsNCNR) {
-                        id content = ((id(*)(id, SEL))objc_msgSend)(clsUNMC, sel_registerName("new"));
-                        if (content) {
-                            ((void(*)(id, SEL, id))objc_msgSend)(content, sel_registerName("setTitle:"), @"灵动岛GIF背景");
-                            ((void(*)(id, SEL, id))objc_msgSend)(content, sel_registerName("setBody:"), @"预览通知");
-                            id trigger = ((id(*)(id, SEL))objc_msgSend)(clsUNTrg, sel_registerName("new"));
-                            id unReq = ((id(*)(id, SEL, id, id, id))objc_msgSend)(clsUNReq, sel_registerName("requestWithIdentifier:content:trigger:"), @"ldd.preview", content, trigger);
-                            if (unReq) {
-                                ProbeWrite("ISL-UNREQ-OK");
-                                id nsdate = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("NSDate"), sel_registerName("date"));
-                                id nsarr = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("NSArray"), sel_registerName("array"));
-                                id ncReq = nil;
-                                const char *sNCN1 = "notificationWithRequest:date:sourceIdentifier:intentIdentifiers:";
-                                SEL sNCN1S = sel_registerName(sNCN1);
-                                if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(clsNCNR, sel_registerName("respondsToSelector:"), sNCN1S)) {
-                                    ncReq = ((id(*)(id, SEL, id, id, id, id))objc_msgSend)(clsNCNR, sNCN1S, unReq, nsdate, @"com.apple.MobileSMS", nsarr);
-                                    ProbeWrite("ISL-NCNR-STATIC");
-                                } else {
-                                    id ncInst = ((id(*)(id, SEL))objc_msgSend)(clsNCNR, sel_registerName("alloc"));
-                                    const char *sNCN2 = "initWithNotificationRequest:date:sourceIdentifier:intentIdentifiers:";
-                                    SEL sNCN2S = sel_registerName(sNCN2);
-                                    if (ncInst && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(ncInst, sel_registerName("respondsToSelector:"), sNCN2S)) {
-                                        ncReq = ((id(*)(id, SEL, id, id, id, id))objc_msgSend)(ncInst, sNCN2S, unReq, nsdate, @"com.apple.MobileSMS", nsarr);
-                                        ProbeWrite("ISL-NCNR-INIT");
-                                    }
-                                }
-                                if (ncReq) {
-                                    ProbeWrite("ISL-REQ-OK");
-                                    ((void(*)(id, SEL, id))objc_msgSend)(layer, sISL, ncReq);
-                                    ProbeWrite("ISL-PRESENT-OK");
-                                    gRealPosted = 1;
-                                    return;
-                                } else ProbeWrite("ISL-REQ-NIL");
-                            }
-                        }
-                    }
-                } @catch (id e) { LogReason("ISL-EXC", e); }
-            } else { ProbeWrite("ISL-NOMETHOD"); }
-            SEL sPost = sel_registerName("postNotificationRequest:");
-            SEL sPrep = sel_registerName("prepareForIncomingNotificationRequest:");
-            SEL sLL = sel_registerName("presentLongLookAnimated:trigger:completion:");
-            // 优化19: Long Look 优先 —— iOS16 灵动岛设备上 postNotificationRequest:
-            // 一次投递会被呈现成两条(岛下 compact 常驻 + 标准横幅3秒), 用户只要标准横幅。
-            // presentLongLookAnimated: 是"完整横幅(Long Look)"的呈现方法, 直接弹标准横幅, 跳过岛 compact。
-            if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(layer, sel_registerName("respondsToSelector:"), sLL)) {
-                ProbeWrite("RN-PRES-TRYLL");
-                @try {
-                    ((void(*)(id, SEL, BOOL, id, id))objc_msgSend)(layer, sLL, YES, nil, nil);
-                    ProbeWrite("RN-PRES-LL");
+                    ((void(*)(id, SEL, id))objc_msgSend)(layer, sISL, req);
+                    ProbeWrite("ISL-PRESENT-OK");
                     gRealPosted = 1;
                     return;
-                } @catch (id e) {
-                    LogReason("RN-LL-EXC", e);
-                }
-            }
-            // 优化16: prepare 优先 —— iOS16 灵动岛设备上 postNotificationRequest:
-            // 一次投递会呈现两条(岛下 compact 常驻 + 标准横幅3秒), 用户要求只显示一条。
-            // prepareForIncomingNotificationRequest: 走"已有横幅更新"路径, 期望只出一条。
-            if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(layer, sel_registerName("respondsToSelector:"), sPrep)) {
-                ProbeWrite("RN-PRES-TRYPREP");
-                ((void(*)(id, SEL, id))objc_msgSend)(layer, sPrep, req);
-                ProbeWrite("RN-PRES-PREP");
-                gRealPosted = 1;
-                LDDIsolateStageTwo(layer, req);
-                return;
-            }
+                } @catch (id e) { LogReason("ISL-EXC2", e); }
+            } else { ProbeWrite("ISL-NOMETHOD2"); }
+            // 兜底: postNotificationRequest: (1.9.95 起验证有效; iOS16 呈现为两条, 仅在上岛 API 不可用时使用)
+            SEL sPost = sel_registerName("postNotificationRequest:");
             if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(layer, sel_registerName("respondsToSelector:"), sPost)) {
                 ProbeWrite("RN-PRES-TRYPOST");
                 ((void(*)(id, SEL, id))objc_msgSend)(layer, sPost, req);
                 ProbeWrite("RN-PRES-SENT");
                 gRealPosted = 1;
-                LDDIsolateStageTwo(layer, req);
                 return;
             }
             ProbeWrite("RN-PRES-NOMETHOD");
@@ -1442,88 +1369,6 @@ static void PostRealNotification(void) {
     } @catch (id e) { LogReason("RN-EXC", e); if (!gRealPosted) ShowPreviewWindow(); }
 }
 
-// 优化22: 从 SpringBoard 实例取 _bannerManager (SBBannerManager)
-static id LDDGetBannerManager(void) {
-    @try {
-        id sb = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIApplication"), sel_registerName("sharedApplication"));
-        if (!sb) return nil;
-        unsigned int cnt = 0;
-        void **ivars = (void **)class_copyIvarList((Class)objc_getClass("SpringBoard"), &cnt);
-        for (unsigned int i = 0; i < cnt; i++) {
-            const char *nm = ivar_getName(ivars[i]);
-            if (nm && strcmp(nm, "_bannerManager") == 0) {
-                id v = object_getIvar(sb, ivars[i]);
-                if (v) { ProbeWrite("RN-DISM-BM-YES"); return v; }
-            }
-        }
-        ProbeWrite("RN-DISM-BM-NO");
-    } @catch (id e) { LogReason("RN-DISM-BM-EXC", e); }
-    return nil;
-}
-// 优化23: 投递后 dismiss 标准横幅阶段(Stage2) —— iOS16.4 灵动岛设备一次 post = 岛展开(Stage1, GIF) + 标准横幅(Stage2) 两阶段。
-// suppression 只延迟不取消(释放后 Stage2 立即弹出), 改用 SBBannerManager dismissAllBannersInWindowScene:animated:reason: 直接关闭横幅呈现。
-static id LDDGetWindowScene(void) {
-    @try {
-        id sb = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIApplication"), sel_registerName("sharedApplication"));
-        if (!sb) return nil;
-        id scenes = ((id(*)(id, SEL))objc_msgSend)(sb, sel_registerName("connectedScenes"));
-        if (!scenes) return nil;
-        id first = ((id(*)(id, SEL))objc_msgSend)(scenes, sel_registerName("anyObject"));
-        return first;
-    } @catch (id e) { LogReason("RN-DISM-SCN-EXC", e); }
-    return nil;
-}
-static void LDDDismissStageTwoBanner(void) {
-    @try {
-        id bm = LDDGetBannerManager();
-        if (!bm) { ProbeWrite("RN-DISM-BM-NO"); return; }
-        ProbeWrite("RN-DISM-TRY");
-        // dismissAllBannersInWindowScene:animated:reason:
-        __block time_t last = 0;
-        dispatch_after(dispatch_time(0, 1500 * 1000000LL), &_dispatch_main_q, ^{
-            @try {
-                time_t nowT = time(NULL);
-                if (nowT - last < 0.5) return;
-                last = nowT;
-                id scn = LDDGetWindowScene();
-                ProbeWrite(scn ? "RN-DISM-SCN-YES" : "RN-DISM-SCN-NO");
-                typedef void (*FnD)(id, SEL, id, BOOL, id);
-                ((FnD)objc_msgSend)(bm, sel_registerName("dismissAllBannersInWindowScene:animated:reason:"), scn, YES, @"ldd-preview");
-                ProbeWrite("RN-DISM-OK");
-            } @catch (id e) {
-                // C 层崩溃无法捕获; 走到这里是 ObjC 异常
-                ProbeWrite("RN-DISM-EXC");
-            }
-        });
-    } @catch (id e) { LogReason("RN-DISM-EXC2", e); }
-}
-// 优化21: 两阶段隔离 —— iOS16 灵动岛设备上 post 一次会被呈现成两条:
-// 岛展开(Stage1, GIF+现在标签, 常驻) -> 标准横幅(Stage2, 3秒) 在 Stage1 结束后跟出。
-// 用户只需一条。post 后 2s 调用 removeNotificationRequest: 把通知请求移除,
-// 期望 Stage2 不再跟出, 只留 Stage1(岛展开 GIF 预览)。
-static void LDDIsolateStageTwo(id layer, id req) {
-    @try {
-        SEL sRem = sel_registerName("removeNotificationRequest:");
-        if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(layer, sel_registerName("respondsToSelector:"), sRem)) {
-            ProbeWrite("RN-REMOVE-TRY");
-            __weak id wLayer = layer;
-            __weak id wReq = req;
-            dispatch_after(dispatch_time(0, 2000 * 1000000LL), &_dispatch_main_q, ^{
-                ProbeWrite("RN-REMOVE-CALL");
-                @try {
-                    ((void(*)(id, SEL, id))objc_msgSend)(wLayer, sRem, wReq);
-                    ProbeWrite("RN-REMOVE-OK");
-                } @catch (id e) {
-                    LogReason("RN-REMOVE-EXC", e);
-                }
-            });
-        } else {
-            ProbeWrite("RN-REMOVE-NOMETHOD");
-        }
-    } @catch (id e) {
-        LogReason("RN-REMOVE-OUTER-EXC", e);
-    }
-}
 
 static void ShowPreviewWindow(void) {
     @try {
@@ -1668,7 +1513,7 @@ static void ShowPreviewWindow(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.115-island");
+    ProbeWrite("LDD-BUILD actions-1.9.116-reusereq");
     ProbeWrite("CONSTRUCTOR-RAN");
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
     // 对照组 hook (兼启动延迟器)
