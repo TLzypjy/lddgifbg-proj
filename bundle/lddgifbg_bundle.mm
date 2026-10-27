@@ -26,6 +26,7 @@ extern "C" void CFRelease(void *cf);
 extern "C" void objc_setAssociatedObject(id obj, const char *key, id value, unsigned long policy);
 extern "C" id objc_getAssociatedObject(id obj, const char *key);
 extern "C" int notify_post(const char *name);
+extern "C" double CFAbsoluteTimeGetCurrent(void);
 extern "C" id UIImageJPEGRepresentation(id img, double q);
 
 #define CLS(n) objc_getClass(n)
