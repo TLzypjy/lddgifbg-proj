@@ -328,6 +328,8 @@ static NSString *GetSelectedImagePath(void) {
 }
 
 // ---------- 流式 GIF 播放 (优化3: 不再全帧解码, 每帧按时间轴解码, 内存 O(1)) ----------
+// 优化6: 已解码帧环形缓存(3帧), 循环播放时重复帧直接复用, 显著降低软解码 CPU(发热/掉帧)
+#define LDD_STREAM_CACHE 3
 static void *gStreamSrc = NULL;
 static NSArray *gStreamDelays = nil;
 static NSUInteger gStreamCount = 0;
@@ -337,6 +339,9 @@ static id gStreamTarget = nil;
 static NSString *gStreamPath = nil;
 static UIImage *gStreamCur = nil;
 static int gStreamFrameCacheIdx = -1;
+static UIImage *gStreamCache[LDD_STREAM_CACHE];
+static int gStreamCacheIdxArr[LDD_STREAM_CACHE];
+static int gStreamCachePos = 0;
 static __weak UIImageView *gStreamIV = nil;
 
 @interface LDDStreamTarget : NSObject
@@ -354,22 +359,37 @@ static void StreamStop(void) {
     gStreamDelays = nil; gStreamCount = 0; gStreamIdx = 0;
     gStreamPath = nil; gStreamCur = nil; gStreamFrameCacheIdx = -1;
     gStreamIV = nil;
+    for (int i = 0; i < LDD_STREAM_CACHE; i++) { gStreamCache[i] = nil; gStreamCacheIdxArr[i] = -1; }
+    gStreamCachePos = 0;
+}
+static void StreamCachePut(UIImage *img, int frameIdx) {
+    gStreamCache[gStreamCachePos] = img;
+    gStreamCacheIdxArr[gStreamCachePos] = frameIdx;
+    gStreamCachePos = (gStreamCachePos + 1) % LDD_STREAM_CACHE;
+}
+static UIImage *StreamCacheGet(int frameIdx) {
+    for (int i = 0; i < LDD_STREAM_CACHE; i++) {
+        if (gStreamCacheIdxArr[i] == frameIdx && gStreamCache[i]) return gStreamCache[i];
+    }
+    return nil;
 }
 static void StreamAdvance(void) {
     if (!gStreamSrc || gStreamCount == 0) { StreamStop(); return; }
-    static int tlog = 0;
-    if (tlog < 5) { tlog++; char tb[64]; snprintf(tb, sizeof(tb), "STREAM-TICK %lu", (unsigned long)gStreamIdx); ProbeWrite(tb); }
     gStreamIdx = (gStreamIdx + 1) % gStreamCount;
     if ((int)gStreamIdx != gStreamFrameCacheIdx) {
-        CGImageRef cg = CGImageSourceCreateImageAtIndex(gStreamSrc, (size_t)gStreamIdx, 0);
-        if (cg) {
-            gStreamCur = [UIImage imageWithCGImage:cg scale:1.0 orientation:0];
-            gStreamFrameCacheIdx = (int)gStreamIdx;
-            CFRelease((void *)cg);
+        gStreamCur = StreamCacheGet((int)gStreamIdx);
+        if (!gStreamCur) {
+            CGImageRef cg = CGImageSourceCreateImageAtIndex(gStreamSrc, (size_t)gStreamIdx, 0);
+            if (cg) {
+                gStreamCur = [UIImage imageWithCGImage:cg scale:1.0 orientation:0];
+                CFRelease((void *)cg);
+                StreamCachePut(gStreamCur, (int)gStreamIdx);
+            }
         }
+        gStreamFrameCacheIdx = (int)gStreamIdx;
     }
     if (gStreamIV) [gStreamIV setImage:gStreamCur];
-    else { StreamStop(); return; }
+    else { StreamPause(); return; }  // 优化7: 视图被 SB 重建(weak 失效)时只暂停不杀流, 下次布局续播恢复
     StreamRestartTimer();
 }
 static void StreamRestartTimer(void) {
@@ -438,6 +458,9 @@ static void LoadGIFWithPathIntoImageView(NSString *path, UIImageView *iv) {
     gStreamIV = iv;
     gStreamFrameCacheIdx = 0;
     gStreamCur = img0;
+    for (int i = 0; i < LDD_STREAM_CACHE; i++) { gStreamCache[i] = nil; gStreamCacheIdxArr[i] = -1; }
+    gStreamCachePos = 0;
+    if (img0) StreamCachePut(img0, 0);
     StreamRestartTimer();
     static int slog = 0;
     if (slog < 3) { slog++; char lb[96]; snprintf(lb, sizeof(lb), "STREAM-START %lu", (unsigned long)count); ProbeWrite(lb); }
@@ -648,161 +671,13 @@ static id FindPresentLayer(void) {
     return nil;
 }
 
-// ---------- 捕获 BBServer 实例 (hook 其 init) ----------
-static id gCapturedServer = nil;
-static id (*origBBInit)(id, SEL);
-static id HookBBInit(id self, SEL _c) {
-    id r = origBBInit(self, _c);
-    if (!gCapturedServer) { gCapturedServer = r; ProbeWrite("SBB-CAPTURED-INIT"); }
-    return r;
-}
-static id (*origBBAlloc)(Class, SEL);
-static id HookBBAlloc(Class cls, SEL _c) {
-    id r = origBBAlloc(cls, _c);
-    if (!gCapturedServer) { gCapturedServer = r; ProbeWrite("SBB-CAPTURED-ALLOC"); }
-    return r;
-}
-
-// ---------- SpringBoard 代发测试通知 (设置端写触发文件) ----------
-static long gNotifSec = 0;
-static void SBPostTestNotification(void) {
-    ProbeWrite("SBB-START");
-    @try {
-        dlopen("/System/Library/PrivateFrameworks/BulletinBoard.framework/BulletinBoard", 2);
-        id clsB = (id)objc_getClass("BBBulletin");
-        id clsS = (id)objc_getClass("BBServer");
-        if (!clsB || !clsS) { ProbeWrite("SBB-NO-CLASS"); return; }
-        // 创建 bulletin: 仅 alloc/init (+bulletin 在 iOS16 不存在, 不调用)
-        id bulletin = [[clsB alloc] init];
-        if (!bulletin) { ProbeWrite("SBB-NO-BULLETIN"); return; }
-        ProbeWrite("SBB-B1");
-        ((void(*)(id, SEL, NSString *))objc_msgSend)(bulletin, sel_registerName("setTitle:"), @"灵动岛测试");
-        ((void(*)(id, SEL, NSString *))objc_msgSend)(bulletin, sel_registerName("setMessage:"), @"查看素材显示效果");
-        ((void(*)(id, SEL, NSString *))objc_msgSend)(bulletin, sel_registerName("setSectionID:"), @"com.apple.MobileSMS");
-        NSString *uid = [NSString stringWithFormat:@"ldd-%ld", (long)time(0)];
-        ((void(*)(id, SEL, NSString *))objc_msgSend)(bulletin, sel_registerName("setPublisherBulletinID:"), uid);
-        ((void(*)(id, SEL, NSString *))objc_msgSend)(bulletin, sel_registerName("setRecordID:"), uid);
-        id now = [(id)objc_getClass("NSDate") date];
-        if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(bulletin, sel_registerName("respondsToSelector:"), sel_registerName("setBulletinID:")))
-            ((void(*)(id, SEL, NSString *))objc_msgSend)(bulletin, sel_registerName("setBulletinID:"), uid);
-        if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(bulletin, sel_registerName("respondsToSelector:"), sel_registerName("setPublicationDate:")))
-            ((void(*)(id, SEL, id))objc_msgSend)(bulletin, sel_registerName("setPublicationDate:"), now);
-        ((void(*)(id, SEL, id))objc_msgSend)(bulletin, sel_registerName("setDate:"), now);
-        ((void(*)(id, SEL, BOOL))objc_msgSend)(bulletin, sel_registerName("setShowsMessagePreview:"), YES);
-        ProbeWrite("SBB-B2");
-        // server: 捕获优先, 候选 selector 兜底
-        id server = gCapturedServer;
-        if (server) ProbeWrite("SBB-SRV-CAPTURED");
-        if (!server) {
-            const char *cands[] = {"sharedInstance", "sharedInstanceIfExists", "sharedServer", "defaultServer", "server", 0};
-            for (int i = 0; cands[i] && !server; i++) {
-                SEL s = sel_registerName(cands[i]);
-                if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(clsS, sel_registerName("respondsToSelector:"), s)) {
-                    server = ((id(*)(id, SEL))objc_msgSend)(clsS, s);
-                    if (server) {
-                        char lb[64]; snprintf(lb, sizeof(lb), "SBB-SRV-%s", cands[i]); ProbeWrite(lb);
-                    }
-                }
-            }
-        }
-        if (!server) {
-            // 最后兜底: 自建 BBServerConnection 走客户端发布协议
-            id clsConn = (id)objc_getClass("BBServerConnection");
-            if (clsConn) {
-                id conn = [[clsConn alloc] init];
-                SEL sp = sel_registerName("publishBulletin:destinations:alwaysToLockScreen:");
-                if (conn && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(conn, sel_registerName("respondsToSelector:"), sp)) {
-                    ((void(*)(id, SEL, id, NSUInteger, BOOL))objc_msgSend)(conn, sp, bulletin, (NSUInteger)7, YES);
-                    ProbeWrite("SBB-CONN-PUB");
-                    return;
-                }
-                ProbeWrite("SBB-CONN-NOPUB");
-            }
-            ProbeWrite("SBB-NO-SERVER");
-            return;
-        }
-        ProbeWrite("SBB-B3");
-        // 发布: 队列安全路线 (主线程直调 server 会触发 dispatch_assert 崩溃)
-        SEL sPub = sel_registerName("publishBulletin:destinations:alwaysToLockScreen:");
-        // 路线1: BBServerConnection 客户端通道 (内部转发到正确队列)
-        id clsConn = (id)objc_getClass("BBServerConnection");
-        if (clsConn) {
-            id conn = [[clsConn alloc] init];
-            if (conn && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(conn, sel_registerName("respondsToSelector:"), sPub)) {
-                ((void(*)(id, SEL, id, NSUInteger, BOOL))objc_msgSend)(conn, sPub, bulletin, (NSUInteger)7, YES);
-                ProbeWrite("SBB-PUB-CONN");
-                return;
-            }
-            ProbeWrite("SBB-CONN-NOPUB");
-        }
-        else { ProbeWrite("SBB-CONN-CLASS-NIL"); }
-        // 路线2: 扫描 ivar 找内部队列, 异步到该队列发布
-        id q = nil;
-        @try {
-            unsigned int cnt = 0;
-            void **ivars = (void **)class_copyIvarList((Class)clsS, &cnt);
-            static int ivlogged = 0;
-            for (unsigned int i = 0; i < cnt; i++) {
-                const char *nm = ivar_getName(ivars[i]);
-                if (!nm) continue;
-                if (!ivlogged && i < 40) {
-                    char lb[96]; snprintf(lb, sizeof(lb), "SBB-IVAR: %s", nm); ProbeWrite(lb);
-                }
-                if (strstr(nm, "ueue")) {
-                    id v = object_getIvar(server, ivars[i]);
-                    if (v) { q = v; char lb[96]; snprintf(lb, sizeof(lb), "SBB-QUEUE-IVAR: %s", nm); ProbeWrite(lb); break; }
-                }
-            }
-            ivlogged = 1;
-        } @catch (id e) { ProbeWrite("SBB-IVAR-EXC"); }
-        if (q) {
-            dispatch_async((__bridge void *)q, ^{
-                SEL sPub3 = sel_registerName("publishBulletin:destinations:alwaysToLockScreen:");
-                SEL sPub2 = sel_registerName("publishBulletin:destinations:");
-                SEL sSend = sel_registerName("_sendAddBulletin:toFeeds:");
-                BOOL shown = NO;
-                // 1) TrollOpen 同款底层通道: feeds 为 NSArray<NSNumber>
-                if (!shown && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(server, sel_registerName("respondsToSelector:"), sSend)) {
-                    @try {
-                        id feeds = [NSArray arrayWithObjects:[NSNumber numberWithInt:1], [NSNumber numberWithInt:2], [NSNumber numberWithInt:4], nil];
-                        ((void(*)(id, SEL, id, id))objc_msgSend)(server, sSend, bulletin, feeds);
-                        ProbeWrite("SBB-PUB-QS"); shown = YES;
-                    } @catch (id e) { LogReason("QS", e); }
-                }
-                // 2) 三参 publish
-                if (!shown && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(server, sel_registerName("respondsToSelector:"), sPub3)) {
-                    @try { ((void(*)(id, SEL, id, NSUInteger, BOOL))objc_msgSend)(server, sPub3, bulletin, (NSUInteger)7, YES); ProbeWrite("SBB-PUB-Q3"); shown = YES; }
-                    @catch (id e) { LogReason("Q3", e); }
-                }
-                // 3) 二参 publish
-                if (!shown && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(server, sel_registerName("respondsToSelector:"), sPub2)) {
-                    @try { ((void(*)(id, SEL, id, NSUInteger))objc_msgSend)(server, sPub2, bulletin, (NSUInteger)7); ProbeWrite("SBB-PUB-Q2"); shown = YES; }
-                    @catch (id e) { LogReason("Q2", e); }
-                }
-                if (!shown) ProbeWrite("SBB-ALL-FAIL");
-            });
-            ProbeWrite("SBB-QASYNC");
-            return;
-        }
-        ProbeWrite("SBB-NO-PATH");
-    } @catch (id e) {
-        @try {
-            id r = ((id(*)(id, SEL))objc_msgSend)(e, sel_registerName("reason"));
-            const char *c = r ? ((const char *(*)(id, SEL))objc_msgSend)(r, sel_registerName("UTF8String")) : 0;
-            char buf[300];
-            snprintf(buf, sizeof(buf), "SBB-EXC: %.240s", c ? c : "?");
-            ProbeWrite(buf);
-        } @catch (id e2) { ProbeWrite("SBB-EXC"); }
-    }
-}
-
 static void CheckTestNotifFlag(void) {
     long t = time(0);
     if (t == gNotifSec) return;
     gNotifSec = t;
     if (access("/var/mobile/lddgifbg/__test_notif__", 0) == 0) {
         remove("/var/mobile/lddgifbg/__test_notif__");
-        SBPostTestNotification();
+        PostRealNotification();
     }
 }
 
@@ -915,6 +790,11 @@ static void LDDIslandLayout(id self) {
             if (sl == vly) playing = YES;
         }
         if (playing) needReload = NO;
+        // 优化8: GIF 流仍挂在当前 view 上 -> 免重载; 若 timer 被暂停(岛隐藏/视图重建)立即保活恢复
+        if (gStreamSrc && gStreamIV == view) {
+            needReload = NO;
+            if (!gStreamTimer) StreamRestartTimer();
+        }
     }
     if (needReload) {
         gLoadedPath = path;
@@ -1141,6 +1021,7 @@ static void PostRealNotification(void) {
                     {"threadIdentifier",         (void*)LDDUnreqStr,          "@@:"},
                     {"requestIdentifier",        (void*)LDDUnreqNotifID,      "@@:"},
                     {"subSectionIdentifiers",    (void*)LDDUnreqArray,        "@@:"},
+                    {"highestPrioritySubSectionIdentifier", (void*)LDDUnreqNil, "@@:"},
                     {"date",                     (void*)LDDUnreqDate2,        "@@:"},
                     {"subtitle",                 (void*)LDDUnreqEmpty,        "@@:"},
                     {"launchImageName",          (void*)LDDUnreqEmpty,        "@@:"},
@@ -1448,17 +1329,6 @@ static void LDDInit(void) {
     // 捕获横幅呈现层 (SBNotificationBannerDestination init)
     id clsBND = objc_getClass("SBNotificationBannerDestination");
     if (clsBND) { MSHookMessageEx((Class)clsBND, sel_registerName("init"), (IMP)HookBNDInit, (IMP *)&origBNDInit); ProbeWrite("BND-HOOK"); }
-    // 捕获 BBServer (供测试通知用)
-    id clsS0 = objc_getClass("BBServer");
-    if (clsS0) {
-        dlopen("/System/Library/PrivateFrameworks/BulletinBoard.framework/BulletinBoard", 2);
-        clsS0 = objc_getClass("BBServer");
-        if (clsS0) {
-            MSHookMessageEx((Class)clsS0, sel_registerName("init"), (IMP)HookBBInit, (IMP *)&origBBInit);
-            Class meta = (Class)object_getClass((id)clsS0);
-            if (meta) { MSHookMessageEx((Class)meta, sel_registerName("alloc"), (IMP)HookBBAlloc, (IMP *)&origBBAlloc); ProbeWrite("SBB-ALLOCHOOK"); }
-        }
-    }
     // Darwin notify: 设置端点"预览通知"即时触发 (灵动通知同款机制)
     static int notifyTok = 0;
     notify_register_dispatch("com.tlzypjy.github/TestNotification", &notifyTok, (void *)&_dispatch_main_q, ^(int tok){
