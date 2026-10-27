@@ -351,9 +351,12 @@ static __weak UIImageView *gStreamIV = nil;
 static void StreamRestartTimer(void);
 static void StreamPause(void) {
     // 只停 timer, 保留素材/帧状态 -> 岛再次展开时走最稳的续播路径
-    if (gStreamTimer) { [gStreamTimer invalidate]; gStreamTimer = nil; }
-}
-static void StreamStop(void) {
+    if (gStreamTimer) {
+        static int plog = 0;
+        if (plog < 8) { plog++; ProbeWrite("STREAM-PAUSE"); }
+        [gStreamTimer invalidate]; gStreamTimer = nil;
+    }
+}static void StreamStop(void) {
     StreamPause();
     if (gStreamSrc) { CFRelease(gStreamSrc); gStreamSrc = NULL; }
     gStreamDelays = nil; gStreamCount = 0; gStreamIdx = 0;
@@ -375,6 +378,8 @@ static UIImage *StreamCacheGet(int frameIdx) {
 }
 static void StreamAdvance(void) {
     if (!gStreamSrc || gStreamCount == 0) { StreamStop(); return; }
+    static int tlog = 0;
+    if (tlog < 5) { tlog++; char tb[64]; snprintf(tb, sizeof(tb), "STREAM-TICK %lu", (unsigned long)gStreamIdx); ProbeWrite(tb); }
     gStreamIdx = (gStreamIdx + 1) % gStreamCount;
     if ((int)gStreamIdx != gStreamFrameCacheIdx) {
         gStreamCur = StreamCacheGet((int)gStreamIdx);
@@ -406,6 +411,12 @@ static void StreamRestartTimer(void) {
         }
     }
     gStreamTimer = [NSTimer scheduledTimerWithTimeInterval:d target:gStreamTarget selector:@selector(streamTick:) userInfo:nil repeats:NO];
+    // 优化9: 加入 common modes —— 横幅展开动画在 tracking 模式下跑, default 模式 timer 不回调
+    // (这就是"首次通知不动, 连续通知才动"的根因: 首次加载后动画窗口内一次都不触发, 收起即被暂停)
+    id rl = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("NSRunLoop"), sel_registerName("mainRunLoop"));
+    if (rl) ((void(*)(id, SEL, id, id))objc_msgSend)(rl, sel_registerName("addTimer:forMode:"), gStreamTimer, @"kCFRunLoopCommonModes");
+    static int rlog2 = 0;
+    if (rlog2 < 8) { rlog2++; ProbeWrite("STREAM-RESTART"); }
 }
 static void LoadGIFWithPathIntoImageView(NSString *path, UIImageView *iv) {
     if (!path || !iv) return;
@@ -1023,6 +1034,7 @@ static void PostRealNotification(void) {
                     {"requestIdentifier",        (void*)LDDUnreqNotifID,      "@@:"},
                     {"subSectionIdentifiers",    (void*)LDDUnreqArray,        "@@:"},
                     {"highestPrioritySubSectionIdentifier", (void*)LDDUnreqNil, "@@:"},
+                    {"intentIdentifiers",        (void*)LDDUnreqArray,        "@@:"},
                     {"date",                     (void*)LDDUnreqDate2,        "@@:"},
                     {"subtitle",                 (void*)LDDUnreqEmpty,        "@@:"},
                     {"launchImageName",          (void*)LDDUnreqEmpty,        "@@:"},
@@ -1302,6 +1314,8 @@ static void ShowPreviewWindow(void) {
         ApplyPreviewState(0.0);
         if (gTicker) { ((void(*)(id, SEL))objc_msgSend)(gTicker, sel_registerName("invalidate")); }
         gTicker = [(id)objc_getClass("NSTimer") scheduledTimerWithTimeInterval:0.016 target:gPreviewDismissTarget selector:@selector(tick:) userInfo:0 repeats:YES];
+        id rl2 = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("NSRunLoop"), sel_registerName("mainRunLoop"));
+        if (rl2) ((void(*)(id, SEL, id, id))objc_msgSend)(rl2, sel_registerName("addTimer:forMode:"), gTicker, @"kCFRunLoopCommonModes");
         ProbeWrite("PREV-W3-TIMER");
     } @catch (id e) { LogReason("PREV-EXC", e); }
 }
