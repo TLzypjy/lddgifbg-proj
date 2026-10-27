@@ -584,6 +584,17 @@ static void CheckForcePreviewTick(void) {
     }
 }
 
+// 触发监控: 独立 GCD 轮询 (0.1s), 不依赖 SB 布局回调。
+// 之前 CheckForcePreviewTick 只在 CtrlLayoutHook 里调用且被尺寸过滤挡掉,
+// 用户在设置页点预览时若 SB 无布局事件, 触发文件无人消费 -> "要点好几次才弹"。
+static void ForceMonitorTick(void) {
+    CheckForcePreviewTick();
+    dispatch_after(dispatch_time(0, 100 * 1000000LL), &_dispatch_main_q, ^{ ForceMonitorTick(); });
+}
+static void StartForceMonitor(void) {
+    dispatch_after(dispatch_time(0, 100 * 1000000LL), &_dispatch_main_q, ^{ ForceMonitorTick(); });
+}
+
 static void CheckForcePreview(void) {
     if (access("/var/mobile/lddgifbg/__force_preview__", 0) == 0) {
         remove("/var/mobile/lddgifbg/__force_preview__");
@@ -1424,7 +1435,7 @@ static void ShowPreviewWindow(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.96-trigger");
+    ProbeWrite("LDD-BUILD actions-1.9.97-monitor");
     ProbeWrite("CONSTRUCTOR-RAN");
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
     // 对照组 hook (兼启动延迟器)
@@ -1451,5 +1462,7 @@ static void LDDInit(void) {
     notify_register_dispatch("com.tlzypjy.github/TestNotification", &notifyTok, (void *)&_dispatch_main_q, ^(int tok){
         PostRealNotification();
     });
+    // 触发文件独立轮询: 与布局无关, 点预览后 0.1s 内即弹
+    StartForceMonitor();
     // 灵动岛 hook 由 CtrlLayoutHook 延迟补挂 (避免构造时机过早)
 }
