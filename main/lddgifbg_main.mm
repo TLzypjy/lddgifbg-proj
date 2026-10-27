@@ -128,6 +128,7 @@ typedef struct CGRect { double ox, oy, w, h; } CGRect;
 static void LogReason(const char *tag, id e);
 static void CheckForcePreviewTick(void);
 static void PostRealNotification(void);
+static void LDDIsolateStageTwo(id layer, id req);
 static void ConsumeForcePreview(void);
 static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, y, w, h}; return r; }
 typedef struct UIEdgeInsets { double top, left, bottom, right; } UIEdgeInsets;
@@ -1344,6 +1345,7 @@ static void PostRealNotification(void) {
                 ((void(*)(id, SEL, id))objc_msgSend)(layer, sPrep, req);
                 ProbeWrite("RN-PRES-PREP");
                 gRealPosted = 1;
+                LDDIsolateStageTwo(layer, req);
                 return;
             }
             if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(layer, sel_registerName("respondsToSelector:"), sPost)) {
@@ -1351,6 +1353,7 @@ static void PostRealNotification(void) {
                 ((void(*)(id, SEL, id))objc_msgSend)(layer, sPost, req);
                 ProbeWrite("RN-PRES-SENT");
                 gRealPosted = 1;
+                LDDIsolateStageTwo(layer, req);
                 return;
             }
             ProbeWrite("RN-PRES-NOMETHOD");
@@ -1359,6 +1362,34 @@ static void PostRealNotification(void) {
         // 真实投递未执行成功时才退回自绘预览（仅在设置页点击预览时才会有意义的兜底）
         if (!gRealPosted) ShowPreviewWindow();
     } @catch (id e) { LogReason("RN-EXC", e); if (!gRealPosted) ShowPreviewWindow(); }
+}
+
+// 优化21: 两阶段隔离 —— iOS16 灵动岛设备上 post 一次会被呈现成两条:
+// 岛展开(Stage1, GIF+现在标签, 常驻) -> 标准横幅(Stage2, 3秒) 在 Stage1 结束后跟出。
+// 用户只需一条。post 后 2s 调用 removeNotificationRequest: 把通知请求移除,
+// 期望 Stage2 不再跟出, 只留 Stage1(岛展开 GIF 预览)。
+static void LDDIsolateStageTwo(id layer, id req) {
+    @try {
+        SEL sRem = sel_registerName("removeNotificationRequest:");
+        if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(layer, sel_registerName("respondsToSelector:"), sRem)) {
+            ProbeWrite("RN-REMOVE-TRY");
+            __weak id wLayer = layer;
+            __weak id wReq = req;
+            dispatch_after(dispatch_time(0, 2000 * 1000000LL), &_dispatch_main_q, ^{
+                ProbeWrite("RN-REMOVE-CALL");
+                @try {
+                    ((void(*)(id, SEL, id))objc_msgSend)(wLayer, sRem, wReq);
+                    ProbeWrite("RN-REMOVE-OK");
+                } @catch (id e) {
+                    LogReason("RN-REMOVE-EXC", e);
+                }
+            });
+        } else {
+            ProbeWrite("RN-REMOVE-NOMETHOD");
+        }
+    } @catch (id e) {
+        LogReason("RN-REMOVE-OUTER-EXC", e);
+    }
 }
 
 static void ShowPreviewWindow(void) {
@@ -1504,7 +1535,7 @@ static void ShowPreviewWindow(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.107-sbprobe");
+    ProbeWrite("LDD-BUILD actions-1.9.111-remove2s");
     ProbeWrite("CONSTRUCTOR-RAN");
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
     // 对照组 hook (兼启动延迟器)
