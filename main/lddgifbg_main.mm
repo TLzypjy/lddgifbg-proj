@@ -1266,17 +1266,20 @@ static void PostRealNotification(void) {
             }
             SEL sPost = sel_registerName("postNotificationRequest:");
             SEL sPrep = sel_registerName("prepareForIncomingNotificationRequest:");
-            if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(layer, sel_registerName("respondsToSelector:"), sPost)) {
-                ProbeWrite("RN-PRES-TRYPOST");
-                ((void(*)(id, SEL, id))objc_msgSend)(layer, sPost, req);
-                ProbeWrite("RN-PRES-SENT");
-                gRealPosted = 1;
-                return;
-            }
+            // 优化16: prepare 优先 —— iOS16 灵动岛设备上 postNotificationRequest:
+            // 一次投递会呈现两条(岛下 compact 常驻 + 标准横幅3秒), 用户要求只显示一条。
+            // prepareForIncomingNotificationRequest: 走"已有横幅更新"路径, 期望只出一条。
             if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(layer, sel_registerName("respondsToSelector:"), sPrep)) {
                 ProbeWrite("RN-PRES-TRYPREP");
                 ((void(*)(id, SEL, id))objc_msgSend)(layer, sPrep, req);
                 ProbeWrite("RN-PRES-PREP");
+                gRealPosted = 1;
+                return;
+            }
+            if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(layer, sel_registerName("respondsToSelector:"), sPost)) {
+                ProbeWrite("RN-PRES-TRYPOST");
+                ((void(*)(id, SEL, id))objc_msgSend)(layer, sPost, req);
+                ProbeWrite("RN-PRES-SENT");
                 gRealPosted = 1;
                 return;
             }
@@ -1431,7 +1434,7 @@ static void ShowPreviewWindow(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.99-nopersist");
+    ProbeWrite("LDD-BUILD actions-1.9.100-prepare");
     ProbeWrite("CONSTRUCTOR-RAN");
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
     // 对照组 hook (兼启动延迟器)
