@@ -637,8 +637,23 @@ static id HookBNDInit(id self, SEL _c) {
     return r;
 }
 // 运行时兜底: 从 dispatcher destinations / SB ivar 找呈现层
+static void FindLayerConsider(id o, SEL sPrep, SEL sPost, id *bestPrep, id *bestPost) {
+    if (!o) return;
+    const char *cn = class_getName(object_getClass(o));
+    if (cn) {
+        char line[128];
+        snprintf(line, sizeof(line), "PRES-CAND-%s", cn);
+        ProbeWrite(line);
+    }
+    if (!*bestPrep && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(o, sel_registerName("respondsToSelector:"), sPrep)) *bestPrep = o;
+    if (!*bestPost && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(o, sel_registerName("respondsToSelector:"), sPost)) *bestPost = o;
+}
 static id FindPresentLayer(void) {
-    if (gPresentLayer) return gPresentLayer;
+    // 优化17: 不再被 BND-CAPTURED 锁死 —— 遍历全部候选呈现层,
+    // 优先选支持 prepareForIncomingNotificationRequest: 的(灵动通知同款路径, 期望只出一条),
+    // 其次支持 postNotificationRequest: 的; BND 缓存仅作最后兜底。
+    id bestPrep = nil, bestPost = nil;
+    SEL sPrep = sel_registerName("prepareForIncomingNotificationRequest:");
     SEL sPost = sel_registerName("postNotificationRequest:");
     // 路线1: NCNotificationDispatcher 的 destinations 集合
     id clsD = (id)objc_getClass("NCNotificationDispatcher");
@@ -660,7 +675,6 @@ static id FindPresentLayer(void) {
             if (strstr(nm, "estination")) {
                 id coll = object_getIvar(disp, ivars[i]);
                 if (!coll) continue;
-                // 遍历集合/数组找 responds postNotificationRequest:
                 id arr = nil;
                 SEL sAll = sel_registerName("allObjects");
                 if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(coll, sel_registerName("respondsToSelector:"), sAll))
@@ -669,12 +683,12 @@ static id FindPresentLayer(void) {
                 NSUInteger n = ((NSUInteger(*)(id, SEL))objc_msgSend)(arr, sel_registerName("count"));
                 for (NSUInteger k = 0; k < n; k++) {
                     id obj = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(arr, sel_registerName("objectAtIndex:"), k);
-                    if (obj && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(obj, sel_registerName("respondsToSelector:"), sPost)) {
-                        gPresentLayer = obj; ProbeWrite("PRES-FOUND-DEST"); return obj;
-                    }
+                    FindLayerConsider(obj, sPrep, sPost, &bestPrep, &bestPost);
                 }
             }
         }
+        if (bestPrep) { ProbeWrite("PRES-CHOOSE-DEST-PREP"); gPresentLayer = bestPrep; return bestPrep; }
+        if (bestPost) { ProbeWrite("PRES-CHOOSE-DEST-POST"); gPresentLayer = bestPost; return bestPost; }
     }
     // 路线2: SpringBoard ivar 扫
     id sb = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("SpringBoard"), sel_registerName("sharedApplication"));
@@ -686,12 +700,14 @@ static id FindPresentLayer(void) {
             if (!nm) continue;
             if (strstr(nm, "annerDestination") || strstr(nm, "otificationDestination") || strstr(nm, "resentable")) {
                 id v = object_getIvar(sb, ivars[i]);
-                if (v && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(v, sel_registerName("respondsToSelector:"), sPost)) {
-                    gPresentLayer = v; ProbeWrite("PRES-FOUND-SBIVAR"); return v;
-                }
+                FindLayerConsider(v, sPrep, sPost, &bestPrep, &bestPost);
             }
         }
+        if (bestPrep) { ProbeWrite("PRES-CHOOSE-SB-PREP"); gPresentLayer = bestPrep; return bestPrep; }
+        if (bestPost) { ProbeWrite("PRES-CHOOSE-SB-POST"); gPresentLayer = bestPost; return bestPost; }
     }
+    // 路线3: BND-CAPTURED 缓存兜底
+    if (gPresentLayer) { ProbeWrite("PRES-BND-FALLBACK"); return gPresentLayer; }
     return nil;
 }
 
@@ -1434,7 +1450,7 @@ static void ShowPreviewWindow(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.100-prepare");
+    ProbeWrite("LDD-BUILD actions-1.9.101-layer");
     ProbeWrite("CONSTRUCTOR-RAN");
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
     // 对照组 hook (兼启动延迟器)
