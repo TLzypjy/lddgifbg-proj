@@ -1085,6 +1085,7 @@ static NSString *LDDUnreqEmpty(id self, SEL _c) { return @""; }
 static id LDDUnreqDate2(id self, SEL _c) { return ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("NSDate"), sel_registerName("date")); }
 static id LDDUnreqNil(id self, SEL _c) { return nil; }
 static id LDDUnreqDict(id self, SEL _c) { return ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("NSDictionary"), sel_registerName("dictionary")); }
+static id LDDUnreqArray(id self, SEL _c) { return ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("NSArray"), sel_registerName("array")); }
 static double LDDUnreqZeroD(id self, SEL _c) { return 0.0; }
 static NSUInteger LDDUnreqZeroQ(id self, SEL _c) { return 0; }
 static NSUInteger LDDUnreqLevel(id self, SEL _c) { return 1; }
@@ -1092,6 +1093,7 @@ static NSUInteger LDDUnreqLevel(id self, SEL _c) { return 1; }
 // ---------- 真实通知呈现 (灵动通知同款: 直接驱动 SB 横幅呈现层, 不入通知中心) ----------
 static void PostRealNotification(void) {
     ProbeWrite("RN-START");
+    int gRealPosted = 0;
     @try {
         dlopen("/System/Library/Frameworks/UserNotifications.framework/UserNotifications", 2);
         dlopen("/System/Library/PrivateFrameworks/NotificationCenter.framework/NotificationCenter", 2);
@@ -1138,6 +1140,7 @@ static void PostRealNotification(void) {
                     {"isRemote",                 (void*)LDDUnreqIsRemote,     "c@:"},
                     {"threadIdentifier",         (void*)LDDUnreqStr,          "@@:"},
                     {"requestIdentifier",        (void*)LDDUnreqNotifID,      "@@:"},
+                    {"subSectionIdentifiers",    (void*)LDDUnreqArray,        "@@:"},
                     {"date",                     (void*)LDDUnreqDate2,        "@@:"},
                     {"subtitle",                 (void*)LDDUnreqEmpty,        "@@:"},
                     {"launchImageName",          (void*)LDDUnreqEmpty,        "@@:"},
@@ -1162,14 +1165,21 @@ static void PostRealNotification(void) {
             }
             id inst = ((id(*)(id, SEL))objc_msgSend)((id)clsReq, sel_registerName("alloc"));
             ProbeWrite(inst ? "RN-REQ-ALLOC-OK" : "RN-REQ-ALLOC-FAIL");
-            // 2a. initWithNotificationRequest: (UN 层转系统层, 补方法后应可走通)
+            // 2a. initWithNotificationRequest: (UN 层转系统层)。单独包 @try:
+            // 该函数在 iOS16 内部会访问 UNNotificationRequest 的私有方法, 万一仍有缺失,
+            // 异常在此捕获, 不中断后续 2b/2c 兜底。
             SEL sInitN = sel_registerName("initWithNotificationRequest:");
-            if (inst && unreq && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(inst, sel_registerName("respondsToSelector:"), sInitN)) {
-                ProbeWrite("RN-REQ-INITN-TRY");
-                req = ((id(*)(id, SEL, id))objc_msgSend)(inst, sInitN, unreq);
-                if (req) ProbeWrite("RN-REQ-INITN-OK"); else ProbeWrite("RN-REQ-INITN-NIL");
-            } else {
-                ProbeWrite(inst ? (unreq ? "RN-REQ-NOINITN" : "RN-REQ-NOUNREQ") : "RN-REQ-NOALLOC");
+            @try {
+                if (inst && unreq && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(inst, sel_registerName("respondsToSelector:"), sInitN)) {
+                    ProbeWrite("RN-REQ-INITN-TRY");
+                    req = ((id(*)(id, SEL, id))objc_msgSend)(inst, sInitN, unreq);
+                    if (req) ProbeWrite("RN-REQ-INITN-OK"); else ProbeWrite("RN-REQ-INITN-NIL");
+                } else {
+                    ProbeWrite(inst ? (unreq ? "RN-REQ-NOINITN" : "RN-REQ-NOUNREQ") : "RN-REQ-NOALLOC");
+                }
+            } @catch (id e) {
+                LogReason("RN-INITN-EXC", e);
+                req = nil;
             }
             // 2b. 兜底: alloc/init + setContentProvider
             if (!req && inst) {
@@ -1257,19 +1267,22 @@ static void PostRealNotification(void) {
                 ProbeWrite("RN-PRES-TRYPOST");
                 ((void(*)(id, SEL, id))objc_msgSend)(layer, sPost, req);
                 ProbeWrite("RN-PRES-SENT");
+                gRealPosted = 1;
                 return;
             }
             if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(layer, sel_registerName("respondsToSelector:"), sPrep)) {
                 ProbeWrite("RN-PRES-TRYPREP");
                 ((void(*)(id, SEL, id))objc_msgSend)(layer, sPrep, req);
                 ProbeWrite("RN-PRES-PREP");
+                gRealPosted = 1;
                 return;
             }
             ProbeWrite("RN-PRES-NOMETHOD");
         }
         ProbeWrite("RN-ALL-FAIL");
-        ShowPreviewWindow();
-    } @catch (id e) { LogReason("RN-EXC", e); ShowPreviewWindow(); }
+        // 真实投递未执行成功时才退回自绘预览（仅在设置页点击预览时才会有意义的兜底）
+        if (!gRealPosted) ShowPreviewWindow();
+    } @catch (id e) { LogReason("RN-EXC", e); if (!gRealPosted) ShowPreviewWindow(); }
 }
 
 static void ShowPreviewWindow(void) {
