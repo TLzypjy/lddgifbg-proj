@@ -637,7 +637,7 @@ static id HookBNDInit(id self, SEL _c) {
     return r;
 }
 // 运行时兜底: 从 dispatcher destinations / SB ivar 找呈现层
-static void FindLayerConsider(id o, SEL sPrep, SEL sPost, id *bestPrep, id *bestPost) {
+static void FindLayerConsider(id o, SEL sLL, SEL sPrep, SEL sPost, id *bestLL, id *bestPrep, id *bestPost) {
     if (!o) return;
     const char *cn = class_getName((__bridge void *)object_getClass(o));
     if (cn) {
@@ -645,6 +645,7 @@ static void FindLayerConsider(id o, SEL sPrep, SEL sPost, id *bestPrep, id *best
         snprintf(line, sizeof(line), "PRES-CAND-%s", cn);
         ProbeWrite(line);
     }
+    if (!*bestLL && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(o, sel_registerName("respondsToSelector:"), sLL)) *bestLL = o;
     if (!*bestPrep && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(o, sel_registerName("respondsToSelector:"), sPrep)) *bestPrep = o;
     if (!*bestPost && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(o, sel_registerName("respondsToSelector:"), sPost)) *bestPost = o;
 }
@@ -652,7 +653,8 @@ static id FindPresentLayer(void) {
     // 优化17: 不再被 BND-CAPTURED 锁死 —— 遍历全部候选呈现层,
     // 优先选支持 prepareForIncomingNotificationRequest: 的(灵动通知同款路径, 期望只出一条),
     // 其次支持 postNotificationRequest: 的; BND 缓存仅作最后兜底。
-    id bestPrep = nil, bestPost = nil;
+    id bestLL = nil, bestPrep = nil, bestPost = nil;
+    SEL sLL = sel_registerName("presentLongLookAnimated:trigger:completion:");
     SEL sPrep = sel_registerName("prepareForIncomingNotificationRequest:");
     SEL sPost = sel_registerName("postNotificationRequest:");
     // 路线1: NCNotificationDispatcher 的 destinations 集合
@@ -683,10 +685,11 @@ static id FindPresentLayer(void) {
                 NSUInteger n = ((NSUInteger(*)(id, SEL))objc_msgSend)(arr, sel_registerName("count"));
                 for (NSUInteger k = 0; k < n; k++) {
                     id obj = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(arr, sel_registerName("objectAtIndex:"), k);
-                    FindLayerConsider(obj, sPrep, sPost, &bestPrep, &bestPost);
+                    FindLayerConsider(obj, sLL, sPrep, sPost, &bestLL, &bestPrep, &bestPost);
                 }
             }
         }
+        if (bestLL) { ProbeWrite("PRES-CHOOSE-DEST-LL"); gPresentLayer = bestLL; return bestLL; }
         if (bestPrep) { ProbeWrite("PRES-CHOOSE-DEST-PREP"); gPresentLayer = bestPrep; return bestPrep; }
         if (bestPost) { ProbeWrite("PRES-CHOOSE-DEST-POST"); gPresentLayer = bestPost; return bestPost; }
     }
@@ -700,9 +703,10 @@ static id FindPresentLayer(void) {
             if (!nm) continue;
             if (strstr(nm, "annerDestination") || strstr(nm, "otificationDestination") || strstr(nm, "resentable")) {
                 id v = object_getIvar(sb, ivars[i]);
-                FindLayerConsider(v, sPrep, sPost, &bestPrep, &bestPost);
+                FindLayerConsider(v, sLL, sPrep, sPost, &bestLL, &bestPrep, &bestPost);
             }
         }
+        if (bestLL) { ProbeWrite("PRES-CHOOSE-SB-LL"); gPresentLayer = bestLL; return bestLL; }
         if (bestPrep) { ProbeWrite("PRES-CHOOSE-SB-PREP"); gPresentLayer = bestPrep; return bestPrep; }
         if (bestPost) { ProbeWrite("PRES-CHOOSE-SB-POST"); gPresentLayer = bestPost; return bestPost; }
     }
@@ -1282,6 +1286,21 @@ static void PostRealNotification(void) {
             }
             SEL sPost = sel_registerName("postNotificationRequest:");
             SEL sPrep = sel_registerName("prepareForIncomingNotificationRequest:");
+            SEL sLL = sel_registerName("presentLongLookAnimated:trigger:completion:");
+            // 优化19: Long Look 优先 —— iOS16 灵动岛设备上 postNotificationRequest:
+            // 一次投递会被呈现成两条(岛下 compact 常驻 + 标准横幅3秒), 用户只要标准横幅。
+            // presentLongLookAnimated: 是"完整横幅(Long Look)"的呈现方法, 直接弹标准横幅, 跳过岛 compact。
+            if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(layer, sel_registerName("respondsToSelector:"), sLL)) {
+                ProbeWrite("RN-PRES-TRYLL");
+                @try {
+                    ((void(*)(id, SEL, BOOL, id, id))objc_msgSend)(layer, sLL, YES, nil, nil);
+                    ProbeWrite("RN-PRES-LL");
+                    gRealPosted = 1;
+                    return;
+                } @catch (id e) {
+                    LogReason("RN-LL-EXC", e);
+                }
+            }
             // 优化16: prepare 优先 —— iOS16 灵动岛设备上 postNotificationRequest:
             // 一次投递会呈现两条(岛下 compact 常驻 + 标准横幅3秒), 用户要求只显示一条。
             // prepareForIncomingNotificationRequest: 走"已有横幅更新"路径, 期望只出一条。
@@ -1450,7 +1469,7 @@ static void ShowPreviewWindow(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.103-mail");
+    ProbeWrite("LDD-BUILD actions-1.9.104-ll");
     ProbeWrite("CONSTRUCTOR-RAN");
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
     // 对照组 hook (兼启动延迟器)
