@@ -1001,13 +1001,13 @@ static NSUInteger LDDUnreqZeroQ(id self, SEL _c) { return 0; }
 // 这里给两个类挂 methodSignatureForSelector: + forwardInvocation:, 任何未识别
 // selector 一律返回签名 "@@:"(id, 8字节缓冲) 并归零返回值 -> nil/0/NO,
 // 对所有标量与 id 类型安全, 不再抛 unrecognized selector。
-static void *LDD_FwdSigFn(void *self, void *_cmd, void *aSel) {
+static id LDD_FwdSigFn(id self, SEL _cmd, SEL aSel) {
     id clsMS = (id)objc_getClass("NSMethodSignature");
-    if (!clsMS) return NULL;
-    return (void*)((id(*)(id, SEL, const char*))objc_msgSend)(clsMS, sel_registerName("signatureWithObjCTypes:"), "@@:");
+    if (!clsMS) return nil;
+    return ((id(*)(id, SEL, const char*))objc_msgSend)(clsMS, sel_registerName("signatureWithObjCTypes:"), "@@:");
 }
-static void LDD_FwdInvFn(void *self, void *_cmd, void *inv) {
-    id invObj = (id)inv;
+static void LDD_FwdInvFn(id self, SEL _cmd, id inv) {
+    id invObj = inv;
     if (!invObj) return;
     SEL sMS = sel_registerName("methodSignature");
     if (!((BOOL(*)(id, SEL, SEL))objc_msgSend)(invObj, sel_registerName("respondsToSelector:"), sMS)) return;
