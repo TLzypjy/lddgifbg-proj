@@ -662,7 +662,9 @@ static id FindPresentLayer(void) {
     if (clsD) ProbeWrite("PRES-DISP-CLS-YES"); else ProbeWrite("PRES-DISP-CLS-NO");
     id disp = nil;
     if (clsD) {
-        const char *sels[] = {"sharedInstance", "defaultDispatcher", "sharedDispatcher", 0};
+        const char *sels[] = {"sharedInstance", "defaultDispatcher", "sharedDispatcher",
+                             "sharedNotificationDispatcher", "defaultNotificationDispatcher",
+                             "notificationDispatcher", "dispatcher", 0};
         for (int i = 0; sels[i] && !disp; i++) {
             SEL s = sel_registerName(sels[i]);
             if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(clsD, sel_registerName("respondsToSelector:"), s))
@@ -708,15 +710,16 @@ static id FindPresentLayer(void) {
         if (bestPrep) { ProbeWrite("PRES-CHOOSE-DEST-PREP"); gPresentLayer = bestPrep; return bestPrep; }
         if (bestPost) { ProbeWrite("PRES-CHOOSE-DEST-POST"); gPresentLayer = bestPost; return bestPost; }
     }
-    // 路线2: SpringBoard ivar 扫
-    id sb = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("SpringBoard"), sel_registerName("sharedApplication"));
+    // 路线2: UIApplication(SpringBoard 实例) ivar 扫 —— iOS16.4 呈现层由 SpringBoard 持有
+    id sb = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIApplication"), sel_registerName("sharedApplication"));
+    if (sb) ProbeWrite("PRES-UIAPP-YES"); else ProbeWrite("PRES-UIAPP-NO");
     if (sb) {
         unsigned int cnt = 0;
         void **ivars = (void **)class_copyIvarList((Class)objc_getClass("SpringBoard"), &cnt);
         for (unsigned int i = 0; i < cnt; i++) {
             const char *nm = ivar_getName(ivars[i]);
             if (!nm) continue;
-            if (strstr(nm, "annerDestination") || strstr(nm, "otificationDestination") || strstr(nm, "resentable")) {
+            if (strstr(nm, "anner") || strstr(nm, "otification") || strstr(nm, "ispatcher") || strstr(nm, "perture") || strstr(nm, "resentab")) {
                 {
                     char ivn[192];
                     snprintf(ivn, sizeof(ivn), "PRES-SBIVAR-%s", nm);
@@ -1497,7 +1500,7 @@ static void ShowPreviewWindow(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.106-probe");
+    ProbeWrite("LDD-BUILD actions-1.9.107-sbprobe");
     ProbeWrite("CONSTRUCTOR-RAN");
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
     // 对照组 hook (兼启动延迟器)
