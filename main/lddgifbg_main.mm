@@ -1070,6 +1070,7 @@ static void PostRealNotification(void) {
                     {"interruptionLevel",        (void*)LDDUnreqZeroQ,        "Q@:"},
                     {"summaryArgumentCount",     (void*)LDDUnreqZeroQ,        "Q@:"},
                     {"requestDestinations",       (void*)LDDUnreqZeroQ,        "Q@:"},
+                    {"options",                   (void*)LDDUnreqZeroQ,        "Q@:"},
                 };
                 for (size_t i = 0; i < sizeof(patches)/sizeof(patches[0]); i++) {
                     SEL sSel = sel_registerName(patches[i].name);
@@ -1177,6 +1178,15 @@ static void PostRealNotification(void) {
                 ProbeWrite("RN-PRES-PERSIST-SET");
             }
             // 3b. 投递: postNotificationRequest: / prepareForIncomingNotificationRequest:
+            // 优化14: postNotificationRequest: 内部访问 UNNotificationContent.customHeader (iOS16 无)
+            // 抛 unrecognized selector -> post 失败 -> 回退自绘横幅(用户看到的"灵动通知"样式)。
+            // 投递前给 UNNotificationContent 动态补上该方法(返回 nil), post 即不再抛异常。
+            id clsUNC = (id)objc_getClass("UNNotificationContent");
+            if (clsUNC) {
+                SEL sCH = sel_registerName("customHeader");
+                if (!class_getInstanceMethod((Class)clsUNC, sCH))
+                    class_addMethod((Class)clsUNC, sCH, (IMP)LDDUnreqNil, "@@:");
+            }
             SEL sPost = sel_registerName("postNotificationRequest:");
             SEL sPrep = sel_registerName("prepareForIncomingNotificationRequest:");
             if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(layer, sel_registerName("respondsToSelector:"), sPost)) {
@@ -1344,7 +1354,7 @@ static void ShowPreviewWindow(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.91-safeq");
+    ProbeWrite("LDD-BUILD actions-1.9.92-customheader");
     ProbeWrite("CONSTRUCTOR-RAN");
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
     // 对照组 hook (兼启动延迟器)
