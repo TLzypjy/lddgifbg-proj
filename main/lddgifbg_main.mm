@@ -1287,6 +1287,47 @@ static void PostRealNotification(void) {
             SEL sPost = sel_registerName("postNotificationRequest:");
             SEL sPrep = sel_registerName("prepareForIncomingNotificationRequest:");
             SEL sLL = sel_registerName("presentLongLookAnimated:trigger:completion:");
+            // 优化20: UN 层投递 —— iOS16 灵动岛设备上 postNotificationRequest: 一次投递
+            // 必出两条(岛compact常驻 + 标准横幅3秒)。UNUserNotificationCenter 走真实通知管道,
+            // 单横幅流程, 且 GIF 可作为附件直接显示在横幅上。优先走 UN, 失败落回 NC 兜底。
+            ProbeWrite("RN-PRES-TRYUN");
+            @try {
+                Class unCls = NSClassFromString(@"UNUserNotificationCenter");
+                if (!unCls) {
+                    ProbeWrite("RN-UN-NOCLS");
+                } else {
+                    id center = ((id(*)(id, SEL))objc_msgSend)((id)unCls, sel_registerName("currentNotificationCenter"));
+                    if (!center) {
+                        ProbeWrite("RN-UN-NOCENTER");
+                    } else {
+                        id content = [[NSClassFromString(@"UNMutableNotificationContent") alloc] init];
+                        [content setValue:@"灵动岛GIF背景" forKey:@"title"];
+                        [content setValue:@"预览通知" forKey:@"body"];
+                        id sound = ((id(*)(id, SEL))objc_msgSend)((id)NSClassFromString(@"UNNotificationSound"), sel_registerName("defaultSound"));
+                        if (sound) [content setValue:sound forKey:@"sound"];
+                        NSString *mediaPath = GetSelectedImagePath();
+                        if (mediaPath) {
+                            NSError *aErr = nil;
+                            id attach = ((id(*)(id, SEL, id, id, id, id))objc_msgSend)((id)NSClassFromString(@"UNNotificationAttachment"), sel_registerName("attachmentWithIdentifier:URL:options:error:"), @"ldd-gif", [NSURL fileURLWithPath:mediaPath], @{}, &aErr);
+                            if (attach) [content setValue:@[attach] forKey:@"attachments"];
+                            else if (aErr) {
+                                char lb[192];
+                                snprintf(lb, sizeof(lb), "RN-UN-ATTACH-ERR %s", [[aErr description] UTF8String]);
+                                ProbeWrite(lb);
+                            }
+                        } else {
+                            ProbeWrite("RN-UN-NOMEDIA");
+                        }
+                        id request = ((id(*)(id, SEL, id, id, id))objc_msgSend)((id)NSClassFromString(@"UNNotificationRequest"), sel_registerName("requestWithIdentifier:content:trigger:"), @"ldd-preview", content, nil);
+                        ((void(*)(id, SEL, id, id))objc_msgSend)(center, sel_registerName("addNotificationRequest:withCompletionHandler:"), request, nil);
+                        ProbeWrite("RN-UN-ADDED");
+                        gRealPosted = 1;
+                        return;
+                    }
+                }
+            } @catch (id e) {
+                LogReason("RN-UN-EXC", e);
+            }
             // 优化19: Long Look 优先 —— iOS16 灵动岛设备上 postNotificationRequest:
             // 一次投递会被呈现成两条(岛下 compact 常驻 + 标准横幅3秒), 用户只要标准横幅。
             // presentLongLookAnimated: 是"完整横幅(Long Look)"的呈现方法, 直接弹标准横幅, 跳过岛 compact。
@@ -1469,7 +1510,7 @@ static void ShowPreviewWindow(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.104-ll");
+    ProbeWrite("LDD-BUILD actions-1.9.105-un");
     ProbeWrite("CONSTRUCTOR-RAN");
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
     // 对照组 hook (兼启动延迟器)
