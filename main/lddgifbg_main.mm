@@ -1015,13 +1015,11 @@ static void PostRealNotification(void) {
             ((void(*)(id, SEL, id))objc_msgSend)(content, sel_registerName("setTitle:"), @"灵动岛GIF背景");
             ((void(*)(id, SEL, id))objc_msgSend)(content, sel_registerName("setBody:"), @"预览通知：岛展开显示您的背景");
         }
-        id clsTrig = (id)objc_getClass("UNTimeIntervalNotificationTrigger");
+        // 优化12: 不再创建 UNTimeIntervalNotificationTrigger (传 nil)。
+        // 根因: 2a initWithNotificationRequest: 崩前已把带 0.1s trigger 的 UN 请求部分注册,
+        // 0.1 秒后系统自动弹出一条真实 UN 通知(默认铃声图标) -> "第一条关闭后第二条紧跟弹出"。
+        // 去掉 trigger 后 UN 层无可调度请求, 只剩 postNotificationRequest: 一条横幅。
         id trigger = nil;
-        if (clsTrig) {
-            SEL sT = sel_registerName("triggerWithTimeInterval:repeats:");
-            if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(clsTrig, sel_registerName("respondsToSelector:"), sT))
-                trigger = ((id(*)(id, SEL, double, BOOL))objc_msgSend)(clsTrig, sT, 0.1, NO);
-        }
         id unreq = nil;
         id clsUNReq = (id)objc_getClass("UNNotificationRequest");
         if (clsUNReq && content) {
@@ -1054,6 +1052,7 @@ static void PostRealNotification(void) {
                     {"intentIdentifiers",        (void*)LDDUnreqArray,        "@@:"},
                     {"peopleIdentifiers",        (void*)LDDUnreqArray,        "@@:"},
                     {"parentSectionIdentifier",  (void*)LDDUnreqEmpty,        "@@:"},
+                    {"isUniqueThreadIdentifier", (void*)LDDUnreqFromNC,       "c@:"},
                     {"date",                     (void*)LDDUnreqDate2,        "@@:"},
                     {"subtitle",                 (void*)LDDUnreqEmpty,        "@@:"},
                     {"launchImageName",          (void*)LDDUnreqEmpty,        "@@:"},
@@ -1341,7 +1340,7 @@ static void ShowPreviewWindow(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.87-dedupe");
+    ProbeWrite("LDD-BUILD actions-1.9.88-notrig");
     ProbeWrite("CONSTRUCTOR-RAN");
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
     // 对照组 hook (兼启动延迟器)
