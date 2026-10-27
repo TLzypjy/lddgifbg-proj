@@ -659,6 +659,7 @@ static id FindPresentLayer(void) {
     SEL sPost = sel_registerName("postNotificationRequest:");
     // 路线1: NCNotificationDispatcher 的 destinations 集合
     id clsD = (id)objc_getClass("NCNotificationDispatcher");
+    if (clsD) ProbeWrite("PRES-DISP-CLS-YES"); else ProbeWrite("PRES-DISP-CLS-NO");
     id disp = nil;
     if (clsD) {
         const char *sels[] = {"sharedInstance", "defaultDispatcher", "sharedDispatcher", 0};
@@ -669,20 +670,34 @@ static id FindPresentLayer(void) {
         }
     }
     if (disp) {
+        ProbeWrite("PRES-DISP-OBJ-YES");
         unsigned int cnt = 0;
         void **ivars = (void **)class_copyIvarList((Class)clsD, &cnt);
+        char dbg[192];
+        snprintf(dbg, sizeof(dbg), "PRES-DISP-IVARS-%u", cnt);
+        ProbeWrite(dbg);
         for (unsigned int i = 0; i < cnt; i++) {
             const char *nm = ivar_getName(ivars[i]);
             if (!nm) continue;
             if (strstr(nm, "estination")) {
                 id coll = object_getIvar(disp, ivars[i]);
                 if (!coll) continue;
+                {
+                    char dn[192];
+                    snprintf(dn, sizeof(dn), "PRES-DEST-COLL-%s", nm);
+                    ProbeWrite(dn);
+                }
                 id arr = nil;
                 SEL sAll = sel_registerName("allObjects");
                 if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(coll, sel_registerName("respondsToSelector:"), sAll))
                     arr = ((id(*)(id, SEL))objc_msgSend)(coll, sAll);
                 else arr = coll;
                 NSUInteger n = ((NSUInteger(*)(id, SEL))objc_msgSend)(arr, sel_registerName("count"));
+                {
+                    char cn[128];
+                    snprintf(cn, sizeof(cn), "PRES-DEST-N-%lu", (unsigned long)n);
+                    ProbeWrite(cn);
+                }
                 for (NSUInteger k = 0; k < n; k++) {
                     id obj = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(arr, sel_registerName("objectAtIndex:"), k);
                     FindLayerConsider(obj, sLL, sPrep, sPost, &bestLL, &bestPrep, &bestPost);
@@ -702,7 +717,20 @@ static id FindPresentLayer(void) {
             const char *nm = ivar_getName(ivars[i]);
             if (!nm) continue;
             if (strstr(nm, "annerDestination") || strstr(nm, "otificationDestination") || strstr(nm, "resentable")) {
+                {
+                    char ivn[192];
+                    snprintf(ivn, sizeof(ivn), "PRES-SBIVAR-%s", nm);
+                    ProbeWrite(ivn);
+                }
                 id v = object_getIvar(sb, ivars[i]);
+                if (v) {
+                    const char *vcn = class_getName((__bridge void *)object_getClass(v));
+                    if (vcn) {
+                        char vn[192];
+                        snprintf(vn, sizeof(vn), "PRES-SBIVAR-VAL-%s", vcn);
+                        ProbeWrite(vn);
+                    }
+                }
                 FindLayerConsider(v, sLL, sPrep, sPost, &bestLL, &bestPrep, &bestPost);
             }
         }
@@ -1287,43 +1315,6 @@ static void PostRealNotification(void) {
             SEL sPost = sel_registerName("postNotificationRequest:");
             SEL sPrep = sel_registerName("prepareForIncomingNotificationRequest:");
             SEL sLL = sel_registerName("presentLongLookAnimated:trigger:completion:");
-            // 优化20: UN 层投递 —— iOS16 灵动岛设备上 postNotificationRequest: 一次投递
-            // 必出两条(岛compact常驻 + 标准横幅3秒)。UNUserNotificationCenter 走真实通知管道,
-            // 单横幅流程, 且 GIF 可作为附件直接显示在横幅上。优先走 UN, 失败落回 NC 兜底。
-            ProbeWrite("RN-PRES-TRYUN");
-            @try {
-                id center = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UNUserNotificationCenter"), sel_registerName("currentNotificationCenter"));
-                if (!center) {
-                    ProbeWrite("RN-UN-NOCENTER");
-                } else {
-                    id content = [[(id)objc_getClass("UNMutableNotificationContent") alloc] init];
-                    [content setValue:@"灵动岛GIF背景" forKey:@"title"];
-                    [content setValue:@"预览通知" forKey:@"body"];
-                    id sound = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UNNotificationSound"), sel_registerName("defaultSound"));
-                    if (sound) [content setValue:sound forKey:@"sound"];
-                    NSString *mediaPath = GetSelectedImagePath();
-                    if (mediaPath) {
-                        typedef id (*FnAtt)(id, SEL, id, id, id, void *);
-                        id attach = ((FnAtt)objc_msgSend)((id)objc_getClass("UNNotificationAttachment"), sel_registerName("attachmentWithIdentifier:URL:options:error:"), @"ldd-gif", [NSURL fileURLWithPath:mediaPath], NULL, NULL);
-                        if (attach) {
-                            typedef id (*FnArr)(id, SEL, id);
-                            id arr = ((FnArr)objc_msgSend)((id)objc_getClass("NSArray"), sel_registerName("arrayWithObject:"), attach);
-                            [content setValue:arr forKey:@"attachments"];
-                        } else {
-                            ProbeWrite("RN-UN-ATTACH-NIL");
-                        }
-                    } else {
-                        ProbeWrite("RN-UN-NOMEDIA");
-                    }
-                    id request = ((id(*)(id, SEL, id, id, id))objc_msgSend)((id)objc_getClass("UNNotificationRequest"), sel_registerName("requestWithIdentifier:content:trigger:"), @"ldd-preview", content, NULL);
-                    ((void(*)(id, SEL, id, id))objc_msgSend)(center, sel_registerName("addNotificationRequest:withCompletionHandler:"), request, NULL);
-                    ProbeWrite("RN-UN-ADDED");
-                    gRealPosted = 1;
-                    return;
-                }
-            } @catch (id e) {
-                LogReason("RN-UN-EXC", e);
-            }
             // 优化19: Long Look 优先 —— iOS16 灵动岛设备上 postNotificationRequest:
             // 一次投递会被呈现成两条(岛下 compact 常驻 + 标准横幅3秒), 用户只要标准横幅。
             // presentLongLookAnimated: 是"完整横幅(Long Look)"的呈现方法, 直接弹标准横幅, 跳过岛 compact。
@@ -1506,7 +1497,7 @@ static void ShowPreviewWindow(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.105-un");
+    ProbeWrite("LDD-BUILD actions-1.9.106-probe");
     ProbeWrite("CONSTRUCTOR-RAN");
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
     // 对照组 hook (兼启动延迟器)
