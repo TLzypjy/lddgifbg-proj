@@ -575,18 +575,17 @@ static void PreviewTick(void);
 static id gPreviewDismissTarget = nil;
 
 static double gForceLast = 0;
-// 消费去重: 读文件内容时间戳, 与上次消费比对, 相同(残留/重写同内容)则忽略
-static NSString *gLastConsumedTs = nil;
+// 消费去重 v2: 不依赖文件内容 (bundle 旧版写空内容也生效)
+//   1) 消费后 rename 成 .consumed (残留/第二消费点 access 原文件失败)
+//   2) 4.5s 时间防抖 (第一条通知显示期间的二次消费忽略)
+static double gLastConsumeT = 0;
 static void ConsumeForcePreview(void) {
-    if (access("/var/mobile/lddgifbg/__force_preview__", 0) != 0) return;
-    SEL sRead = sel_registerName("stringWithContentsOfFile:encoding:error:");
-    id ts = ((id(*)(id, SEL, id, NSUInteger, id))objc_msgSend)((id)objc_getClass("NSString"), sRead, @"/var/mobile/lddgifbg/__force_preview__", (NSUInteger)4, nil);
-    remove("/var/mobile/lddgifbg/__force_preview__");
-    if (ts && gLastConsumedTs && ((BOOL(*)(id, SEL, id))objc_msgSend)(ts, sel_registerName("isEqualToString:"), gLastConsumedTs)) {
-        ProbeWrite("RN-CONSUME-DUP");
-        return;
-    }
-    gLastConsumedTs = ts;
+    const char *fp = "/var/mobile/lddgifbg/__force_preview__";
+    if (access(fp, 0) != 0) return;
+    rename(fp, "/var/mobile/lddgifbg/__force_preview__.consumed");
+    double now = CFAbsoluteTimeGetCurrent();
+    if (now - gLastConsumeT < 4.5) { ProbeWrite("RN-CONSUME-DUP"); return; }
+    gLastConsumeT = now;
     PostRealNotification();
 }
 static void CheckForcePreviewTick(void) {
@@ -607,9 +606,6 @@ static void StartForceMonitor(void) {
     dispatch_after(dispatch_time(0, 100 * 1000000LL), &_dispatch_main_q, ^{ ForceMonitorTick(); });
 }
 
-static void CheckForcePreview(void) {
-    ConsumeForcePreview();
-}
 static BOOL ForcePreviewActive(void) { return time(0) < gForceUntil; }
 
 // ---------- prefs 缓存 (1秒节流, 避免每帧读文件/扫目录) ----------
@@ -817,7 +813,6 @@ static void LDDIslandLayout(id self) {
         ProbeWrite(al);
     }
 
-    CheckForcePreview();
     RefreshPrefsCache();
     BOOL mainOn = cEnabled;
     BOOL show = NO;
