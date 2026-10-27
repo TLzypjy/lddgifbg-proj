@@ -716,6 +716,18 @@ static void LDDIslandLayout(id self) {
     static int first = 0;
     if (!first) { first = 1; ProbeWrite("ISLAND-LAYOUT-ENTERED"); }
     void *pool = objc_autoreleasePoolPush();
+    // 优化10: 仅接管真正的内容层 _SBSystemApertureContainerViewContentView。
+    // 特效层(MagiciansCurtain/GainMap)与容器层若各自创建 GIF 子视图,
+    // 首屏会被挂到不可见层 -> 首次通知"不动"; 连续通知时特效层停摆、内容层重建才恢复。
+    const char *cn = object_getClassName(self);
+    if (!cn || !strstr(cn, "ContainerViewContentView")) {
+        static int skiplog = 0;
+        if (skiplog < 5) { skiplog++; char lb[96]; snprintf(lb, sizeof(lb), "LDD-SKIP-OTHER: %s", cn ? cn : "?"); ProbeWrite(lb); }
+        objc_autoreleasePoolPop(pool);
+        return;
+    }
+    static int cvlog = 0;
+    if (cvlog < 3) { cvlog++; char lb[128]; snprintf(lb, sizeof(lb), "LDD-CONTENT-VIEW: %s", cn); ProbeWrite(lb); }
     // 过滤: 只处理挂在真实窗口、且尺寸接近灵动岛的视图 (排除整屏容器)
     UIView *selfv = (UIView *)self;
     id win = [selfv window];
@@ -1035,6 +1047,7 @@ static void PostRealNotification(void) {
                     {"subSectionIdentifiers",    (void*)LDDUnreqArray,        "@@:"},
                     {"highestPrioritySubSectionIdentifier", (void*)LDDUnreqNil, "@@:"},
                     {"intentIdentifiers",        (void*)LDDUnreqArray,        "@@:"},
+                    {"peopleIdentifiers",        (void*)LDDUnreqArray,        "@@:"},
                     {"date",                     (void*)LDDUnreqDate2,        "@@:"},
                     {"subtitle",                 (void*)LDDUnreqEmpty,        "@@:"},
                     {"launchImageName",          (void*)LDDUnreqEmpty,        "@@:"},
