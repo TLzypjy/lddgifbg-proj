@@ -1417,13 +1417,8 @@ static id LDDGetWindowScene(void) {
         if (!sb) return nil;
         id scenes = ((id(*)(id, SEL))objc_msgSend)(sb, sel_registerName("connectedScenes"));
         if (!scenes) return nil;
-        if ([scenes respondsToSelector:@selector(anyObject)]) {
-            id v = [scenes anyObject];
-            if (v) return v;
-        }
-        if ([scenes isKindOfClass:[NSArray class]]) {
-            if ([(NSArray *)scenes count] > 0) return ((NSArray *)scenes)[0];
-        }
+        id first = ((id(*)(id, SEL))objc_msgSend)(scenes, sel_registerName("anyObject"));
+        return first;
     } @catch (id e) { LogReason("RN-DISM-SCN-EXC", e); }
     return nil;
 }
@@ -1433,10 +1428,10 @@ static void LDDDismissStageTwoBanner(void) {
         if (!bm) { ProbeWrite("RN-DISM-BM-NO"); return; }
         ProbeWrite("RN-DISM-TRY");
         // dismissAllBannersInWindowScene:animated:reason:
-        __block NSTimeInterval last = 0;
+        __block time_t last = 0;
         dispatch_after(dispatch_time(0, 1500 * 1000000LL), &_dispatch_main_q, ^{
             @try {
-                NSTimeInterval nowT = [[NSProcessInfo processInfo] systemUptime];
+                time_t nowT = time(NULL);
                 if (nowT - last < 0.5) return;
                 last = nowT;
                 id scn = LDDGetWindowScene();
