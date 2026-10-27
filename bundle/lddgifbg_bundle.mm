@@ -855,7 +855,7 @@ static UIImage *RenderFrameAtIndex(unsigned long idx, CGSize dst) {
         {
             static double gLastBtnT = 0;
             double nowB = CFAbsoluteTimeGetCurrent();
-            if (nowB - gLastBtnT < 2.0) return;
+            if (nowB - gLastBtnT < 8.0) return;
             gLastBtnT = nowB;
         }
         NSString *tsStr = [NSString stringWithFormat:@"%ld", (long)time(0)];
