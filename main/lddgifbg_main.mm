@@ -992,7 +992,6 @@ static id LDDUnreqDict(id self, SEL _c) { return ((id(*)(id, SEL))objc_msgSend)(
 static id LDDUnreqArray(id self, SEL _c) { return ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("NSArray"), sel_registerName("array")); }
 static double LDDUnreqZeroD(id self, SEL _c) { return 0.0; }
 static NSUInteger LDDUnreqZeroQ(id self, SEL _c) { return 0; }
-static NSUInteger LDDUnreqLevel(id self, SEL _c) { return 1; }
 
 // ---------- 真实通知呈现 (灵动通知同款: 直接驱动 SB 横幅呈现层, 不入通知中心) ----------
 static double gLastPostT = 0;
@@ -1068,9 +1067,9 @@ static void PostRealNotification(void) {
                     {"userInfo",                 (void*)LDDUnreqDict,         "@@:"},
                     {"isTransactional",          (void*)LDDUnreqFromNC,       "c@:"},
                     {"relevanceScore",           (void*)LDDUnreqZeroD,        "d@:"},
-                    {"interruptionLevel",        (void*)LDDUnreqLevel,        "Q@:"},
+                    {"interruptionLevel",        (void*)LDDUnreqZeroQ,        "Q@:"},
                     {"summaryArgumentCount",     (void*)LDDUnreqZeroQ,        "Q@:"},
-                    {"requestDestinations",       (void*)LDDUnreqLevel,        "Q@:"},
+                    {"requestDestinations",       (void*)LDDUnreqZeroQ,        "Q@:"},
                 };
                 for (size_t i = 0; i < sizeof(patches)/sizeof(patches[0]); i++) {
                     SEL sSel = sel_registerName(patches[i].name);
@@ -1345,7 +1344,7 @@ static void ShowPreviewWindow(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.90-singlech");
+    ProbeWrite("LDD-BUILD actions-1.9.91-safeq");
     ProbeWrite("CONSTRUCTOR-RAN");
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
     // 对照组 hook (兼启动延迟器)
