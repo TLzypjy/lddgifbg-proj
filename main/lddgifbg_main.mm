@@ -17,6 +17,7 @@ typedef struct objc_selector *SEL;
 // 手工声明（本文件不使用 objc/runtime.h，避免与手工 typedef 冲突）
 extern "C" void *class_addMethod(Class cls, SEL name, void *imp, const char *types);
 extern "C" void *class_getInstanceMethod(Class cls, SEL name);
+extern "C" void *class_replaceMethod(Class cls, SEL name, void *imp, const char *types);
 typedef void *IMP;
 typedef struct CGImage *CGImageRef;
 typedef bool BOOL;
@@ -994,6 +995,43 @@ static id LDDUnreqArray(id self, SEL _c) { return ((id(*)(id, SEL))objc_msgSend)
 static double LDDUnreqZeroD(id self, SEL _c) { return 0.0; }
 static NSUInteger LDDUnreqZeroQ(id self, SEL _c) { return 0; }
 
+// ---------- 万能转发兜底 (根治"未知私有方法逐个冒") ----------
+// SB 渲染层 / initWithNotificationRequest: 会访问 UNNotificationRequest 与
+// UNNotificationContent 上我们未预知的私有 getter (iOS17+ 头)。逐名补齐不可穷举,
+// 这里给两个类挂 methodSignatureForSelector: + forwardInvocation:, 任何未识别
+// selector 一律返回签名 "@@:"(id, 8字节缓冲) 并归零返回值 -> nil/0/NO,
+// 对所有标量与 id 类型安全, 不再抛 unrecognized selector。
+static void *LDD_FwdSigFn(void *self, void *_cmd, void *aSel) {
+    id clsMS = (id)objc_getClass("NSMethodSignature");
+    if (!clsMS) return NULL;
+    return (void*)((id(*)(id, SEL, const char*))objc_msgSend)(clsMS, sel_registerName("signatureWithObjCTypes:"), "@@:");
+}
+static void LDD_FwdInvFn(void *self, void *_cmd, void *inv) {
+    id invObj = (id)inv;
+    if (!invObj) return;
+    SEL sMS = sel_registerName("methodSignature");
+    if (!((BOOL(*)(id, SEL, SEL))objc_msgSend)(invObj, sel_registerName("respondsToSelector:"), sMS)) return;
+    id sig = ((id(*)(id, SEL))objc_msgSend)(invObj, sMS);
+    if (!sig) return;
+    NSUInteger rl = ((NSUInteger(*)(id, SEL))objc_msgSend)(sig, sel_registerName("methodReturnLength"));
+    if (rl > 0 && rl <= 64) {
+        char buf[64]; memset(buf, 0, sizeof(buf));
+        SEL sSRV = sel_registerName("setReturnValue:");
+        if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(invObj, sel_registerName("respondsToSelector:"), sSRV))
+            ((void(*)(id, SEL, const void*))objc_msgSend)(invObj, sSRV, buf);
+    }
+}
+static void LDDInstallFwd(id cls) {
+    if (!cls) return;
+    Class k = (Class)cls;
+    SEL sFS = sel_registerName("methodSignatureForSelector:");
+    if (class_getInstanceMethod(k, sFS)) class_replaceMethod(k, sFS, (IMP)LDD_FwdSigFn, "@@::");
+    else class_addMethod(k, sFS, (IMP)LDD_FwdSigFn, "@@::");
+    SEL sFI = sel_registerName("forwardInvocation:");
+    if (class_getInstanceMethod(k, sFI)) class_replaceMethod(k, sFI, (IMP)LDD_FwdInvFn, "v@:@");
+    else class_addMethod(k, sFI, (IMP)LDD_FwdInvFn, "v@:@");
+}
+
 // ---------- 真实通知呈现 (灵动通知同款: 直接驱动 SB 横幅呈现层, 不入通知中心) ----------
 static double gLastPostT = 0;
 static void PostRealNotification(void) {
@@ -1081,6 +1119,7 @@ static void PostRealNotification(void) {
                     {"shouldPreserveContent",      (void*)LDDUnreqFromNC,       "c@:"},
                     {"destinations",               (void*)LDDUnreqZeroQ,        "Q@:"},
                     {"shouldHideFromGroup",        (void*)LDDUnreqFromNC,       "c@:"},
+                    {"settingsSections",           (void*)LDDUnreqArray,        "@@:"},
                 };
                 for (size_t i = 0; i < sizeof(patches)/sizeof(patches[0]); i++) {
                     SEL sSel = sel_registerName(patches[i].name);
@@ -1089,6 +1128,8 @@ static void PostRealNotification(void) {
                     }
                 }
                 ProbeWrite("RN-REQ-ADDSECTION");
+                // 万能转发兜底: 未预知的 UNNotificationRequest 私有 getter 不再抛异常
+                LDDInstallFwd(clsUNR);
             }
             id inst = ((id(*)(id, SEL))objc_msgSend)((id)clsReq, sel_registerName("alloc"));
             ProbeWrite(inst ? "RN-REQ-ALLOC-OK" : "RN-REQ-ALLOC-FAIL");
@@ -1203,7 +1244,8 @@ static void PostRealNotification(void) {
                     "dateComponents", "alertSuppressionContext",
                     "contentImage", "icon", "headerIcon", "headerImage", "backgroundImage",
                     "attributedTitle", "attributedBody", "attributedSubtitle",
-                    "attributedSummary"
+                    "attributedSummary",
+                    "timeZone"
                 };
                 for (size_t ci = 0; ci < sizeof(contentSel)/sizeof(contentSel[0]); ci++) {
                     SEL sM = sel_registerName(contentSel[ci]);
@@ -1214,6 +1256,8 @@ static void PostRealNotification(void) {
                 SEL sD = sel_registerName("isDateAllDay");
                 if (!class_getInstanceMethod((Class)clsUNC, sD))
                     class_addMethod((Class)clsUNC, sD, (IMP)LDDUnreqFromNC, "c@:");
+                // 万能转发兜底: 未预知的 UNNotificationContent 私有 getter 不再抛异常
+                LDDInstallFwd(clsUNC);
             }
             SEL sPost = sel_registerName("postNotificationRequest:");
             SEL sPrep = sel_registerName("prepareForIncomingNotificationRequest:");
@@ -1382,7 +1426,7 @@ static void ShowPreviewWindow(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.94-batchall");
+    ProbeWrite("LDD-BUILD actions-1.9.95-fwdall");
     ProbeWrite("CONSTRUCTOR-RAN");
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
     // 对照组 hook (兼启动延迟器)
