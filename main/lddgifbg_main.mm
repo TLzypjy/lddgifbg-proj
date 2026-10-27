@@ -1080,6 +1080,14 @@ static NSString *LDDUnreqSectionLegacy(id self, SEL _c) { return @"com.apple.Mob
 static id LDDUnreqSource(id self, SEL _c) { return nil; }
 static BOOL LDDUnreqFromNC(id self, SEL _c) { return NO; }
 static BOOL LDDUnreqIsRemote(id self, SEL _c) { return YES; }
+static NSString *LDDUnreqStr(id self, SEL _c) { return @"ldd-preview"; }
+static NSString *LDDUnreqEmpty(id self, SEL _c) { return @""; }
+static id LDDUnreqDate2(id self, SEL _c) { return ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("NSDate"), sel_registerName("date")); }
+static id LDDUnreqNil(id self, SEL _c) { return nil; }
+static id LDDUnreqDict(id self, SEL _c) { return ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("NSDictionary"), sel_registerName("dictionary")); }
+static double LDDUnreqZeroD(id self, SEL _c) { return 0.0; }
+static NSUInteger LDDUnreqZeroQ(id self, SEL _c) { return 0; }
+static NSUInteger LDDUnreqLevel(id self, SEL _c) { return 1; }
 
 // ---------- 真实通知呈现 (灵动通知同款: 直接驱动 SB 横幅呈现层, 不入通知中心) ----------
 static void PostRealNotification(void) {
@@ -1128,6 +1136,21 @@ static void PostRealNotification(void) {
                     {"source",                   (void*)LDDUnreqSource,       "@@:"},
                     {"isFromNotificationCenter", (void*)LDDUnreqFromNC,       "c@:"},
                     {"isRemote",                 (void*)LDDUnreqIsRemote,     "c@:"},
+                    {"threadIdentifier",         (void*)LDDUnreqStr,          "@@:"},
+                    {"requestIdentifier",        (void*)LDDUnreqNotifID,      "@@:"},
+                    {"date",                     (void*)LDDUnreqDate2,        "@@:"},
+                    {"subtitle",                 (void*)LDDUnreqEmpty,        "@@:"},
+                    {"launchImageName",          (void*)LDDUnreqEmpty,        "@@:"},
+                    {"categoryIdentifier",       (void*)LDDUnreqEmpty,        "@@:"},
+                    {"summaryArgument",          (void*)LDDUnreqEmpty,        "@@:"},
+                    {"targetContentIdentifier",  (void*)LDDUnreqNil,          "@@:"},
+                    {"sound",                    (void*)LDDUnreqNil,          "@@:"},
+                    {"badge",                    (void*)LDDUnreqNil,          "@@:"},
+                    {"userInfo",                 (void*)LDDUnreqDict,         "@@:"},
+                    {"isTransactional",          (void*)LDDUnreqFromNC,       "c@:"},
+                    {"relevanceScore",           (void*)LDDUnreqZeroD,        "d@:"},
+                    {"interruptionLevel",        (void*)LDDUnreqLevel,        "Q@:"},
+                    {"summaryArgumentCount",     (void*)LDDUnreqZeroQ,        "Q@:"},
                 };
                 for (size_t i = 0; i < sizeof(patches)/sizeof(patches[0]); i++) {
                     SEL sSel = sel_registerName(patches[i].name);
@@ -1177,6 +1200,38 @@ static void PostRealNotification(void) {
                     } else ProbeWrite("RN-REQ-CP-FAIL");
                 } else {
                     ProbeWrite(req ? "RN-REQ-NOCP" : "RN-REQ-EMPTYINIT");
+                }
+                // 2c. 终极兜底: setter 填充关键字段 (identifier/sectionIdentifier/content)
+                if (req) {
+                    SEL sSetId = sel_registerName("setIdentifier:");
+                    SEL sSetSec = sel_registerName("setSectionIdentifier:");
+                    SEL sSetContent = sel_registerName("setContent:");
+                    if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(req, sel_registerName("respondsToSelector:"), sSetId))
+                        ((void(*)(id, SEL, id))objc_msgSend)(req, sSetId, uid);
+                    if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(req, sel_registerName("respondsToSelector:"), sSetSec))
+                        ((void(*)(id, SEL, id))objc_msgSend)(req, sSetSec, @"com.apple.MobileSMS");
+                    if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(req, sel_registerName("respondsToSelector:"), sSetContent)) {
+                        // 尝试构造 NCNotificationContent
+                        id clsNCContent = (id)objc_getClass("NCNotificationContent");
+                        if (clsNCContent) {
+                            id ncInst = ((id(*)(id, SEL))objc_msgSend)((id)clsNCContent, sel_registerName("alloc"));
+                            const char *ncInits[] = {"initWithNotificationRequest:", "initWithTitle:message:", "initWithTitle:message:body:", 0};
+                            id ncContent = nil;
+                            for (int j = 0; ncInits[j] && !ncContent; j++) {
+                                SEL sNCI = sel_registerName(ncInits[j]);
+                                if (ncInst && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(ncInst, sel_registerName("respondsToSelector:"), sNCI)) {
+                                    if (j == 0) ncContent = ((id(*)(id, SEL, id))objc_msgSend)(ncInst, sNCI, unreq);
+                                    else if (j == 1) ncContent = ((id(*)(id, SEL, id, id))objc_msgSend)(ncInst, sNCI, @"灵动岛GIF背景", @"预览通知");
+                                    else ncContent = ((id(*)(id, SEL, id, id, id))objc_msgSend)(ncInst, sNCI, @"灵动岛GIF背景", @"预览通知", @"岛展开显示您的背景");
+                                }
+                            }
+                            if (ncContent) {
+                                ((void(*)(id, SEL, id))objc_msgSend)(req, sSetContent, ncContent);
+                                ProbeWrite("RN-REQ-SETCONTENT-OK");
+                            } else ProbeWrite("RN-REQ-SETCONTENT-NOC");
+                        } else ProbeWrite("RN-REQ-SETCONTENT-NOCLS");
+                    }
+                    ProbeWrite("RN-REQ-SETTERS-DONE");
                 }
             }
         } else {
