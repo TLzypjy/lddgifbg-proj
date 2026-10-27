@@ -133,7 +133,7 @@ static void LogReason(const char *tag, id e);
 static void CheckForcePreviewTick(void);
 static void PostRealNotification(void);
 static void LDDIsolateStageTwo(id layer, id req);
-static void LDDSuppressStageTwo(void);
+static void LDDDismissStageTwoBanner(void);
 static void ConsumeForcePreview(void);
 static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, y, w, h}; return r; }
 typedef struct UIEdgeInsets { double top, left, bottom, right; } UIEdgeInsets;
@@ -1371,7 +1371,7 @@ static void PostRealNotification(void) {
                 ProbeWrite("RN-PRES-PREP");
                 gRealPosted = 1;
                 LDDIsolateStageTwo(layer, req);
-                LDDSuppressStageTwo();
+                LDDDismissStageTwoBanner();
                 return;
             }
             if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(layer, sel_registerName("respondsToSelector:"), sPost)) {
@@ -1380,7 +1380,7 @@ static void PostRealNotification(void) {
                 ProbeWrite("RN-PRES-SENT");
                 gRealPosted = 1;
                 LDDIsolateStageTwo(layer, req);
-                LDDSuppressStageTwo();
+                LDDDismissStageTwoBanner();
                 return;
             }
             ProbeWrite("RN-PRES-NOMETHOD");
@@ -1391,9 +1391,7 @@ static void PostRealNotification(void) {
     } @catch (id e) { LogReason("RN-EXC", e); if (!gRealPosted) ShowPreviewWindow(); }
 }
 
-// 优化22: 抑制标准横幅阶段 —— iOS16.4 灵动岛设备上 post 一次 = 岛展开(Stage1, GIF) + 标准横幅(Stage2) 两阶段。
-// SBBannerManager 管理标准横幅; 投递后 acquireBannerSuppressionAssertionForReason: 抑制 Stage2,
-// 只留岛展开 GIF 预览。5 秒后释放, 恢复系统横幅功能。
+// 优化22: 从 SpringBoard 实例取 _bannerManager (SBBannerManager)
 static id LDDGetBannerManager(void) {
     @try {
         id sb = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIApplication"), sel_registerName("sharedApplication"));
@@ -1404,36 +1402,55 @@ static id LDDGetBannerManager(void) {
             const char *nm = ivar_getName(ivars[i]);
             if (nm && strcmp(nm, "_bannerManager") == 0) {
                 id v = object_getIvar(sb, ivars[i]);
-                if (v) { ProbeWrite("RN-SUPP-BM-YES"); return v; }
+                if (v) { ProbeWrite("RN-DISM-BM-YES"); return v; }
             }
         }
-        ProbeWrite("RN-SUPP-BM-NO");
-    } @catch (id e) { LogReason("RN-SUPP-BM-EXC", e); }
+        ProbeWrite("RN-DISM-BM-NO");
+    } @catch (id e) { LogReason("RN-DISM-BM-EXC", e); }
     return nil;
 }
-static void LDDSuppressStageTwo(void) {
+// 优化23: 投递后 dismiss 标准横幅阶段(Stage2) —— iOS16.4 灵动岛设备一次 post = 岛展开(Stage1, GIF) + 标准横幅(Stage2) 两阶段。
+// suppression 只延迟不取消(释放后 Stage2 立即弹出), 改用 SBBannerManager dismissAllBannersInWindowScene:animated:reason: 直接关闭横幅呈现。
+static id LDDGetWindowScene(void) {
     @try {
-        static id gAssertion = nil;
-        if (gAssertion) {
-            @try { ((void(*)(id, SEL))objc_msgSend)(gAssertion, sel_registerName("invalidate")); } @catch (id e) {}
-            gAssertion = nil;
+        id sb = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIApplication"), sel_registerName("sharedApplication"));
+        if (!sb) return nil;
+        id scenes = ((id(*)(id, SEL))objc_msgSend)(sb, sel_registerName("connectedScenes"));
+        if (!scenes) return nil;
+        if ([scenes respondsToSelector:@selector(anyObject)]) {
+            id v = [scenes anyObject];
+            if (v) return v;
         }
-        id bm = LDDGetBannerManager();
-        if (!bm) return;
-        ProbeWrite("RN-SUPP-TRY");
-        typedef id (*FnAcq)(id, SEL, id);
-        gAssertion = ((FnAcq)objc_msgSend)(bm, sel_registerName("acquireBannerSuppressionAssertionForReason:"), @"ldd-preview");
-        ProbeWrite(gAssertion ? "RN-SUPP-OK" : "RN-SUPP-NIL");
-        if (gAssertion) {
-            __weak id wA = gAssertion;
-            dispatch_after(dispatch_time(0, 5000 * 1000000LL), &_dispatch_main_q, ^{
-                @try { ((void(*)(id, SEL))objc_msgSend)(wA, sel_registerName("invalidate")); } @catch (id e) {}
-                ProbeWrite("RN-SUPP-RELEASED");
-            });
+        if ([scenes isKindOfClass:[NSArray class]]) {
+            if ([(NSArray *)scenes count] > 0) return ((NSArray *)scenes)[0];
         }
-    } @catch (id e) { LogReason("RN-SUPP-EXC", e); }
+    } @catch (id e) { LogReason("RN-DISM-SCN-EXC", e); }
+    return nil;
 }
-
+static void LDDDismissStageTwoBanner(void) {
+    @try {
+        id bm = LDDGetBannerManager();
+        if (!bm) { ProbeWrite("RN-DISM-BM-NO"); return; }
+        ProbeWrite("RN-DISM-TRY");
+        // dismissAllBannersInWindowScene:animated:reason:
+        __block NSTimeInterval last = 0;
+        dispatch_after(dispatch_time(0, 1500 * 1000000LL), &_dispatch_main_q, ^{
+            @try {
+                NSTimeInterval nowT = [[NSProcessInfo processInfo] systemUptime];
+                if (nowT - last < 0.5) return;
+                last = nowT;
+                id scn = LDDGetWindowScene();
+                ProbeWrite(scn ? "RN-DISM-SCN-YES" : "RN-DISM-SCN-NO");
+                typedef void (*FnD)(id, SEL, id, BOOL, id);
+                ((FnD)objc_msgSend)(bm, sel_registerName("dismissAllBannersInWindowScene:animated:reason:"), scn, YES, @"ldd-preview");
+                ProbeWrite("RN-DISM-OK");
+            } @catch (id e) {
+                // C 层崩溃无法捕获; 走到这里是 ObjC 异常
+                ProbeWrite("RN-DISM-EXC");
+            }
+        });
+    } @catch (id e) { LogReason("RN-DISM-EXC2", e); }
+}
 // 优化21: 两阶段隔离 —— iOS16 灵动岛设备上 post 一次会被呈现成两条:
 // 岛展开(Stage1, GIF+现在标签, 常驻) -> 标准横幅(Stage2, 3秒) 在 Stage1 结束后跟出。
 // 用户只需一条。post 后 2s 调用 removeNotificationRequest: 把通知请求移除,
@@ -1605,7 +1622,7 @@ static void ShowPreviewWindow(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.113-supp");
+    ProbeWrite("LDD-BUILD actions-1.9.114-dism");
     ProbeWrite("CONSTRUCTOR-RAN");
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
     // 对照组 hook (兼启动延迟器)
