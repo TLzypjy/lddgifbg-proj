@@ -1231,13 +1231,8 @@ static void PostRealNotification(void) {
         id layer = FindPresentLayer();
         if (layer) ProbeWrite("RN-PRES-FOUND"); else ProbeWrite("RN-PRES-NIL");
         if (req && layer) {
-            // 3a. 持久化岛形态标记 (预览 App 持久化通知)
-            SEL sPersist = sel_registerName("setPersistentNotificationAppBundleIdentifiers:");
-            if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(layer, sel_registerName("respondsToSelector:"), sPersist)) {
-                id set = ((id(*)(id, SEL, id))objc_msgSend)((id)objc_getClass("NSSet"), sel_registerName("setWithObject:"), @"com.apple.mobilesms");
-                ((void(*)(id, SEL, id))objc_msgSend)(layer, sPersist, set);
-                ProbeWrite("RN-PRES-PERSIST-SET");
-            }
+            // 3a. (已删除) 持久化标记 setPersistentNotificationAppBundleIdentifiers:
+            // 曾导致一次投递被呈现层渲染成两条横幅(持久条目 + 普通横幅), 用户要求只显示一条。
             // 3b. 投递: postNotificationRequest: / prepareForIncomingNotificationRequest:
             // 优化14: postNotificationRequest: 内部会依次访问 UNNotificationContent 的一串私有
             // header 方法 (iOS16 缺失): customHeader -> defaultHeader -> topHeader -> hiddenPreviews...
@@ -1436,7 +1431,7 @@ static void ShowPreviewWindow(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.98-window");
+    ProbeWrite("LDD-BUILD actions-1.9.99-nopersist");
     ProbeWrite("CONSTRUCTOR-RAN");
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
     // 对照组 hook (兼启动延迟器)
