@@ -35,7 +35,7 @@ extern "C" void *dlopen(const char *path, int mode);
 extern "C" void MSHookMessageEx(Class _class, SEL _sel, IMP _replacement, IMP *_result);
 extern "C" int objc_getClassList(void *buffer, int bufferLen);
 extern "C" const char *class_getName(void *cls);
-extern "C" void *class_copyMethodList(void *cls, unsigned int *count);
+extern "C" void *class_copyMethodList(Class cls, unsigned int *count);
 extern "C" void *method_getName(void *method);
 extern "C" const char *sel_getName(void *sel);
 extern "C" void *objc_autoreleasePoolPush(void);
