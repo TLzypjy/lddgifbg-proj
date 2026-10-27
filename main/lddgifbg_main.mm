@@ -35,6 +35,9 @@ extern "C" void *dlopen(const char *path, int mode);
 extern "C" void MSHookMessageEx(Class _class, SEL _sel, IMP _replacement, IMP *_result);
 extern "C" int objc_getClassList(void *buffer, int bufferLen);
 extern "C" const char *class_getName(void *cls);
+extern "C" void *class_copyMethodList(void *cls, unsigned int *count);
+extern "C" void *method_getName(void *method);
+extern "C" const char *sel_getName(void *sel);
 extern "C" void *objc_autoreleasePoolPush(void);
 extern "C" void objc_autoreleasePoolPop(void *pool);
 extern "C" void CFRelease(void *cf);
@@ -650,6 +653,26 @@ static void FindLayerConsider(id o, SEL sLL, SEL sPrep, SEL sPost, id *bestLL, i
         char line[128];
         snprintf(line, sizeof(line), "PRES-CAND-%s", cn);
         ProbeWrite(line);
+        if (strstr(cn, "BannerManager") || strstr(cn, "NotificationDispatcher")) {
+            static int enl = 0;
+            if (enl < 80) {
+                unsigned int mc = 0;
+                void **ms = (void **)class_copyMethodList((Class)object_getClass(o), &mc);
+                if (ms) {
+                    for (unsigned int i = 0; i < mc && enl < 80; i++) {
+                        if (!ms[i]) continue;
+                        void *m = method_getName(ms[i]);
+                        if (!m) continue;
+                        const char *mn = sel_getName((SEL)m);
+                        if (!mn) continue;
+                        enl++;
+                        char ml[192];
+                        snprintf(ml, sizeof(ml), "PRES-%s-METHOD-%s", cn, mn);
+                        ProbeWrite(ml);
+                    }
+                }
+            }
+        }
     }
     if (!*bestLL && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(o, sel_registerName("respondsToSelector:"), sLL)) *bestLL = o;
     if (!*bestPrep && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(o, sel_registerName("respondsToSelector:"), sPrep)) *bestPrep = o;
@@ -1535,7 +1558,7 @@ static void ShowPreviewWindow(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.111-remove2s");
+    ProbeWrite("LDD-BUILD actions-1.9.112-bmprobe");
     ProbeWrite("CONSTRUCTOR-RAN");
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
     // 对照组 hook (兼启动延迟器)
