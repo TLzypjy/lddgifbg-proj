@@ -584,7 +584,7 @@ static void ConsumeForcePreview(void) {
     if (access(fp, 0) != 0) return;
     rename(fp, "/var/mobile/lddgifbg/__force_preview__.consumed");
     double now = CFAbsoluteTimeGetCurrent();
-    if (now - gLastConsumeT < 4.5) { ProbeWrite("RN-CONSUME-DUP"); return; }
+    if (now - gLastConsumeT < 8.0) { ProbeWrite("RN-CONSUME-DUP"); return; }
     gLastConsumeT = now;
     PostRealNotification();
 }
@@ -1105,7 +1105,7 @@ static void PostRealNotification(void) {
     // 窗口 4.5s ≈ 横幅显示时长: 第一条显示期间的连点全部去重,
     // 消除"第一条关闭后紧跟第二条"的队列排队; 等第一条关完再点即弹新的。
     double nowT = CFAbsoluteTimeGetCurrent();
-    if (nowT - gLastPostT < 4.5) return;
+    if (nowT - gLastPostT < 8.0) return;
     gLastPostT = nowT;
     ProbeWrite("RN-START");
     int gRealPosted = 0;
