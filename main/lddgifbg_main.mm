@@ -1070,6 +1070,7 @@ static void PostRealNotification(void) {
                     {"relevanceScore",           (void*)LDDUnreqZeroD,        "d@:"},
                     {"interruptionLevel",        (void*)LDDUnreqLevel,        "Q@:"},
                     {"summaryArgumentCount",     (void*)LDDUnreqZeroQ,        "Q@:"},
+                    {"requestDestinations",       (void*)LDDUnreqLevel,        "Q@:"},
                 };
                 for (size_t i = 0; i < sizeof(patches)/sizeof(patches[0]); i++) {
                     SEL sSel = sel_registerName(patches[i].name);
@@ -1344,7 +1345,7 @@ static void ShowPreviewWindow(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.89-dedupe3s");
+    ProbeWrite("LDD-BUILD actions-1.9.90-singlech");
     ProbeWrite("CONSTRUCTOR-RAN");
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
     // 对照组 hook (兼启动延迟器)

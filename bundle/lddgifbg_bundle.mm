@@ -846,9 +846,10 @@ static UIImage *RenderFrameAtIndex(unsigned long idx, CGSize dst) {
 @implementation lddgifbgRootListController
 - (void)showBannerPreview {
     @try {
-        // 1.9.83: 触发 SpringBoard 端发真实系统通知 (灵动通知同款通道), 设置端不再自绘
+        // 1.9.90: 只走文件通道(单通道)。此前双通道(文件+notify)在 SpringBoard 端
+        // 因 main 队列串行+投递阻塞, 时间窗口去重失效 -> 每次点击弹两条/连点积压十几条。
+        // 文件通道由布局 hook 消费(remove), 每次点击恰好触发一次投递。
         [[NSFileManager defaultManager] createFileAtPath:@"/var/mobile/lddgifbg/__force_preview__" contents:0 attributes:0];
-        notify_post("com.tlzypjy.github/TestNotification");
         return;
         // 清理上一次预览残留 (防连点卡死)
         id oldB = objc_getAssociatedObject(self, "pvbanner");
