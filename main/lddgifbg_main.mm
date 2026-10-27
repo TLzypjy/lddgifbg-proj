@@ -1069,8 +1069,17 @@ static UIImage *FirstImageForPath(NSString *path) {
     CFRelease((void *)cg);
     return img;
 }
-// 给 UNNotificationRequest 动态补 sectionIdentifier（iOS16 的 initWithNotificationRequest: 内部会访问它，iOS16 上该 selector 不存在导致 unrecognized selector 崩溃）
+// 给 UNNotificationRequest 动态补 iOS16 缺失的私有方法（initWithNotificationRequest: 内部会依次访问这些 selector）
 static NSString *LDDUnreqSection(id self, SEL _c) { return @"com.apple.MobileSMS"; }
+static NSString *LDDUnreqNotifID(id self, SEL _c) {
+    // 基于公开的 identifier 生成通知唯一标识
+    id ident = ((id(*)(id, SEL))objc_msgSend)(self, sel_registerName("identifier"));
+    return ident ? ident : @"ldd-preview";
+}
+static NSString *LDDUnreqSectionLegacy(id self, SEL _c) { return @"com.apple.MobileSMS"; }
+static id LDDUnreqSource(id self, SEL _c) { return nil; }
+static BOOL LDDUnreqFromNC(id self, SEL _c) { return NO; }
+static BOOL LDDUnreqIsRemote(id self, SEL _c) { return YES; }
 
 // ---------- 真实通知呈现 (灵动通知同款: 直接驱动 SB 横幅呈现层, 不入通知中心) ----------
 static void PostRealNotification(void) {
@@ -1109,14 +1118,24 @@ static void PostRealNotification(void) {
         id clsReq = (id)objc_getClass("NCNotificationRequest");
         id req = nil;
         if (clsReq) {
-            // 动态补 sectionIdentifier
+            // 动态补全 iOS16 缺失的 UNNotificationRequest 私有方法
             id clsUNR = (id)objc_getClass("UNNotificationRequest");
             if (clsUNR) {
-                SEL sSec = sel_registerName("sectionIdentifier");
-                if (!((BOOL(*)(id, SEL, SEL))objc_msgSend)((id)clsUNR, sel_registerName("respondsToSelector:"), sSec)) {
-                    class_addMethod((Class)clsUNR, sSec, (IMP)LDDUnreqSection, "@@:");
-                    ProbeWrite("RN-REQ-ADDSECTION");
+                struct { const char *name; void *imp; const char *types; } patches[] = {
+                    {"sectionIdentifier",        (void*)LDDUnreqSection,      "@@:"},
+                    {"notificationIdentifier",   (void*)LDDUnreqNotifID,      "@@:"},
+                    {"section",                  (void*)LDDUnreqSectionLegacy, "@@:"},
+                    {"source",                   (void*)LDDUnreqSource,       "@@:"},
+                    {"isFromNotificationCenter", (void*)LDDUnreqFromNC,       "c@:"},
+                    {"isRemote",                 (void*)LDDUnreqIsRemote,     "c@:"},
+                };
+                for (size_t i = 0; i < sizeof(patches)/sizeof(patches[0]); i++) {
+                    SEL sSel = sel_registerName(patches[i].name);
+                    if (!((BOOL(*)(id, SEL, SEL))objc_msgSend)((id)clsUNR, sel_registerName("respondsToSelector:"), sSel)) {
+                        class_addMethod((Class)clsUNR, sSel, (IMP)patches[i].imp, patches[i].types);
+                    }
                 }
+                ProbeWrite("RN-REQ-ADDSECTION");
             }
             id inst = ((id(*)(id, SEL))objc_msgSend)((id)clsReq, sel_registerName("alloc"));
             ProbeWrite(inst ? "RN-REQ-ALLOC-OK" : "RN-REQ-ALLOC-FAIL");
