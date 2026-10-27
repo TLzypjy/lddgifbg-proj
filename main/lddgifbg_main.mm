@@ -639,7 +639,7 @@ static id HookBNDInit(id self, SEL _c) {
 // 运行时兜底: 从 dispatcher destinations / SB ivar 找呈现层
 static void FindLayerConsider(id o, SEL sPrep, SEL sPost, id *bestPrep, id *bestPost) {
     if (!o) return;
-    const char *cn = class_getName(object_getClass(o));
+    const char *cn = class_getName((void *)object_getClass(o));
     if (cn) {
         char line[128];
         snprintf(line, sizeof(line), "PRES-CAND-%s", cn);
