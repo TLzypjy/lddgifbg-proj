@@ -1,4 +1,5 @@
-// 灵动岛GIF背景 —— 重制版主插件 (全标准 ObjC 语法, arm64e 安全)
+// 灵动岛GIF背景 —— 重制版主插件
+// rebuild-trigger-3 (全标准 ObjC 语法, arm64e 安全)
 // hook SBSystemApertureContainerViewContentView layoutSubviews
 // prefs: suite lddgifbg (NSUserDefaults + plist 文件多路径兜底, 含 @P@ RootHide 路径)
 // 素材: /var/mobile/lddgifbg/<文件夹>/, gif > mp4/mov > png/jpg
