@@ -574,14 +574,25 @@ static void PreviewTick(void);
 static id gPreviewDismissTarget = nil;
 
 static double gForceLast = 0;
+// 消费去重: 读文件内容时间戳, 与上次消费比对, 相同(残留/重写同内容)则忽略
+static NSString *gLastConsumedTs = nil;
+static void ConsumeForcePreview(void) {
+    if (access("/var/mobile/lddgifbg/__force_preview__", 0) != 0) return;
+    SEL sRead = sel_registerName("stringWithContentsOfFile:encoding:error:");
+    id ts = ((id(*)(id, SEL, id, NSUInteger, id))objc_msgSend)((id)objc_getClass("NSString"), sRead, @"/var/mobile/lddgifbg/__force_preview__", (NSUInteger)4, nil);
+    remove("/var/mobile/lddgifbg/__force_preview__");
+    if (ts && gLastConsumedTs && ((BOOL(*)(id, SEL, id))objc_msgSend)(ts, sel_registerName("isEqualToString:"), gLastConsumedTs)) {
+        ProbeWrite("RN-CONSUME-DUP");
+        return;
+    }
+    gLastConsumedTs = ts;
+    PostRealNotification();
+}
 static void CheckForcePreviewTick(void) {
     double t = CFAbsoluteTimeGetCurrent();
     if (t - gForceLast < 0.05) return;
     gForceLast = t;
-    if (access("/var/mobile/lddgifbg/__force_preview__", 0) == 0) {
-        remove("/var/mobile/lddgifbg/__force_preview__");
-        PostRealNotification();
-    }
+    ConsumeForcePreview();
 }
 
 // 触发监控: 独立 GCD 轮询 (0.1s), 不依赖 SB 布局回调。
@@ -596,10 +607,7 @@ static void StartForceMonitor(void) {
 }
 
 static void CheckForcePreview(void) {
-    if (access("/var/mobile/lddgifbg/__force_preview__", 0) == 0) {
-        remove("/var/mobile/lddgifbg/__force_preview__");
-        PostRealNotification();
-    }
+    ConsumeForcePreview();
 }
 static BOOL ForcePreviewActive(void) { return time(0) < gForceUntil; }
 
