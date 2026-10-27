@@ -2,6 +2,7 @@
 // 架构: 入口壳(PSListController) -> 模态面板(UITableViewController 自绘) -> 素材选择器(模态)
 // 关键: 全部使用 [obj method:] 标准语法, 由编译器生成 arm64e 正确的 objc_msgSend
 #include <stdio.h>
+#include <time.h>
 #include <string.h>
 
 typedef struct objc_class *Class;
@@ -849,7 +850,16 @@ static UIImage *RenderFrameAtIndex(unsigned long idx, CGSize dst) {
         // 1.9.90: 只走文件通道(单通道)。此前双通道(文件+notify)在 SpringBoard 端
         // 因 main 队列串行+投递阻塞, 时间窗口去重失效 -> 每次点击弹两条/连点积压十几条。
         // 文件通道由布局 hook 消费(remove), 每次点击恰好触发一次投递。
-        [[NSFileManager defaultManager] createFileAtPath:@"/var/mobile/lddgifbg/__force_preview__" contents:0 attributes:0];
+        // 按钮 2s 连点去重 + 文件内容带时间戳 (SB 端按内容去重, 防残留双弹)
+        {
+            static double gLastBtnT = 0;
+            double nowB = CFAbsoluteTimeGetCurrent();
+            if (nowB - gLastBtnT < 2.0) return;
+            gLastBtnT = nowB;
+        }
+        NSString *tsStr = [NSString stringWithFormat:@"%ld", (long)time(0)];
+        id tsData = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(tsStr, sel_registerName("dataUsingEncoding:"), (NSUInteger)4);
+        [[NSFileManager defaultManager] createFileAtPath:@"/var/mobile/lddgifbg/__force_preview__" contents:tsData attributes:0];
         return;
         // 清理上一次预览残留 (防连点卡死)
         id oldB = objc_getAssociatedObject(self, "pvbanner");
