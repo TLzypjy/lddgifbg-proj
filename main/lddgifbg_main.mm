@@ -997,9 +997,12 @@ static NSUInteger LDDUnreqLevel(id self, SEL _c) { return 1; }
 // ---------- 真实通知呈现 (灵动通知同款: 直接驱动 SB 横幅呈现层, 不入通知中心) ----------
 static double gLastPostT = 0;
 static void PostRealNotification(void) {
-    // 优化11: 去重 —— 设置页预览按钮同时走"触发文件+notify"双通道, 0.8s 窗口内只投一次
+    // 优化11: 去重 —— 设置页预览按钮双通道(触发文件+notify)同时到达,
+    // 但 notify handler 派发到 main queue 会排在第一条投递执行之后才跑,
+    // 首条执行含 dlopen/写探针耗时, 两条间隔可能超 0.8s, 故窗口拉大到 3s
+    // (覆盖首条完整执行 + 队列延迟 + 横幅动画期间), 窗口内只投一次。
     double nowT = CFAbsoluteTimeGetCurrent();
-    if (nowT - gLastPostT < 0.8) return;
+    if (nowT - gLastPostT < 3.0) return;
     gLastPostT = nowT;
     ProbeWrite("RN-START");
     int gRealPosted = 0;
@@ -1052,6 +1055,7 @@ static void PostRealNotification(void) {
                     {"intentIdentifiers",        (void*)LDDUnreqArray,        "@@:"},
                     {"peopleIdentifiers",        (void*)LDDUnreqArray,        "@@:"},
                     {"parentSectionIdentifier",  (void*)LDDUnreqEmpty,        "@@:"},
+                    {"timestamp",                (void*)LDDUnreqDate2,        "@@:"},
                     {"isUniqueThreadIdentifier", (void*)LDDUnreqFromNC,       "c@:"},
                     {"date",                     (void*)LDDUnreqDate2,        "@@:"},
                     {"subtitle",                 (void*)LDDUnreqEmpty,        "@@:"},
@@ -1340,7 +1344,7 @@ static void ShowPreviewWindow(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.88-notrig");
+    ProbeWrite("LDD-BUILD actions-1.9.89-dedupe3s");
     ProbeWrite("CONSTRUCTOR-RAN");
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
     // 对照组 hook (兼启动延迟器)
