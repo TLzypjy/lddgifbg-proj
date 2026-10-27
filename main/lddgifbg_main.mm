@@ -1292,38 +1292,34 @@ static void PostRealNotification(void) {
             // 单横幅流程, 且 GIF 可作为附件直接显示在横幅上。优先走 UN, 失败落回 NC 兜底。
             ProbeWrite("RN-PRES-TRYUN");
             @try {
-                Class unCls = NSClassFromString(@"UNUserNotificationCenter");
-                if (!unCls) {
-                    ProbeWrite("RN-UN-NOCLS");
+                id center = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UNUserNotificationCenter"), sel_registerName("currentNotificationCenter"));
+                if (!center) {
+                    ProbeWrite("RN-UN-NOCENTER");
                 } else {
-                    id center = ((id(*)(id, SEL))objc_msgSend)((id)unCls, sel_registerName("currentNotificationCenter"));
-                    if (!center) {
-                        ProbeWrite("RN-UN-NOCENTER");
-                    } else {
-                        id content = [[NSClassFromString(@"UNMutableNotificationContent") alloc] init];
-                        [content setValue:@"灵动岛GIF背景" forKey:@"title"];
-                        [content setValue:@"预览通知" forKey:@"body"];
-                        id sound = ((id(*)(id, SEL))objc_msgSend)((id)NSClassFromString(@"UNNotificationSound"), sel_registerName("defaultSound"));
-                        if (sound) [content setValue:sound forKey:@"sound"];
-                        NSString *mediaPath = GetSelectedImagePath();
-                        if (mediaPath) {
-                            NSError *aErr = nil;
-                            id attach = ((id(*)(id, SEL, id, id, id, id))objc_msgSend)((id)NSClassFromString(@"UNNotificationAttachment"), sel_registerName("attachmentWithIdentifier:URL:options:error:"), @"ldd-gif", [NSURL fileURLWithPath:mediaPath], @{}, &aErr);
-                            if (attach) [content setValue:@[attach] forKey:@"attachments"];
-                            else if (aErr) {
-                                char lb[192];
-                                snprintf(lb, sizeof(lb), "RN-UN-ATTACH-ERR %s", [[aErr description] UTF8String]);
-                                ProbeWrite(lb);
-                            }
+                    id content = [[(id)objc_getClass("UNMutableNotificationContent") alloc] init];
+                    [content setValue:@"灵动岛GIF背景" forKey:@"title"];
+                    [content setValue:@"预览通知" forKey:@"body"];
+                    id sound = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UNNotificationSound"), sel_registerName("defaultSound"));
+                    if (sound) [content setValue:sound forKey:@"sound"];
+                    NSString *mediaPath = GetSelectedImagePath();
+                    if (mediaPath) {
+                        typedef id (*FnAtt)(id, SEL, id, id, id, void *);
+                        id attach = ((FnAtt)objc_msgSend)((id)objc_getClass("UNNotificationAttachment"), sel_registerName("attachmentWithIdentifier:URL:options:error:"), @"ldd-gif", [NSURL fileURLWithPath:mediaPath], NULL, NULL);
+                        if (attach) {
+                            typedef id (*FnArr)(id, SEL, id);
+                            id arr = ((FnArr)objc_msgSend)((id)objc_getClass("NSArray"), sel_registerName("arrayWithObject:"), attach);
+                            [content setValue:arr forKey:@"attachments"];
                         } else {
-                            ProbeWrite("RN-UN-NOMEDIA");
+                            ProbeWrite("RN-UN-ATTACH-NIL");
                         }
-                        id request = ((id(*)(id, SEL, id, id, id))objc_msgSend)((id)NSClassFromString(@"UNNotificationRequest"), sel_registerName("requestWithIdentifier:content:trigger:"), @"ldd-preview", content, nil);
-                        ((void(*)(id, SEL, id, id))objc_msgSend)(center, sel_registerName("addNotificationRequest:withCompletionHandler:"), request, nil);
-                        ProbeWrite("RN-UN-ADDED");
-                        gRealPosted = 1;
-                        return;
+                    } else {
+                        ProbeWrite("RN-UN-NOMEDIA");
                     }
+                    id request = ((id(*)(id, SEL, id, id, id))objc_msgSend)((id)objc_getClass("UNNotificationRequest"), sel_registerName("requestWithIdentifier:content:trigger:"), @"ldd-preview", content, NULL);
+                    ((void(*)(id, SEL, id, id))objc_msgSend)(center, sel_registerName("addNotificationRequest:withCompletionHandler:"), request, NULL);
+                    ProbeWrite("RN-UN-ADDED");
+                    gRealPosted = 1;
+                    return;
                 }
             } @catch (id e) {
                 LogReason("RN-UN-EXC", e);
