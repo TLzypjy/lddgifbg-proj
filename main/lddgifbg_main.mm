@@ -1345,6 +1345,59 @@ static void PostRealNotification(void) {
                 // 万能转发兜底: 未预知的 UNNotificationContent 私有 getter 不再抛异常
                 LDDInstallFwd(clsUNC);
             }
+            // 优化24: TrollOpen 式直接上岛 —— iOS16 SBNotificationBannerDestination 私有方法
+            // presentModalBannerAndExpandForNotificationRequest: 直接"模态呈现并展开"通知,
+            // 不经过通知中心 post 流程, 无两阶段呈现 -> 只弹一条岛展开(GIF)。
+            SEL sISL = sel_registerName("presentModalBannerAndExpandForNotificationRequest:");
+            if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(layer, sel_registerName("respondsToSelector:"), sISL)) {
+                ProbeWrite("ISL-TRY");
+                @try {
+                    id clsUNMC = (id)objc_getClass("UNMutableNotificationContent");
+                    id clsUNTrg = (id)objc_getClass("UNPushNotificationTrigger");
+                    id clsUNReq = (id)objc_getClass("UNNotificationRequest");
+                    id clsNCNR = (id)objc_getClass("NCNotificationRequest");
+                    ProbeWrite(clsUNMC ? "ISL-UNMC-YES" : "ISL-UNMC-NO");
+                    ProbeWrite(clsUNTrg ? "ISL-UNTRG-YES" : "ISL-UNTRG-NO");
+                    ProbeWrite(clsUNReq ? "ISL-UNREQ-YES" : "ISL-UNREQ-NO");
+                    ProbeWrite(clsNCNR ? "ISL-NCNR-YES" : "ISL-NCNR-NO");
+                    if (clsUNMC && clsUNTrg && clsUNReq && clsNCNR) {
+                        id content = ((id(*)(id, SEL))objc_msgSend)(clsUNMC, sel_registerName("new"));
+                        if (content) {
+                            ((void(*)(id, SEL, id))objc_msgSend)(content, sel_registerName("setTitle:"), @"灵动岛GIF背景");
+                            ((void(*)(id, SEL, id))objc_msgSend)(content, sel_registerName("setBody:"), @"预览通知");
+                            id trigger = ((id(*)(id, SEL))objc_msgSend)(clsUNTrg, sel_registerName("new"));
+                            id unReq = ((id(*)(id, SEL, id, id, id))objc_msgSend)(clsUNReq, sel_registerName("requestWithIdentifier:content:trigger:"), @"ldd.preview", content, trigger);
+                            if (unReq) {
+                                ProbeWrite("ISL-UNREQ-OK");
+                                id nsdate = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("NSDate"), sel_registerName("date"));
+                                id nsarr = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("NSArray"), sel_registerName("array"));
+                                id ncReq = nil;
+                                const char *sNCN1 = "notificationWithRequest:date:sourceIdentifier:intentIdentifiers:";
+                                SEL sNCN1S = sel_registerName(sNCN1);
+                                if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(clsNCNR, sel_registerName("respondsToSelector:"), sNCN1S)) {
+                                    ncReq = ((id(*)(id, SEL, id, id, id, id))objc_msgSend)(clsNCNR, sNCN1S, unReq, nsdate, @"com.apple.MobileSMS", nsarr);
+                                    ProbeWrite("ISL-NCNR-STATIC");
+                                } else {
+                                    id ncInst = ((id(*)(id, SEL))objc_msgSend)(clsNCNR, sel_registerName("alloc"));
+                                    const char *sNCN2 = "initWithNotificationRequest:date:sourceIdentifier:intentIdentifiers:";
+                                    SEL sNCN2S = sel_registerName(sNCN2);
+                                    if (ncInst && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(ncInst, sel_registerName("respondsToSelector:"), sNCN2S)) {
+                                        ncReq = ((id(*)(id, SEL, id, id, id, id))objc_msgSend)(ncInst, sNCN2S, unReq, nsdate, @"com.apple.MobileSMS", nsarr);
+                                        ProbeWrite("ISL-NCNR-INIT");
+                                    }
+                                }
+                                if (ncReq) {
+                                    ProbeWrite("ISL-REQ-OK");
+                                    ((void(*)(id, SEL, id))objc_msgSend)(layer, sISL, ncReq);
+                                    ProbeWrite("ISL-PRESENT-OK");
+                                    gRealPosted = 1;
+                                    return;
+                                } else ProbeWrite("ISL-REQ-NIL");
+                            }
+                        }
+                    }
+                } @catch (id e) { LogReason("ISL-EXC", e); }
+            } else { ProbeWrite("ISL-NOMETHOD"); }
             SEL sPost = sel_registerName("postNotificationRequest:");
             SEL sPrep = sel_registerName("prepareForIncomingNotificationRequest:");
             SEL sLL = sel_registerName("presentLongLookAnimated:trigger:completion:");
@@ -1371,7 +1424,6 @@ static void PostRealNotification(void) {
                 ProbeWrite("RN-PRES-PREP");
                 gRealPosted = 1;
                 LDDIsolateStageTwo(layer, req);
-                LDDDismissStageTwoBanner();
                 return;
             }
             if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(layer, sel_registerName("respondsToSelector:"), sPost)) {
@@ -1380,7 +1432,6 @@ static void PostRealNotification(void) {
                 ProbeWrite("RN-PRES-SENT");
                 gRealPosted = 1;
                 LDDIsolateStageTwo(layer, req);
-                LDDDismissStageTwoBanner();
                 return;
             }
             ProbeWrite("RN-PRES-NOMETHOD");
@@ -1617,7 +1668,7 @@ static void ShowPreviewWindow(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.114-dism");
+    ProbeWrite("LDD-BUILD actions-1.9.115-island");
     ProbeWrite("CONSTRUCTOR-RAN");
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
     // 对照组 hook (兼启动延迟器)
