@@ -46,8 +46,6 @@ extern "C" const char *object_getClassName(id obj);
 extern "C" id object_getClass(id obj);
 extern "C" void dispatch_async(void *queue, void (^block)(void));
 extern "C" void dispatch_after(long long when, void *queue, void (^block)(void));
-extern "C" int notify_post(const char *name);
-extern "C" int notify_register_dispatch(const char *name, int *token, void *queue, void (^block)(int token));
 extern "C" long long dispatch_time(long long base, long long delta);
 struct dispatch_queue_s;
 extern "C" struct dispatch_queue_s _dispatch_main_q;
@@ -131,7 +129,6 @@ extern "C" { extern void *kCGImagePropertyGIFDictionary; extern void *kCGImagePr
 typedef struct CGRect { double ox, oy, w, h; } CGRect;
 static void LogReason(const char *tag, id e);
 static void CheckForcePreviewTick(void);
-static void PostRealNotification(void);
 static void ConsumeForcePreview(void);
 static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, y, w, h}; return r; }
 typedef struct UIEdgeInsets { double top, left, bottom, right; } UIEdgeInsets;
@@ -590,7 +587,10 @@ static void ConsumeForcePreview(void) {
     double now = CFAbsoluteTimeGetCurrent();
     if (now - gLastConsumeT < 1.0) { ProbeWrite("RN-CONSUME-DUP"); return; }
     gLastConsumeT = now;
-    PostRealNotification();
+    // 1.9.117: 预览不再投递系统通知(系统两阶段呈现必弹两条且卡队列),
+    // 直接走自绘岛展开预览(单条, 药丸->展开GIF+「现在」->3.5s收起)
+    ProbeWrite("PREV-FORCE-DIRECT");
+    ShowPreviewWindow();
 }
 static void CheckForcePreviewTick(void) {
     double t = CFAbsoluteTimeGetCurrent();
@@ -637,150 +637,7 @@ static void LogReason(const char *tag, id e) {
     } @catch (id e2) { ProbeWrite(tag); }
 }
 
-// ---------- 捕获横幅呈现层 (hook SBNotificationBannerDestination init) ----------
-static id gPresentLayer = nil;
-static id (*origBNDInit)(id, SEL);
-static id HookBNDInit(id self, SEL _c) {
-    id r = origBNDInit(self, _c);
-    if (!gPresentLayer) { gPresentLayer = r; ProbeWrite("BND-CAPTURED"); }
-    return r;
-}
-// 运行时兜底: 从 dispatcher destinations / SB ivar 找呈现层
-static void FindLayerConsider(id o, SEL sISL, SEL sPost, id *bestISL, id *bestPost) {
-    if (!o) return;
-    const char *cn = class_getName((__bridge void *)object_getClass(o));
-    if (cn) {
-        char line[128];
-        snprintf(line, sizeof(line), "PRES-CAND-%s", cn);
-        ProbeWrite(line);
-        if (strstr(cn, "BannerManager") || strstr(cn, "NotificationDispatcher")) {
-            static int enl = 0;
-            if (enl < 80) {
-                unsigned int mc = 0;
-                void **ms = (void **)class_copyMethodList((Class)object_getClass(o), &mc);
-                if (ms) {
-                    for (unsigned int i = 0; i < mc && enl < 80; i++) {
-                        if (!ms[i]) continue;
-                        void *m = method_getName(ms[i]);
-                        if (!m) continue;
-                        const char *mn = sel_getName((SEL)m);
-                        if (!mn) continue;
-                        enl++;
-                        char ml[192];
-                        snprintf(ml, sizeof(ml), "PRES-%s-METHOD-%s", cn, mn);
-                        ProbeWrite(ml);
-                    }
-                }
-            }
-        }
-    }
-    if (!*bestISL && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(o, sel_registerName("respondsToSelector:"), sISL)) *bestISL = o;
-    if (!*bestPost && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(o, sel_registerName("respondsToSelector:"), sPost)) *bestPost = o;
-}
-static id FindPresentLayer(void) {
-    // 优化17: 不再被 BND-CAPTURED 锁死 —— 遍历全部候选呈现层,
-    // 优先选支持 presentModalBannerAndExpandForNotificationRequest: 的(直接上岛, 一条),
-    // 其次支持 postNotificationRequest: 的; BND 缓存仅作最后兜底。
-    id bestISL = nil, bestPost = nil;
-    SEL sISL = sel_registerName("presentModalBannerAndExpandForNotificationRequest:");
-    SEL sPost = sel_registerName("postNotificationRequest:");
-    // 路线1: NCNotificationDispatcher 的 destinations 集合
-    id clsD = (id)objc_getClass("NCNotificationDispatcher");
-    if (clsD) ProbeWrite("PRES-DISP-CLS-YES"); else ProbeWrite("PRES-DISP-CLS-NO");
-    id disp = nil;
-    if (clsD) {
-        const char *sels[] = {"sharedInstance", "defaultDispatcher", "sharedDispatcher",
-                             "sharedNotificationDispatcher", "defaultNotificationDispatcher",
-                             "notificationDispatcher", "dispatcher", 0};
-        for (int i = 0; sels[i] && !disp; i++) {
-            SEL s = sel_registerName(sels[i]);
-            if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(clsD, sel_registerName("respondsToSelector:"), s))
-                disp = ((id(*)(id, SEL))objc_msgSend)(clsD, s);
-        }
-    }
-    if (disp) {
-        ProbeWrite("PRES-DISP-OBJ-YES");
-        unsigned int cnt = 0;
-        void **ivars = (void **)class_copyIvarList((Class)clsD, &cnt);
-        char dbg[192];
-        snprintf(dbg, sizeof(dbg), "PRES-DISP-IVARS-%u", cnt);
-        ProbeWrite(dbg);
-        for (unsigned int i = 0; i < cnt; i++) {
-            const char *nm = ivar_getName(ivars[i]);
-            if (!nm) continue;
-            if (strstr(nm, "estination")) {
-                id coll = object_getIvar(disp, ivars[i]);
-                if (!coll) continue;
-                {
-                    char dn[192];
-                    snprintf(dn, sizeof(dn), "PRES-DEST-COLL-%s", nm);
-                    ProbeWrite(dn);
-                }
-                id arr = nil;
-                SEL sAll = sel_registerName("allObjects");
-                if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(coll, sel_registerName("respondsToSelector:"), sAll))
-                    arr = ((id(*)(id, SEL))objc_msgSend)(coll, sAll);
-                else arr = coll;
-                NSUInteger n = ((NSUInteger(*)(id, SEL))objc_msgSend)(arr, sel_registerName("count"));
-                {
-                    char cn[128];
-                    snprintf(cn, sizeof(cn), "PRES-DEST-N-%lu", (unsigned long)n);
-                    ProbeWrite(cn);
-                }
-                for (NSUInteger k = 0; k < n; k++) {
-                    id obj = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(arr, sel_registerName("objectAtIndex:"), k);
-                    FindLayerConsider(obj, sISL, sPost, &bestISL, &bestPost);
-                }
-            }
-        }
-        if (bestISL) { ProbeWrite("PRES-CHOOSE-DEST-ISL"); gPresentLayer = bestISL; return bestISL; }
-        if (bestPost) { ProbeWrite("PRES-CHOOSE-DEST-POST"); gPresentLayer = bestPost; return bestPost; }
-    }
-    // 路线2: UIApplication(SpringBoard 实例) ivar 扫 —— iOS16.4 呈现层由 SpringBoard 持有
-    id sb = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIApplication"), sel_registerName("sharedApplication"));
-    if (sb) ProbeWrite("PRES-UIAPP-YES"); else ProbeWrite("PRES-UIAPP-NO");
-    if (sb) {
-        unsigned int cnt = 0;
-        void **ivars = (void **)class_copyIvarList((Class)objc_getClass("SpringBoard"), &cnt);
-        for (unsigned int i = 0; i < cnt; i++) {
-            const char *nm = ivar_getName(ivars[i]);
-            if (!nm) continue;
-            if (strstr(nm, "anner") || strstr(nm, "otification") || strstr(nm, "ispatcher") || strstr(nm, "perture") || strstr(nm, "resentab")) {
-                {
-                    char ivn[192];
-                    snprintf(ivn, sizeof(ivn), "PRES-SBIVAR-%s", nm);
-                    ProbeWrite(ivn);
-                }
-                id v = object_getIvar(sb, ivars[i]);
-                if (v) {
-                    const char *vcn = class_getName((__bridge void *)object_getClass(v));
-                    if (vcn) {
-                        char vn[192];
-                        snprintf(vn, sizeof(vn), "PRES-SBIVAR-VAL-%s", vcn);
-                        ProbeWrite(vn);
-                    }
-                }
-                FindLayerConsider(v, sISL, sPost, &bestISL, &bestPost);
-            }
-        }
-        if (bestISL) { ProbeWrite("PRES-CHOOSE-SB-ISL"); gPresentLayer = bestISL; return bestISL; }
-        if (bestPost) { ProbeWrite("PRES-CHOOSE-SB-POST"); gPresentLayer = bestPost; return bestPost; }
-    }
-    // 路线3: BND-CAPTURED 缓存兜底
-    if (gPresentLayer) { ProbeWrite("PRES-BND-FALLBACK"); return gPresentLayer; }
-    return nil;
-}
 
-static long gNotifSec = 0;
-static void CheckTestNotifFlag(void) {
-    long t = time(0);
-    if (t == gNotifSec) return;
-    gNotifSec = t;
-    if (access("/var/mobile/lddgifbg/__test_notif__", 0) == 0) {
-        remove("/var/mobile/lddgifbg/__test_notif__");
-        PostRealNotification();
-    }
-}
 
 // ---------- 诊断占位 (红=无素材, 蓝=加载失败) ----------
 static void RemoveTagged(id self, NSInteger tag) {
@@ -1061,313 +918,6 @@ static UIImage *FirstImageForPath(NSString *path) {
     CFRelease((void *)cg);
     return img;
 }
-// 给 UNNotificationRequest 动态补 iOS16 缺失的私有方法（initWithNotificationRequest: 内部会依次访问这些 selector）
-static NSString *LDDUnreqSection(id self, SEL _c) { return @"com.apple.MobileMail"; }
-static NSString *LDDUnreqNotifID(id self, SEL _c) {
-    // 基于公开的 identifier 生成通知唯一标识
-    id ident = ((id(*)(id, SEL))objc_msgSend)(self, sel_registerName("identifier"));
-    return ident ? ident : @"ldd-preview";
-}
-static NSString *LDDUnreqSectionLegacy(id self, SEL _c) { return @"com.apple.MobileMail"; }
-static id LDDUnreqSource(id self, SEL _c) { return nil; }
-static BOOL LDDUnreqFromNC(id self, SEL _c) { return NO; }
-static BOOL LDDUnreqIsRemote(id self, SEL _c) { return YES; }
-static NSString *LDDUnreqStr(id self, SEL _c) { return @"ldd-preview"; }
-static NSString *LDDUnreqEmpty(id self, SEL _c) { return @""; }
-static id LDDUnreqDate2(id self, SEL _c) { return ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("NSDate"), sel_registerName("date")); }
-static id LDDUnreqNil(id self, SEL _c) { return nil; }
-static id LDDUnreqDict(id self, SEL _c) { return ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("NSDictionary"), sel_registerName("dictionary")); }
-static id LDDUnreqArray(id self, SEL _c) { return ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("NSArray"), sel_registerName("array")); }
-static double LDDUnreqZeroD(id self, SEL _c) { return 0.0; }
-static NSUInteger LDDUnreqZeroQ(id self, SEL _c) { return 0; }
-
-// ---------- 万能转发兜底 (根治"未知私有方法逐个冒") ----------
-// SB 渲染层 / initWithNotificationRequest: 会访问 UNNotificationRequest 与
-// UNNotificationContent 上我们未预知的私有 getter (iOS17+ 头)。逐名补齐不可穷举,
-// 这里给两个类挂 methodSignatureForSelector: + forwardInvocation:, 任何未识别
-// selector 一律返回签名 "@@:"(id, 8字节缓冲) 并归零返回值 -> nil/0/NO,
-// 对所有标量与 id 类型安全, 不再抛 unrecognized selector。
-static id LDD_FwdSigFn(id self, SEL _cmd, SEL aSel) {
-    id clsMS = (id)objc_getClass("NSMethodSignature");
-    if (!clsMS) return nil;
-    return ((id(*)(id, SEL, const char*))objc_msgSend)(clsMS, sel_registerName("signatureWithObjCTypes:"), "@@:");
-}
-static void LDD_FwdInvFn(id self, SEL _cmd, id inv) {
-    id invObj = inv;
-    if (!invObj) return;
-    SEL sMS = sel_registerName("methodSignature");
-    if (!((BOOL(*)(id, SEL, SEL))objc_msgSend)(invObj, sel_registerName("respondsToSelector:"), sMS)) return;
-    id sig = ((id(*)(id, SEL))objc_msgSend)(invObj, sMS);
-    if (!sig) return;
-    NSUInteger rl = ((NSUInteger(*)(id, SEL))objc_msgSend)(sig, sel_registerName("methodReturnLength"));
-    if (rl > 0 && rl <= 64) {
-        char buf[64]; memset(buf, 0, sizeof(buf));
-        SEL sSRV = sel_registerName("setReturnValue:");
-        if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(invObj, sel_registerName("respondsToSelector:"), sSRV))
-            ((void(*)(id, SEL, const void*))objc_msgSend)(invObj, sSRV, buf);
-    }
-}
-static void LDDInstallFwd(id cls) {
-    if (!cls) return;
-    Class k = (Class)cls;
-    SEL sFS = sel_registerName("methodSignatureForSelector:");
-    if (class_getInstanceMethod(k, sFS)) class_replaceMethod(k, sFS, (IMP)LDD_FwdSigFn, "@@::");
-    else class_addMethod(k, sFS, (IMP)LDD_FwdSigFn, "@@::");
-    SEL sFI = sel_registerName("forwardInvocation:");
-    if (class_getInstanceMethod(k, sFI)) class_replaceMethod(k, sFI, (IMP)LDD_FwdInvFn, "v@:@");
-    else class_addMethod(k, sFI, (IMP)LDD_FwdInvFn, "v@:@");
-}
-
-// ---------- 真实通知呈现 (灵动通知同款: 直接驱动 SB 横幅呈现层, 不入通知中心) ----------
-static double gLastPostT = 0;
-static void PostRealNotification(void) {
-    // 优化11: 去重 —— 已单通道化(设置页只写文件)且轮询即时消费, 每次点击必弹一条。
-    // 窗口 4.5s ≈ 横幅显示时长: 第一条显示期间的连点全部去重,
-    // 消除"第一条关闭后紧跟第二条"的队列排队; 等第一条关完再点即弹新的。
-    double nowT = CFAbsoluteTimeGetCurrent();
-    if (nowT - gLastPostT < 1.0) return;
-    gLastPostT = nowT;
-    ProbeWrite("RN-START");
-    int gRealPosted = 0;
-    @try {
-        dlopen("/System/Library/Frameworks/UserNotifications.framework/UserNotifications", 2);
-        dlopen("/System/Library/PrivateFrameworks/NotificationCenter.framework/NotificationCenter", 2);
-        NSString *uid = [NSString stringWithFormat:@"lddpres-%ld", (long)time(0)];
-
-        // === 1. UN 层内容 (供 contentProvider / initWithNotificationRequest 使用) ===
-        id clsContent = (id)objc_getClass("UNMutableNotificationContent");
-        id content = clsContent ? ((id(*)(id, SEL))objc_msgSend)((id)clsContent, sel_registerName("new")) : nil;
-        if (content) {
-            ((void(*)(id, SEL, id))objc_msgSend)(content, sel_registerName("setTitle:"), @"灵动岛GIF背景");
-            ((void(*)(id, SEL, id))objc_msgSend)(content, sel_registerName("setBody:"), @"预览通知：岛展开显示您的背景");
-        }
-        // 优化12: 不再创建 UNTimeIntervalNotificationTrigger (传 nil)。
-        // 根因: 2a initWithNotificationRequest: 崩前已把带 0.1s trigger 的 UN 请求部分注册,
-        // 0.1 秒后系统自动弹出一条真实 UN 通知(默认铃声图标) -> "第一条关闭后第二条紧跟弹出"。
-        // 去掉 trigger 后 UN 层无可调度请求, 只剩 postNotificationRequest: 一条横幅。
-        id trigger = nil;
-        id unreq = nil;
-        id clsUNReq = (id)objc_getClass("UNNotificationRequest");
-        if (clsUNReq && content) {
-            SEL sR = sel_registerName("requestWithIdentifier:content:trigger:");
-            unreq = ((id(*)(id, SEL, id, id, id))objc_msgSend)(clsUNReq, sR, uid, content, trigger);
-        }
-        if (unreq) ProbeWrite("RN-UN-BUILT");
-
-        // === 2. NCNotificationRequest + ContentProvider ===
-        // 修复思路: iOS16 的 initWithNotificationRequest: 内部会访问 UNNotificationRequest.sectionIdentifier,
-        // 该 selector 在 iOS16 上不存在导致崩溃。这里先动态给 UNNotificationRequest 补上该方法,
-        // 让系统转换能走通, 构造出的 req 字段完整, postNotificationRequest: 内部字典不会插入 nil。
-        id clsReq = (id)objc_getClass("NCNotificationRequest");
-        id req = nil;
-        if (clsReq) {
-            // 动态补全 iOS16 缺失的 UNNotificationRequest 私有方法
-            id clsUNR = (id)objc_getClass("UNNotificationRequest");
-            if (clsUNR) {
-                struct { const char *name; void *imp; const char *types; } patches[] = {
-                    {"sectionIdentifier",        (void*)LDDUnreqSection,      "@@:"},
-                    {"notificationIdentifier",   (void*)LDDUnreqNotifID,      "@@:"},
-                    {"section",                  (void*)LDDUnreqSectionLegacy, "@@:"},
-                    {"source",                   (void*)LDDUnreqSource,       "@@:"},
-                    {"isFromNotificationCenter", (void*)LDDUnreqFromNC,       "c@:"},
-                    {"isRemote",                 (void*)LDDUnreqIsRemote,     "c@:"},
-                    {"threadIdentifier",         (void*)LDDUnreqStr,          "@@:"},
-                    {"requestIdentifier",        (void*)LDDUnreqNotifID,      "@@:"},
-                    {"subSectionIdentifiers",    (void*)LDDUnreqArray,        "@@:"},
-                    {"highestPrioritySubSectionIdentifier", (void*)LDDUnreqNil, "@@:"},
-                    {"intentIdentifiers",        (void*)LDDUnreqArray,        "@@:"},
-                    {"peopleIdentifiers",        (void*)LDDUnreqArray,        "@@:"},
-                    {"parentSectionIdentifier",  (void*)LDDUnreqEmpty,        "@@:"},
-                    {"timestamp",                (void*)LDDUnreqDate2,        "@@:"},
-                    {"isUniqueThreadIdentifier", (void*)LDDUnreqFromNC,       "c@:"},
-                    {"date",                     (void*)LDDUnreqDate2,        "@@:"},
-                    {"subtitle",                 (void*)LDDUnreqEmpty,        "@@:"},
-                    {"launchImageName",          (void*)LDDUnreqEmpty,        "@@:"},
-                    {"categoryIdentifier",       (void*)LDDUnreqEmpty,        "@@:"},
-                    {"summaryArgument",          (void*)LDDUnreqEmpty,        "@@:"},
-                    {"targetContentIdentifier",  (void*)LDDUnreqNil,          "@@:"},
-                    {"sound",                    (void*)LDDUnreqNil,          "@@:"},
-                    {"badge",                    (void*)LDDUnreqNil,          "@@:"},
-                    {"userInfo",                 (void*)LDDUnreqDict,         "@@:"},
-                    {"isTransactional",          (void*)LDDUnreqFromNC,       "c@:"},
-                    {"relevanceScore",           (void*)LDDUnreqZeroD,        "d@:"},
-                    {"interruptionLevel",        (void*)LDDUnreqZeroQ,        "Q@:"},
-                    {"summaryArgumentCount",     (void*)LDDUnreqZeroQ,        "Q@:"},
-                    {"requestDestinations",       (void*)LDDUnreqZeroQ,        "Q@:"},
-                    {"options",                   (void*)LDDUnreqZeroQ,        "Q@:"},
-                    {"alertOptions",               (void*)LDDUnreqZeroQ,        "Q@:"},
-                    // iOS17+ 私有 getter 一次性补齐 (id→nil / BOOL→NO / NSUInteger→0)
-                    {"context",                    (void*)LDDUnreqNil,          "@@:"},
-                    {"contentImage",               (void*)LDDUnreqNil,          "@@:"},
-                    {"attachments",                (void*)LDDUnreqArray,        "@@:"},
-                    {"associatedIconIdentifier",   (void*)LDDUnreqNil,          "@@:"},
-                    {"shouldPreserveContent",      (void*)LDDUnreqFromNC,       "c@:"},
-                    {"destinations",               (void*)LDDUnreqZeroQ,        "Q@:"},
-                    {"shouldHideFromGroup",        (void*)LDDUnreqFromNC,       "c@:"},
-                    {"settingsSections",           (void*)LDDUnreqArray,        "@@:"},
-                };
-                for (size_t i = 0; i < sizeof(patches)/sizeof(patches[0]); i++) {
-                    SEL sSel = sel_registerName(patches[i].name);
-                    if (!((BOOL(*)(id, SEL, SEL))objc_msgSend)((id)clsUNR, sel_registerName("respondsToSelector:"), sSel)) {
-                        class_addMethod((Class)clsUNR, sSel, (IMP)patches[i].imp, patches[i].types);
-                    }
-                }
-                ProbeWrite("RN-REQ-ADDSECTION");
-                // 万能转发兜底: 未预知的 UNNotificationRequest 私有 getter 不再抛异常
-                LDDInstallFwd(clsUNR);
-            }
-            id inst = ((id(*)(id, SEL))objc_msgSend)((id)clsReq, sel_registerName("alloc"));
-            ProbeWrite(inst ? "RN-REQ-ALLOC-OK" : "RN-REQ-ALLOC-FAIL");
-            // 2a. initWithNotificationRequest: (UN 层转系统层)。单独包 @try:
-            // 该函数在 iOS16 内部会访问 UNNotificationRequest 的私有方法, 万一仍有缺失,
-            // 异常在此捕获, 不中断后续 2b/2c 兜底。
-            SEL sInitN = sel_registerName("initWithNotificationRequest:");
-            @try {
-                if (inst && unreq && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(inst, sel_registerName("respondsToSelector:"), sInitN)) {
-                    ProbeWrite("RN-REQ-INITN-TRY");
-                    req = ((id(*)(id, SEL, id))objc_msgSend)(inst, sInitN, unreq);
-                    if (req) ProbeWrite("RN-REQ-INITN-OK"); else ProbeWrite("RN-REQ-INITN-NIL");
-                } else {
-                    ProbeWrite(inst ? (unreq ? "RN-REQ-NOINITN" : "RN-REQ-NOUNREQ") : "RN-REQ-NOALLOC");
-                }
-            } @catch (id e) {
-                LogReason("RN-INITN-EXC", e);
-                req = nil;
-            }
-            // 2b. 兜底: alloc/init + setContentProvider
-            if (!req && inst) {
-                ProbeWrite("RN-REQ-FB-TRY");
-                req = ((id(*)(id, SEL))objc_msgSend)(inst, sel_registerName("init"));
-                id clsCP = (id)objc_getClass("NCNotificationRequestContentProvider");
-                if (req && clsCP) {
-                    id cpinst = ((id(*)(id, SEL))objc_msgSend)((id)clsCP, sel_registerName("alloc"));
-                    id cp = nil;
-                    // 依次尝试 ContentProvider 初始化方法
-                    const char *cpInits[] = {"initWithObject:identifier:", "initWithNotificationRequest:", "initWithIdentifier:content:trigger:", 0};
-                    for (int i = 0; cpInits[i] && !cp; i++) {
-                        SEL sCPI = sel_registerName(cpInits[i]);
-                        if (cpinst && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(cpinst, sel_registerName("respondsToSelector:"), sCPI)) {
-                            ProbeWrite(i == 0 ? "RN-REQ-CP-IOI" : "RN-REQ-CP-ALT");
-                            if (i == 0) cp = ((id(*)(id, SEL, id, id))objc_msgSend)(cpinst, sCPI, (unreq ? (id)unreq : (id)content), uid);
-                            else if (i == 1) cp = ((id(*)(id, SEL, id))objc_msgSend)(cpinst, sCPI, unreq);
-                            else cp = ((id(*)(id, SEL, id, id, id))objc_msgSend)(cpinst, sCPI, uid, content, trigger);
-                        }
-                    }
-                    if (cp) {
-                        ProbeWrite("RN-REQ-CP-OK");
-                        SEL sSetCP = sel_registerName("setContentProvider:");
-                        if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(req, sel_registerName("respondsToSelector:"), sSetCP)) {
-                            ((void(*)(id, SEL, id))objc_msgSend)(req, sSetCP, cp);
-                            ProbeWrite("RN-REQ-CP-SET");
-                        } else ProbeWrite("RN-REQ-NOSETCP");
-                    } else ProbeWrite("RN-REQ-CP-FAIL");
-                } else {
-                    ProbeWrite(req ? "RN-REQ-NOCP" : "RN-REQ-EMPTYINIT");
-                }
-                // 2c. 终极兜底: setter 填充关键字段 (identifier/sectionIdentifier/content)
-                if (req) {
-                    SEL sSetId = sel_registerName("setIdentifier:");
-                    SEL sSetSec = sel_registerName("setSectionIdentifier:");
-                    SEL sSetContent = sel_registerName("setContent:");
-                    if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(req, sel_registerName("respondsToSelector:"), sSetId))
-                        ((void(*)(id, SEL, id))objc_msgSend)(req, sSetId, uid);
-                    if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(req, sel_registerName("respondsToSelector:"), sSetSec))
-                        ((void(*)(id, SEL, id))objc_msgSend)(req, sSetSec, @"com.apple.MobileMail");
-                    if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(req, sel_registerName("respondsToSelector:"), sSetContent)) {
-                        // 尝试构造 NCNotificationContent
-                        id clsNCContent = (id)objc_getClass("NCNotificationContent");
-                        if (clsNCContent) {
-                            id ncInst = ((id(*)(id, SEL))objc_msgSend)((id)clsNCContent, sel_registerName("alloc"));
-                            const char *ncInits[] = {"initWithNotificationRequest:", "initWithTitle:message:", "initWithTitle:message:body:", 0};
-                            id ncContent = nil;
-                            for (int j = 0; ncInits[j] && !ncContent; j++) {
-                                SEL sNCI = sel_registerName(ncInits[j]);
-                                if (ncInst && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(ncInst, sel_registerName("respondsToSelector:"), sNCI)) {
-                                    if (j == 0) ncContent = ((id(*)(id, SEL, id))objc_msgSend)(ncInst, sNCI, unreq);
-                                    else if (j == 1) ncContent = ((id(*)(id, SEL, id, id))objc_msgSend)(ncInst, sNCI, @"灵动岛GIF背景", @"预览通知");
-                                    else ncContent = ((id(*)(id, SEL, id, id, id))objc_msgSend)(ncInst, sNCI, @"灵动岛GIF背景", @"预览通知", @"岛展开显示您的背景");
-                                }
-                            }
-                            if (ncContent) {
-                                ((void(*)(id, SEL, id))objc_msgSend)(req, sSetContent, ncContent);
-                                ProbeWrite("RN-REQ-SETCONTENT-OK");
-                            } else ProbeWrite("RN-REQ-SETCONTENT-NOC");
-                        } else ProbeWrite("RN-REQ-SETCONTENT-NOCLS");
-                    }
-                    ProbeWrite("RN-REQ-SETTERS-DONE");
-                }
-            }
-        } else {
-            ProbeWrite("RN-REQ-NOCLS");
-        }
-        if (req) ProbeWrite("RN-REQ-BUILT"); else ProbeWrite("RN-REQ-FAIL");
-
-        // === 3. 找呈现层并投递 ===
-        id layer = FindPresentLayer();
-        if (layer) ProbeWrite("RN-PRES-FOUND"); else ProbeWrite("RN-PRES-NIL");
-        if (req && layer) {
-            // 3a. (已删除) 持久化标记 setPersistentNotificationAppBundleIdentifiers:
-            // 曾导致一次投递被呈现层渲染成两条横幅(持久条目 + 普通横幅), 用户要求只显示一条。
-            // 3b. 投递: postNotificationRequest: / prepareForIncomingNotificationRequest:
-            // 优化14: postNotificationRequest: 内部会依次访问 UNNotificationContent 的一串私有
-            // header 方法 (iOS16 缺失): customHeader -> defaultHeader -> topHeader -> hiddenPreviews...
-            // 缺一个就抛 unrecognized selector -> post 失败 -> 回退自绘横幅。这里一次性批量补全
-            // (全部返回 nil), 避免逐版本逐个补的来回迭代。
-            id clsUNC = (id)objc_getClass("UNNotificationContent");
-            if (clsUNC) {
-                const char *contentSel[] = {
-                    "customHeader", "defaultHeader", "topHeader",
-                    "hiddenPreviewsHeaderPlaceholder",
-                    "attributedCustomHeader", "attributedDefaultHeader", "attributedTopHeader",
-                    // iOS17+ 私有 getter 一次性补齐 (id→nil)
-                    "soundPath", "summaryText", "categorySummaryFormat",
-                    "dateComponents", "alertSuppressionContext",
-                    "contentImage", "icon", "headerIcon", "headerImage", "backgroundImage",
-                    "attributedTitle", "attributedBody", "attributedSubtitle",
-                    "attributedSummary",
-                    "timeZone"
-                };
-                for (size_t ci = 0; ci < sizeof(contentSel)/sizeof(contentSel[0]); ci++) {
-                    SEL sM = sel_registerName(contentSel[ci]);
-                    if (!class_getInstanceMethod((Class)clsUNC, sM))
-                        class_addMethod((Class)clsUNC, sM, (IMP)LDDUnreqNil, "@@:");
-                }
-                // isDateAllDay 是 BOOL 方法, 单独补 (返回 NO)
-                SEL sD = sel_registerName("isDateAllDay");
-                if (!class_getInstanceMethod((Class)clsUNC, sD))
-                    class_addMethod((Class)clsUNC, sD, (IMP)LDDUnreqFromNC, "c@:");
-                // 万能转发兜底: 未预知的 UNNotificationContent 私有 getter 不再抛异常
-                LDDInstallFwd(clsUNC);
-            }
-            // 优化24: TrollOpen 式直接上岛 (复用已构造的 req, 无 trigger 抽象构造)
-            // SBNotificationBannerDestination.presentModalBannerAndExpandForNotificationRequest:
-            // 直接"模态呈现并展开"通知, 不经过通知中心 post 流程, 无两阶段呈现 -> 只弹一条岛展开(GIF)。
-            SEL sISL = sel_registerName("presentModalBannerAndExpandForNotificationRequest:");
-            if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(layer, sel_registerName("respondsToSelector:"), sISL)) {
-                ProbeWrite("ISL-TRY2");
-                @try {
-                    ((void(*)(id, SEL, id))objc_msgSend)(layer, sISL, req);
-                    ProbeWrite("ISL-PRESENT-OK");
-                    gRealPosted = 1;
-                    return;
-                } @catch (id e) { LogReason("ISL-EXC2", e); }
-            } else { ProbeWrite("ISL-NOMETHOD2"); }
-            // 兜底: postNotificationRequest: (1.9.95 起验证有效; iOS16 呈现为两条, 仅在上岛 API 不可用时使用)
-            SEL sPost = sel_registerName("postNotificationRequest:");
-            if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(layer, sel_registerName("respondsToSelector:"), sPost)) {
-                ProbeWrite("RN-PRES-TRYPOST");
-                ((void(*)(id, SEL, id))objc_msgSend)(layer, sPost, req);
-                ProbeWrite("RN-PRES-SENT");
-                gRealPosted = 1;
-                return;
-            }
-            ProbeWrite("RN-PRES-NOMETHOD");
-        }
-        ProbeWrite("RN-ALL-FAIL");
-        // 真实投递未执行成功时才退回自绘预览（仅在设置页点击预览时才会有意义的兜底）
-        if (!gRealPosted) ShowPreviewWindow();
-    } @catch (id e) { LogReason("RN-EXC", e); if (!gRealPosted) ShowPreviewWindow(); }
-}
 
 
 static void ShowPreviewWindow(void) {
@@ -1513,7 +1063,7 @@ static void ShowPreviewWindow(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.116-reusereq");
+    ProbeWrite("LDD-BUILD actions-1.9.117-selfdrawn");
     ProbeWrite("CONSTRUCTOR-RAN");
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
     // 对照组 hook (兼启动延迟器)
@@ -1532,15 +1082,8 @@ static void LDDInit(void) {
     gGifExt = @"gif";
     gVideoExtMp4 = @"mp4";
     gVideoExtMov = @"mov";
-    // 捕获横幅呈现层 (SBNotificationBannerDestination init)
-    id clsBND = objc_getClass("SBNotificationBannerDestination");
-    if (clsBND) { MSHookMessageEx((Class)clsBND, sel_registerName("init"), (IMP)HookBNDInit, (IMP *)&origBNDInit); ProbeWrite("BND-HOOK"); }
-    // Darwin notify: 设置端点"预览通知"即时触发 (灵动通知同款机制)
-    static int notifyTok = 0;
-    notify_register_dispatch("com.tlzypjy.github/TestNotification", &notifyTok, (void *)&_dispatch_main_q, ^(int tok){
-        PostRealNotification();
-    });
-    // 触发文件独立轮询: 与布局无关, 点预览后 0.1s 内即弹
+    // 1.9.117: 单通道 —— 设置页只写触发文件, 文件轮询消费后自绘预览。
+    // (系统通知投递/呈现层 hook 已全部移除: 两阶段呈现必弹两条且破坏后续点击)
     StartForceMonitor();
     // 灵动岛 hook 由 CtrlLayoutHook 延迟补挂 (避免构造时机过早)
 }
