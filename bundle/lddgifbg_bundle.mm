@@ -364,7 +364,7 @@ static void WritePrefsFile(NSString *key, id value) {
     NSMutableDictionary *d = [NSMutableDictionary dictionary];
     // 底: NSUserDefaults 全键 (面板写过的一定在)
     NSUserDefaults *ud0 = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
-    for (NSString *k in [NSArray arrayWithObjects:@"Enablelddgifbg", @"Enablezxhlddgifbg", @"lddgifbgScale", @"SelectedMaterialFolder", nil]) {
+    for (NSString *k in [NSArray arrayWithObjects:@"Enablelddgifbg", @"Enablezxhlddgifbg", @"lddgifbgScale", @"lddgifbgSpeed", @"SelectedMaterialFolder", nil]) {
         id v = [ud0 objectForKey:k];
         if (v) [d setObject:v forKey:k];
     }
@@ -842,7 +842,7 @@ static id LDDListMaterialFolders(void) {
     return [NSArray array];
 }
 - (NSInteger)numberOfSectionsInTableView:(id)tv { return 1; }
-- (NSInteger)tableView:(id)tv numberOfRowsInSection:(NSInteger)s { return 7; }
+- (NSInteger)tableView:(id)tv numberOfRowsInSection:(NSInteger)s { return 8; }
 - (double)tableView:(id)tv heightForRowAtIndexPath:(id)ip { return 60.0; }
 - (double)tableView:(id)tv estimatedHeightForRowAtIndexPath:(id)ip { return 60.0; }
 - (double)tableView:(id)tv heightForHeaderInSection:(NSInteger)s { return 0.0; }
@@ -883,6 +883,7 @@ static id LDDListMaterialFolders(void) {
         UISlider *sl = [[UISlider alloc] initWithFrame:MakeRect(16, 30, b.w - 32, 28)];
         [sl setMinimumValue:0.1];
         [sl setMaximumValue:2.0];
+        [sl setTag:2001];
         NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
         id v = [ud objectForKey:@"lddgifbgScale"];
         double dv = v ? [v doubleValue] : 1.0;
@@ -890,8 +891,25 @@ static id LDDListMaterialFolders(void) {
         [sl setValue:dv];
         [sl addTarget:self action:@selector(sliderChanged:) forControlEvents:1 << 12];
         [[cell contentView] addSubview:sl];
+    } else if (row == 3) {
+        // 1.9.133: 播放速度滑块 (0.5x~2.0x)
+        UILabel *label = [[UILabel alloc] initWithFrame:MakeRect(16, 8, b.w - 32, 20)];
+        [label setText:@"播放速度"];
+        [label setFont:[UIFont systemFontOfSize:15.0]];
+        [[cell contentView] addSubview:label];
+        UISlider *sl = [[UISlider alloc] initWithFrame:MakeRect(16, 30, b.w - 32, 28)];
+        [sl setMinimumValue:0.5];
+        [sl setMaximumValue:2.0];
+        [sl setTag:2002];
+        NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
+        id v = [ud objectForKey:@"lddgifbgSpeed"];
+        double dv = v ? [v doubleValue] : 1.0;
+        if (dv <= 0) dv = 1.0;
+        [sl setValue:dv];
+        [sl addTarget:self action:@selector(sliderChanged:) forControlEvents:1 << 12];
+        [[cell contentView] addSubview:sl];
     } else {
-        NSString *t = (row == 3 ? @"选择素材" : (row == 4 ? @"跳转素材目录" : (row == 5 ? @"预览通知" : @"立即注销")));
+        NSString *t = (row == 4 ? @"选择素材" : (row == 5 ? @"跳转素材目录" : (row == 6 ? @"预览通知" : @"立即注销")));
         UILabel *label = [[UILabel alloc] initWithFrame:MakeRect(16, 19, b.w - 60, 22)];
         [label setText:t];
         [label setFont:[UIFont systemFontOfSize:16.0]];
@@ -933,10 +951,12 @@ static id LDDListMaterialFolders(void) {
 }
 - (void)sliderChanged:(UISlider *)sl {
     double dv = [sl value];
+    NSInteger tg = [sl tag];
+    NSString *key = (tg == 2002) ? @"lddgifbgSpeed" : @"lddgifbgScale";
     NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
-    [ud setObject:[NSNumber numberWithDouble:dv] forKey:@"lddgifbgScale"];
+    [ud setObject:[NSNumber numberWithDouble:dv] forKey:key];
     [ud synchronize];
-    WritePrefsFile(@"lddgifbgScale", [NSNumber numberWithDouble:dv]);
+    WritePrefsFile(key, [NSNumber numberWithDouble:dv]);
 }
 - (void)testNotification {
     PostTestNotification();

@@ -261,7 +261,9 @@ struct CMTimeRaw { long long value; int timescale; unsigned flags; long long epo
         Fn fn = (Fn)objc_msgSend;
         struct CMTimeRaw zero = {0, 0, 0, 0};
         fn(gPlayer, sel_registerName("seekToTime:"), zero);
-        [gPlayer play];
+        // 1.9.133: 循环保持播放速度 (play 会重置 rate 为 1.0)
+        double sp3 = cSpeed; if (sp3 <= 0.05 || sp3 > 8.0) sp3 = 1.0;
+        ((void(*)(id, SEL, float))objc_msgSend)(gPlayer, sel_registerName("setRate:"), (float)sp3);
     }
 }
 @end
@@ -425,7 +427,9 @@ static void StreamRestartTimer(void) {
             if (dd >= 0.02) d = dd;
         }
     }
-    gStreamTimer = [NSTimer scheduledTimerWithTimeInterval:d target:gStreamTarget selector:@selector(streamTick:) userInfo:nil repeats:NO];
+    // 1.9.133: 播放速度 —— 快放帧间隔变短, 慢放变长
+    double sp = cSpeed; if (sp <= 0.05 || sp > 8.0) sp = 1.0;
+    gStreamTimer = [NSTimer scheduledTimerWithTimeInterval:(d / sp) target:gStreamTarget selector:@selector(streamTick:) userInfo:nil repeats:NO];
     // 优化9: 加入 common modes —— 横幅展开动画在 tracking 模式下跑, default 模式 timer 不回调
     // (这就是"首次通知不动, 连续通知才动"的根因: 首次加载后动画窗口内一次都不触发, 收起即被暂停)
     id rl = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("NSRunLoop"), sel_registerName("mainRunLoop"));
@@ -525,7 +529,9 @@ static void LoadVideoWithPathIntoView(NSString *path, UIView *view) {
     CGRect b = [view bounds];
     [gPlayerLayer setFrame:b];
     if ([gPlayerLayer superlayer] != [view layer]) [[view layer] addSublayer:gPlayerLayer];
-    [gPlayer play];
+    // 1.9.133: 视频按设定速度播放 (play 会重置 rate, 故直接用 setRate)
+    double sp2 = cSpeed; if (sp2 <= 0.05 || sp2 > 8.0) sp2 = 1.0;
+    ((void(*)(id, SEL, float))objc_msgSend)(gPlayer, sel_registerName("setRate:"), (float)sp2);
 }
 static void StopVideo(void) {
     if (gPlayer) [gPlayer pause];
@@ -604,12 +610,31 @@ static BOOL ForcePreviewActive(void) { return time(0) < gForceUntil; }
 // ---------- prefs 缓存 (1.9.129: 去掉秒节流 —— 素材切换/选择变化必须立即生效) ----------
 static BOOL cEnabled, cZxh;
 static double cScale;
+static double cSpeed = 1.0;
+static double gLastAppliedSpeed = 1.0;
 static NSString *cPath;
+// 1.9.133: 播放速度 (0.5x~2.0x, 默认 1.0x)
+static double GetLddGifBgSpeed(void) {
+    id v = LoadPrefsValue(@"lddgifbgSpeed");
+    double d = v ? [v doubleValue] : 1.0;
+    if (d < 0.25 || d > 4.0 || !(d > 0)) d = 1.0;
+    return d;
+}
 static void RefreshPrefsCache(void) {
     cEnabled = IsLddGifBgEnabled();
     cZxh = IsZxhLddGifBgEnabled();
     cScale = GetLddGifBgScale();
+    cSpeed = GetLddGifBgSpeed();
     cPath = GetSelectedImagePath();
+    // 1.9.133: 速度变化即时生效 —— GIF 重启定时器, 视频更新 rate
+    if (gLastAppliedSpeed != cSpeed) {
+        gLastAppliedSpeed = cSpeed;
+        if (gStreamSrc) { StreamRestartTimer(); ProbeWrite("SPEED-APPLY-GIF"); }
+        if (gPlayer) {
+            ((void(*)(id, SEL, float))objc_msgSend)(gPlayer, sel_registerName("setRate:"), (float)cSpeed);
+            ProbeWrite("SPEED-APPLY-VIDEO");
+        }
+    }
 }
 
 
@@ -1339,7 +1364,7 @@ static void PostRealNotification(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.132-hideprobe");
+    ProbeWrite("LDD-BUILD actions-1.9.133-speed");
     ProbeWrite("CONSTRUCTOR-RAN");
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
     // 对照组 hook (兼启动延迟器)
