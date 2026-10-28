@@ -559,14 +559,11 @@ static double gForceLast = 0;
 // 消费去重 v2: 不依赖文件内容 (bundle 旧版写空内容也生效)
 //   1) 消费后 rename 成 .consumed (残留/第二消费点 access 原文件失败)
 //   2) 4.5s 时间防抖 (第一条通知显示期间的二次消费忽略)
-static double gLastConsumeT = 0;
+// 1.9.126: 去掉 1s 消费防抖 —— 点多少次就立即弹多少条 (rename 消费机制天然防重)
 static void ConsumeForcePreview(void) {
     const char *fp = "/var/mobile/lddgifbg/__force_preview__";
     if (access(fp, 0) != 0) return;
     rename(fp, "/var/mobile/lddgifbg/__force_preview__.consumed");
-    double now = CFAbsoluteTimeGetCurrent();
-    if (now - gLastConsumeT < 1.0) { ProbeWrite("RN-CONSUME-DUP"); return; }
-    gLastConsumeT = now;
     PostRealNotification();
 }
 static void CheckForcePreviewTick(void) {
@@ -1090,14 +1087,8 @@ static void LDDCloseAfter(id req) {
 }
 
 // ---------- 真实通知呈现 (灵动通知同款: 直接驱动 SB 横幅呈现层, 不入通知中心) ----------
-static double gLastPostT = 0;
 static void PostRealNotification(void) {
-    // 优化11: 去重 —— 已单通道化(设置页只写文件)且轮询即时消费, 每次点击必弹一条。
-    // 窗口 4.5s ≈ 横幅显示时长: 第一条显示期间的连点全部去重,
-    // 消除"第一条关闭后紧跟第二条"的队列排队; 等第一条关完再点即弹新的。
-    double nowT = CFAbsoluteTimeGetCurrent();
-    if (nowT - gLastPostT < 1.0) return;
-    gLastPostT = nowT;
+    // 1.9.126: 去掉 1s 投递防抖 —— 点预览立即弹, 连点多次每次立即弹
     ProbeWrite("RN-START");
     @try {
         dlopen("/System/Library/Frameworks/UserNotifications.framework/UserNotifications", 2);
@@ -1329,7 +1320,7 @@ static void PostRealNotification(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.125-snapshot");
+    ProbeWrite("LDD-BUILD actions-1.9.126-nodedup");
     ProbeWrite("CONSTRUCTOR-RAN");
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
     // 对照组 hook (兼启动延迟器)

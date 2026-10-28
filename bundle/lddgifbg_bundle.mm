@@ -810,13 +810,7 @@ static id ThumbForPath(NSString *path) {
         // 因 main 队列串行+投递阻塞, 时间窗口去重失效 -> 每次点击弹两条/连点积压十几条。
         // 文件通道由布局 hook 消费(remove), 每次点击恰好触发一次投递。
         // 按钮 2s 连点去重 + 文件内容带时间戳 (SB 端按内容去重, 防残留双弹)
-        {
-            // 1.9.117: 1s 连点去重 (SB 端自绘预览自带 0.8s 去重, 这里只防重复写文件)
-            static double gLastBtnT = 0;
-            double nowB = CFAbsoluteTimeGetCurrent();
-            if (nowB - gLastBtnT < 1.0) return;
-            gLastBtnT = nowB;
-        }
+        // 1.9.126: 去掉按钮 1s 去重 —— 点多少下都立即写文件立即弹
         NSString *tsStr = [NSString stringWithFormat:@"%ld", (long)time(0)];
         id tsData = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(tsStr, sel_registerName("dataUsingEncoding:"), (NSUInteger)4);
         [[NSFileManager defaultManager] createFileAtPath:@"/var/mobile/lddgifbg/__force_preview__" contents:tsData attributes:0];
