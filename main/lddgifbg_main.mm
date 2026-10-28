@@ -1002,6 +1002,7 @@ static void LDDInstallFwd(id cls) {
 
 // ---------- 6秒自动关闭 (用户方案: 第一条弹出6秒后模拟手动关闭, 阻断第二条标准横幅) ----------
 static int gCloseEnumerated = 0;
+static id gLastReq = nil;
 static void LDDCloseFirstBanner(id req) {
     @try {
         if (!gCloseEnumerated) {
@@ -1088,7 +1089,6 @@ static void LDDCloseAfter(double sec) {
 
 // ---------- 真实通知呈现 (灵动通知同款: 直接驱动 SB 横幅呈现层, 不入通知中心) ----------
 static double gLastPostT = 0;
-static id gLastReq = nil;
 static void PostRealNotification(void) {
     // 优化11: 去重 —— 已单通道化(设置页只写文件)且轮询即时消费, 每次点击必弹一条。
     // 窗口 4.5s ≈ 横幅显示时长: 第一条显示期间的连点全部去重,
