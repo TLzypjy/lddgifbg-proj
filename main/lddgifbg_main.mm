@@ -1301,7 +1301,7 @@ static void PostRealNotification(void) {
             // 优化24: TrollOpen 式直接上岛 (复用已构造的 req, 无 trigger 抽象构造)
             // SBNotificationBannerDestination.presentModalBannerAndExpandForNotificationRequest:
             // 直接"模态呈现并展开"通知, 不经过通知中心 post 流程, 无两阶段呈现 -> 只弹一条岛展开(GIF)。
-            if (gResidentLayer) {            SEL sISL = sel_registerName("presentModalBannerAndExpandForNotificationRequest:");
+            SEL sISL = sel_registerName("presentModalBannerAndExpandForNotificationRequest:");
             if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(layer, sel_registerName("respondsToSelector:"), sISL)) {
                 ProbeWrite("ISL-TRY2");
                 @try {
