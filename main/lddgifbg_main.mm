@@ -543,12 +543,16 @@ static void LoadMediaWithPathIntoImageView(NSString *path, UIImageView *iv) {
         [iv setAnimationImages:nil];
         LoadGIFWithPathIntoImageView(path, iv);
     } else if ([ext isEqualToString:gVideoExtMp4] || [ext isEqualToString:gVideoExtMov]) {
+        // 1.9.130: 必须先清 GIF 流残留 —— 之前选过 GIF 后 gStreamSrc 未释放,
+        // 第二次通知会走"续播 GIF"逻辑导致画面残留旧 GIF (探针 LOAD-MEDIA mp4 但用户看到 GIF)
+        StreamStop();
         [iv stopAnimating];
         [iv setImage:nil];
         [iv setAnimationImages:nil];
         LoadVideoWithPathIntoView(path, iv);
     } else {
         StopVideo();
+        StreamStop();
         [iv stopAnimating];
         [iv setAnimationImages:nil];
         [iv setImage:[UIImage imageWithContentsOfFile:path]];
@@ -884,7 +888,8 @@ static void LDDIslandLayout(id self) {
         }
         if (playing) needReload = NO;
         // 优化8: GIF 流仍挂在当前 view 上 -> 免重载; 若 timer 被暂停(岛隐藏/视图重建)立即保活恢复
-        if (gStreamSrc && gStreamIV == view) {
+        // 1.9.130: 续 GIF 流必须当前素材仍是同一个 (gLoadedPath 匹配) —— 否则强重载
+        if (gStreamSrc && gStreamIV == view && gLoadedPath && [gLoadedPath isEqualToString:path]) {
             needReload = NO;
             if (!gStreamTimer) StreamRestartTimer();
         }
@@ -1334,7 +1339,7 @@ static void PostRealNotification(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.129-probe-mat");
+    ProbeWrite("LDD-BUILD actions-1.9.130-streamstop");
     ProbeWrite("CONSTRUCTOR-RAN");
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
     // 对照组 hook (兼启动延迟器)
