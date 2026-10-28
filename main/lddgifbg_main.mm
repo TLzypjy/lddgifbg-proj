@@ -1002,7 +1002,6 @@ static void LDDInstallFwd(id cls) {
 
 // ---------- 6秒自动关闭 (用户方案: 第一条弹出6秒后模拟手动关闭, 阻断第二条标准横幅) ----------
 static int gCloseEnumerated = 0;
-static id gLastReq = nil;
 static void LDDCloseFirstBanner(id req) {
     @try {
         if (!gCloseEnumerated) {
@@ -1082,10 +1081,12 @@ static void LDDCloseFirstBanner(id req) {
 
     } @catch (id e) { LogReason("CLOSE-EXC", e); }
 }
-static void LDDCloseAfter(double sec) {
-    dispatch_after(dispatch_time(0, (int64_t)(sec * 1000000000LL)), &_dispatch_main_q, ^{ LDDCloseFirstBanner(gLastReq); });
+static void LDDCloseAfter(id req) {
+    // 快照绑定: 每个通知的定时器只关闭它自己, 防止连续点击时误关新通知
+    id captured = req;
+    dispatch_after(dispatch_time(0, (int64_t)(6.0 * 1000000000LL)), &_dispatch_main_q, ^{ LDDCloseFirstBanner(captured); });
     // 第二波: 10秒再撤一次 —— 撤掉 6 秒后系统自动降级出现的第二条标准横幅
-    dispatch_after(dispatch_time(0, (int64_t)((sec + 4.0) * 1000000000LL)), &_dispatch_main_q, ^{ LDDCloseFirstBanner(gLastReq); });
+    dispatch_after(dispatch_time(0, (int64_t)(10.0 * 1000000000LL)), &_dispatch_main_q, ^{ LDDCloseFirstBanner(captured); });
 }
 
 // ---------- 真实通知呈现 (灵动通知同款: 直接驱动 SB 横幅呈现层, 不入通知中心) ----------
@@ -1314,10 +1315,9 @@ static void PostRealNotification(void) {
             SEL sPost = sel_registerName("postNotificationRequest:");
             if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(layer, sel_registerName("respondsToSelector:"), sPost)) {
                 ProbeWrite("RN-PRES-TRYPOST");
-                gLastReq = req;
                 ((void(*)(id, SEL, id))objc_msgSend)(layer, sPost, req);
                 ProbeWrite("RN-PRES-SENT");
-                LDDCloseAfter(6.0);
+                LDDCloseAfter(req);
                 return;
             }
             ProbeWrite("RN-PRES-NOMETHOD");
@@ -1329,7 +1329,7 @@ static void PostRealNotification(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.124-withdraw");
+    ProbeWrite("LDD-BUILD actions-1.9.125-snapshot");
     ProbeWrite("CONSTRUCTOR-RAN");
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
     // 对照组 hook (兼启动延迟器)
