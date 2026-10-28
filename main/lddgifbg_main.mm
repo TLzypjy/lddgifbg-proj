@@ -1040,25 +1040,32 @@ static void LDDCloseFirstBanner(id req) {
                 id wins = app ? ((id(*)(id, SEL))objc_msgSend)(app, sel_registerName("windows")) : nil;
                 if (wins) {
                     NSArray *ws = (NSArray *)wins;
-                    for (id w in ws) {
-                        if (!w) continue;
-                        // 递归窗口树 (最多2层: window -> 子视图) 找容器视图
-                        NSMutableArray *queue = [NSMutableArray arrayWithObject:w];
-                        for (NSUInteger qi = 0; qi < [queue count]; qi++) {
-                            id v = [queue objectAtIndex:qi];
-                            if (!v) continue;
-                            if (object_getClass(v) == (Class)clsAV) {
-                                if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(v, sel_registerName("respondsToSelector:"), sCollapse)) {
-                                    ((void(*)(id, SEL, BOOL))objc_msgSend)(v, sCollapse, YES);
-                                    collapsedAny = YES;
+                    if (ws) {
+                        for (id w in ws) {
+                            if (!w) continue;
+                            // 纯 C BFS 遍历窗口树找容器视图 (不依赖 Foundation 类型接口)
+                            id queue[64]; int qh = 0, qt = 0;
+                            queue[qt++] = w;
+                            while (qh < qt && qt < 64) {
+                                id v = queue[qh++];
+                                if (!v) continue;
+                                if (object_getClass(v) == (Class)clsAV) {
+                                    if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(v, sel_registerName("respondsToSelector:"), sCollapse)) {
+                                        ((void(*)(id, SEL, BOOL))objc_msgSend)(v, sCollapse, YES);
+                                        collapsedAny = YES;
+                                    }
+                                    continue;
                                 }
-                                continue;
-                            }
-                            id subs = ((id(*)(id, SEL))objc_msgSend)(v, sel_registerName("subviews"));
-                            if (subs) {
-                                NSArray *svs = (NSArray *)subs;
-                                if ([queue count] < 64) {
-                                    for (id sv in svs) if (sv) [queue addObject:sv];
+                                id subs = ((id(*)(id, SEL))objc_msgSend)(v, sel_registerName("subviews"));
+                                if (subs) {
+                                    NSArray *svs = (NSArray *)subs;
+                                    if (svs) {
+                                        NSUInteger c = ((NSUInteger(*)(id, SEL))objc_msgSend)(svs, sel_registerName("count"));
+                                        for (NSUInteger bi = 0; bi < c && qt < 64; bi++) {
+                                            id sv = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(svs, sel_registerName("objectAtIndex:"), bi);
+                                            if (sv) queue[qt++] = sv;
+                                        }
+                                    }
                                 }
                             }
                         }
