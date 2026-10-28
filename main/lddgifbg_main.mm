@@ -132,6 +132,9 @@ typedef struct CGRect { double ox, oy, w, h; } CGRect;
 static void LogReason(const char *tag, id e);
 static void CheckForcePreviewTick(void);
 static void PostRealNotification(void);
+// 1.9.133: 播放速度 (GIF 定时器间隔 / AVPlayer rate 共用)
+static double cSpeed = 1.0;
+static double gLastAppliedSpeed = 1.0;
 static void ConsumeForcePreview(void);
 static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, y, w, h}; return r; }
 typedef struct UIEdgeInsets { double top, left, bottom, right; } UIEdgeInsets;
@@ -610,8 +613,6 @@ static BOOL ForcePreviewActive(void) { return time(0) < gForceUntil; }
 // ---------- prefs 缓存 (1.9.129: 去掉秒节流 —— 素材切换/选择变化必须立即生效) ----------
 static BOOL cEnabled, cZxh;
 static double cScale;
-static double cSpeed = 1.0;
-static double gLastAppliedSpeed = 1.0;
 static NSString *cPath;
 // 1.9.133: 播放速度 (0.5x~2.0x, 默认 1.0x)
 static double GetLddGifBgSpeed(void) {
