@@ -711,7 +711,7 @@ static id LDDListMaterialFolders(void) {
     }
     LogB(ok ? "SAVE-OK" : "SAVE-FAIL");
     // 刷新列表
-    _folders = [fm contentsOfDirectoryAtPath:@"/var/mobile/lddgifbg" error:nil];
+    _folders = LDDListMaterialFolders();
     NSString *cnt = [NSString stringWithFormat:@"素材库 (%lu)", (unsigned long)[_folders count]];
     [self setTitle:cnt];
     [(UICollectionView *)_cv reloadData];
