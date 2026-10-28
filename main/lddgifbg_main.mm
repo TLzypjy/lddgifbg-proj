@@ -1008,7 +1008,7 @@ static void LDDCloseFirstBanner(id req) {
         if (!gCloseEnumerated) {
             gCloseEnumerated = 1;
             // 探针: 枚举候选关闭 API (一次性)
-            const char *clsNames[] = {"SBSystemApertureController", "SBNCNotificationDispatcher", "SBBannerManager", 0};
+            const char *clsNames[] = {"SBSystemApertureController", "SBNCNotificationDispatcher", "SBBannerManager", "SBNotificationBannerDestination", 0};
             for (int i = 0; clsNames[i]; i++) {
                 id cls = (id)objc_getClass(clsNames[i]);
                 if (!cls) continue;
@@ -1021,8 +1021,9 @@ static void LDDCloseFirstBanner(id req) {
                     const char *mn = sel_getName((SEL)m);
                     if (!mn) continue;
                     if (strstr(mn, "dismiss") || strstr(mn, "collapse") || strstr(mn, "contract") ||
-                        strstr(mn, "withdraw") || strstr(mn, "remove")) {
-                        char ml[256];
+                        strstr(mn, "withdraw") || strstr(mn, "remove") || strstr(mn, "revoke") ||
+                        strstr(mn, "Presentable")) {
+                        char ml[320];
                         snprintf(ml, sizeof(ml), "CLOSE-METHOD-%s-%s", clsNames[i], mn);
                         ProbeWrite(ml);
                     }
@@ -1044,12 +1045,13 @@ static void LDDCloseFirstBanner(id req) {
                         for (id w in ws) {
                             if (!w) continue;
                             // 纯 C BFS 遍历窗口树找容器视图 (不依赖 Foundation 类型接口)
-                            id queue[64]; int qh = 0, qt = 0;
+                            id queue[128]; int qh = 0, qt = 0;
                             queue[qt++] = w;
-                            while (qh < qt && qt < 64) {
+                            while (qh < qt && qt < 128) {
                                 id v = queue[qh++];
                                 if (!v) continue;
-                                if (object_getClass(v) == (Class)clsAV) {
+                                if (object_getClass(v) == (Class)clsAV ||
+                                    (object_getClassName(v) && strstr(object_getClassName(v), "ApertureContainerView"))) {
                                     if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(v, sel_registerName("respondsToSelector:"), sCollapse)) {
                                         ((void(*)(id, SEL, BOOL))objc_msgSend)(v, sCollapse, YES);
                                         collapsedAny = YES;
@@ -1125,6 +1127,8 @@ static void LDDCloseFirstBanner(id req) {
 }
 static void LDDCloseAfter(double sec) {
     dispatch_after(dispatch_time(0, (int64_t)(sec * 1000000000LL)), &_dispatch_main_q, ^{ LDDCloseFirstBanner(gLastReq); });
+    // 第二波: 10秒再撤一次 —— 撤掉 6 秒后系统自动降级出现的第二条标准横幅
+    dispatch_after(dispatch_time(0, (int64_t)((sec + 4.0) * 1000000000LL)), &_dispatch_main_q, ^{ LDDCloseFirstBanner(gLastReq); });
 }
 
 // ---------- 真实通知呈现 (灵动通知同款: 直接驱动 SB 横幅呈现层, 不入通知中心) ----------
@@ -1368,7 +1372,7 @@ static void PostRealNotification(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.122-postautoclose");
+    ProbeWrite("LDD-BUILD actions-1.9.123-dblclose");
     ProbeWrite("CONSTRUCTOR-RAN");
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
     // 对照组 hook (兼启动延迟器)
