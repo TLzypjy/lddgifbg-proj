@@ -323,7 +323,9 @@ static NSString *GetSelectedImagePath(void) {
     for (NSString *f in files) {
         NSString *ext = [[f pathExtension] lowercaseString];
         if ([ext isEqualToString:gGifExt]) {
-            char ml[192]; snprintf(ml, sizeof(ml), "MAT-PICK-GIF %s/%s", [name UTF8String], [f UTF8String]); ProbeWrite(ml);
+            const char *nc = name ? ((const char *(*)(id, SEL))objc_msgSend)(name, sel_registerName("UTF8String")) : "?";
+            const char *fc = f ? ((const char *(*)(id, SEL))objc_msgSend)(f, sel_registerName("UTF8String")) : "?";
+            char ml[192]; snprintf(ml, sizeof(ml), "MAT-PICK-GIF %s/%s", nc, fc); ProbeWrite(ml);
             return [folder stringByAppendingPathComponent:f];
         }
         if ([ext isEqualToString:gVideoExtMp4] || [ext isEqualToString:gVideoExtMov]) {
@@ -333,7 +335,10 @@ static NSString *GetSelectedImagePath(void) {
             if (!imgPick) imgPick = [folder stringByAppendingPathComponent:f];
         }
     }
-    if (videoPick) { char ml[192]; snprintf(ml, sizeof(ml), "MAT-PICK-VIDEO %s", [videoPick UTF8String]); ProbeWrite(ml); }
+    if (videoPick) {
+        const char *vc = ((const char *(*)(id, SEL))objc_msgSend)(videoPick, sel_registerName("UTF8String"));
+        char ml[192]; snprintf(ml, sizeof(ml), "MAT-PICK-VIDEO %s", vc); ProbeWrite(ml);
+    }
     return videoPick ? videoPick : imgPick;
 }
 
@@ -530,7 +535,8 @@ static void StopVideo(void) {
 // ---------- 素材分发 ----------
 static void LoadMediaWithPathIntoImageView(NSString *path, UIImageView *iv) {
     NSString *ext = [[path pathExtension] lowercaseString];
-    { char ml[192]; snprintf(ml, sizeof(ml), "LOAD-MEDIA %s", ext ? [ext UTF8String] : "nil"); ProbeWrite(ml); }
+    const char *ec = ext ? ((const char *(*)(id, SEL))objc_msgSend)(ext, sel_registerName("UTF8String")) : "nil";
+    { char ml[192]; snprintf(ml, sizeof(ml), "LOAD-MEDIA %s", ec); ProbeWrite(ml); }
     if ([ext isEqualToString:gGifExt]) {
         StopVideo();
         [iv setImage:nil];
