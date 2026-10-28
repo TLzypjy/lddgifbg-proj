@@ -1002,7 +1002,7 @@ static void LDDInstallFwd(id cls) {
 
 // ---------- 6秒自动关闭 (用户方案: 第一条弹出6秒后模拟手动关闭, 阻断第二条标准横幅) ----------
 static int gCloseEnumerated = 0;
-static void LDDCloseFirstBanner(void) {
+static void LDDCloseFirstBanner(id req) {
     @try {
         if (!gCloseEnumerated) {
             gCloseEnumerated = 1;
@@ -1028,45 +1028,54 @@ static void LDDCloseFirstBanner(void) {
                 }
             }
         }
-        // 候选1: SBBannerManager dismissAllBannersInAllWindowScenesAnimated:reason:
-        // (1.9.114 抛异常的是 WindowScene 单场景版; All 版从未试过)
-        id sb = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIApplication"), sel_registerName("sharedApplication"));
-        id bm = nil;
-        if (sb) {
-            unsigned int cnt = 0;
-            void **ivars = (void **)class_copyIvarList((Class)objc_getClass("SpringBoard"), &cnt);
-            for (unsigned int i = 0; i < cnt; i++) {
-                const char *nm = ivar_getName(ivars[i]);
-                if (nm && strstr(nm, "annerManager")) { bm = object_getIvar(sb, ivars[i]); break; }
-            }
+        // 候选1(安全): 视图层收起岛展开 —— 遍历窗口树找 SBSystemApertureContainerView, 设 collapsed=YES
+        // (纯视图状态切换, 无消息签名风险; 1.9.120 的 dismissAllBanners* 已证崩: reason 参数是对象, 传1=retain空指针)
+        id keyW = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIApplication"), sel_registerName("keyWindow"));
+        if (!keyW) {
+            id wins = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIApplication"), sel_registerName("windows"));
+            keyW = wins ? ((id(*)(id, SEL))objc_msgSend)(wins, sel_registerName("firstObject")) : nil;
         }
-        if (bm) {
-            SEL sD = sel_registerName("dismissAllBannersInAllWindowScenesAnimated:reason:");
-            if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(bm, sel_registerName("respondsToSelector:"), sD)) {
-                ProbeWrite("CLOSE-DISMISS-ALL-TRY");
+        BOOL collapsedAny = NO;
+        if (keyW) {
+            id clsAV = (id)objc_getClass("SBSystemApertureContainerView");
+            if (clsAV) {
                 @try {
-                    ((void(*)(id, SEL, BOOL, long))objc_msgSend)(bm, sD, YES, 1);
-                    ProbeWrite("CLOSE-DISMISS-ALL-OK");
-                    return;
-                } @catch (id e) { LogReason("CLOSE-DISMISS-ALL-EXC", e); }
+                    SEL sCollapse = sel_registerName("setCollapsed:");
+                    NSArray *subs = (NSArray *)((id(*)(id, SEL))objc_msgSend)(keyW, sel_registerName("subviews"));
+                    if (subs) {
+                        for (id v in subs) {
+                            if (v && object_getClass(v) == (Class)clsAV) {
+                                if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(v, sel_registerName("respondsToSelector:"), sCollapse)) {
+                                    ((void(*)(id, SEL, BOOL))objc_msgSend)(v, sCollapse, YES);
+                                    collapsedAny = YES;
+                                }
+                            }
+                        }
+                    }
+                } @catch (id e) { LogReason("CLOSE-COLLAPSE-EXC", e); }
             }
         }
-        // 候选2: SBSystemApertureController dismiss/collapse
-        id clsSAC = (id)objc_getClass("SBSystemApertureController");
-        if (clsSAC) {
-            const char *sels[] = {"dismissAnimated:", "dismiss", "collapseAnimated:", 0};
-            for (int i = 0; sels[i]; i++) {
-                SEL sC = sel_registerName(sels[i]);
-                if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(clsSAC, sel_registerName("respondsToSelector:"), sC)) {
-                    char ln[160];
-                    snprintf(ln, sizeof(ln), "CLOSE-SAC-TRY-%s", sels[i]);
-                    ProbeWrite(ln);
+        ProbeWrite(collapsedAny ? "CLOSE-COLLAPSE-OK" : "CLOSE-COLLAPSE-NOVIEW");
+        // 候选2: SBNCNotificationDispatcher removeNotificationRequest: (对象参数, 无签名风险)
+        // 移除通知请求 -> 通知从呈现队列移除, 阻断自动降级为标准横幅
+        id sb2 = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIApplication"), sel_registerName("sharedApplication"));
+        if (sb2) {
+            unsigned int cnt2 = 0;
+            void **ivars2 = (void **)class_copyIvarList((Class)objc_getClass("SpringBoard"), &cnt2);
+            id dispatcher = nil;
+            for (unsigned int i = 0; i < cnt2; i++) {
+                const char *nm2 = ivar_getName(ivars2[i]);
+                if (nm2 && strstr(nm2, "NotificationDispatcher")) { dispatcher = object_getIvar(sb2, ivars2[i]); break; }
+            }
+            if (dispatcher) {
+                SEL sRm = sel_registerName("removeNotificationRequest:");
+                if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(dispatcher, sel_registerName("respondsToSelector:"), sRm)) {
+                    ProbeWrite("CLOSE-REMOVE-TRY");
                     @try {
-                        if (i == 0 || i == 2) ((void(*)(id, SEL, BOOL))objc_msgSend)(clsSAC, sC, YES);
-                        else ((void(*)(id, SEL))objc_msgSend)(clsSAC, sC);
-                        ProbeWrite("CLOSE-SAC-OK");
+                        ((void(*)(id, SEL, id))objc_msgSend)(dispatcher, sRm, req);
+                        ProbeWrite("CLOSE-REMOVE-OK");
                         return;
-                    } @catch (id e) { LogReason("CLOSE-SAC-EXC", e); }
+                    } @catch (id e) { LogReason("CLOSE-REMOVE-EXC", e); }
                 }
             }
         }
@@ -1074,11 +1083,12 @@ static void LDDCloseFirstBanner(void) {
     } @catch (id e) { LogReason("CLOSE-EXC", e); }
 }
 static void LDDCloseAfter(double sec) {
-    dispatch_after(dispatch_time(0, (int64_t)(sec * 1000000000LL)), &_dispatch_main_q, ^{ LDDCloseFirstBanner(); });
+    dispatch_after(dispatch_time(0, (int64_t)(sec * 1000000000LL)), &_dispatch_main_q, ^{ LDDCloseFirstBanner(gLastReq); });
 }
 
 // ---------- 真实通知呈现 (灵动通知同款: 直接驱动 SB 横幅呈现层, 不入通知中心) ----------
 static double gLastPostT = 0;
+static id gLastReq = nil;
 static void PostRealNotification(void) {
     // 优化11: 去重 —— 已单通道化(设置页只写文件)且轮询即时消费, 每次点击必弹一条。
     // 窗口 4.5s ≈ 横幅显示时长: 第一条显示期间的连点全部去重,
@@ -1303,6 +1313,7 @@ static void PostRealNotification(void) {
             SEL sISL = sel_registerName("presentModalBannerAndExpandForNotificationRequest:");
             if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(layer, sel_registerName("respondsToSelector:"), sISL)) {
                 ProbeWrite("ISL-TRY2");
+                gLastReq = req;
                 @try {
                     ((void(*)(id, SEL, id))objc_msgSend)(layer, sISL, req);
                     ProbeWrite("ISL-PRESENT-OK");
@@ -1314,6 +1325,7 @@ static void PostRealNotification(void) {
             SEL sPost = sel_registerName("postNotificationRequest:");
             if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(layer, sel_registerName("respondsToSelector:"), sPost)) {
                 ProbeWrite("RN-PRES-TRYPOST");
+                gLastReq = req;
                 ((void(*)(id, SEL, id))objc_msgSend)(layer, sPost, req);
                 ProbeWrite("RN-PRES-SENT");
                 LDDCloseAfter(6.0);
@@ -1328,7 +1340,7 @@ static void PostRealNotification(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.120-autoclose6");
+    ProbeWrite("LDD-BUILD actions-1.9.121-safedismiss");
     ProbeWrite("CONSTRUCTOR-RAN");
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
     // 对照组 hook (兼启动延迟器)
