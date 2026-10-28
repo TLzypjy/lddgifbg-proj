@@ -1030,99 +1030,56 @@ static void LDDCloseFirstBanner(id req) {
                 }
             }
         }
-        // 候选1(安全): 视图层收起岛展开 —— 遍历窗口树找 SBSystemApertureContainerView, 设 collapsed=YES
-        // (纯视图状态切换, 无消息签名风险; 1.9.121 探针: +[UIApplication keyWindow] 是实例方法, 类方法调用会 EXC)
-        BOOL collapsedAny = NO;
-        id clsAV = (id)objc_getClass("SBSystemApertureContainerView");
-        if (clsAV) {
-            @try {
-                SEL sCollapse = sel_registerName("setCollapsed:");
-                id app = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIApplication"), sel_registerName("sharedApplication"));
-                id wins = app ? ((id(*)(id, SEL))objc_msgSend)(app, sel_registerName("windows")) : nil;
-                if (wins) {
-                    NSArray *ws = (NSArray *)wins;
-                    if (ws) {
-                        for (id w in ws) {
-                            if (!w) continue;
-                            // 纯 C BFS 遍历窗口树找容器视图 (不依赖 Foundation 类型接口)
-                            id queue[128]; int qh = 0, qt = 0;
-                            queue[qt++] = w;
-                            while (qh < qt && qt < 128) {
-                                id v = queue[qh++];
-                                if (!v) continue;
-                                if (object_getClass(v) == (Class)clsAV ||
-                                    (object_getClassName(v) && strstr(object_getClassName(v), "ApertureContainerView"))) {
-                                    if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(v, sel_registerName("respondsToSelector:"), sCollapse)) {
-                                        ((void(*)(id, SEL, BOOL))objc_msgSend)(v, sCollapse, YES);
-                                        collapsedAny = YES;
-                                    }
-                                    continue;
-                                }
-                                id subs = ((id(*)(id, SEL))objc_msgSend)(v, sel_registerName("subviews"));
-                                if (subs) {
-                                    NSArray *svs = (NSArray *)subs;
-                                    if (svs) {
-                                        NSUInteger c = ((NSUInteger(*)(id, SEL))objc_msgSend)(svs, sel_registerName("count"));
-                                        for (NSUInteger bi = 0; bi < c && qt < 64; bi++) {
-                                            id sv = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(svs, sel_registerName("objectAtIndex:"), bi);
-                                            if (sv) queue[qt++] = sv;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            } @catch (id e) { LogReason("CLOSE-COLLAPSE-EXC", e); }
-        }
-        ProbeWrite(collapsedAny ? "CLOSE-COLLAPSE-OK" : "CLOSE-COLLAPSE-NOVIEW");
-        // 候选2: SBNCNotificationDispatcher removeNotificationRequest: (对象参数, 无签名风险)
-        // 移除通知请求 -> 通知从呈现队列移除, 阻断自动降级为标准横幅
-        id sb2 = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIApplication"), sel_registerName("sharedApplication"));
-        if (sb2) {
-            unsigned int cnt2 = 0;
-            void **ivars2 = (void **)class_copyIvarList((Class)objc_getClass("SpringBoard"), &cnt2);
-            id dispatcher = nil;
-            for (unsigned int i = 0; i < cnt2; i++) {
-                const char *nm2 = ivar_getName(ivars2[i]);
-                if (nm2 && strstr(nm2, "NotificationDispatcher")) { dispatcher = object_getIvar(sb2, ivars2[i]); break; }
-            }
-            if (dispatcher) {
-                SEL sRm = sel_registerName("removeNotificationRequest:");
-                if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(dispatcher, sel_registerName("respondsToSelector:"), sRm)) {
-                    ProbeWrite("CLOSE-REMOVE-TRY");
-                    @try {
-                        ((void(*)(id, SEL, id))objc_msgSend)(dispatcher, sRm, req);
-                        ProbeWrite("CLOSE-REMOVE-OK");
-                        return;
-                    } @catch (id e) { LogReason("CLOSE-REMOVE-EXC", e); }
-                }
-            }
-        }
-        // 候选3: SBBannerManager dismissAllBannersInAllWindowScenesAnimated:reason: 传对象
-        // (1.9.120 崩因: reason 传 1(数字) 被当对象 retain; 传 NSString 对象在两种签名下均安全)
-        id sb3 = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIApplication"), sel_registerName("sharedApplication"));
-        id bm3 = nil;
-        if (sb3) {
-            unsigned int cnt3 = 0;
-            void **ivars3 = (void **)class_copyIvarList((Class)objc_getClass("SpringBoard"), &cnt3);
-            for (unsigned int i = 0; i < cnt3; i++) {
-                const char *nm3 = ivar_getName(ivars3[i]);
-                if (nm3 && strstr(nm3, "annerManager")) { bm3 = object_getIvar(sb3, ivars3[i]); break; }
-            }
-        }
-        if (bm3) {
-            SEL sD3 = sel_registerName("dismissAllBannersInAllWindowScenesAnimated:reason:");
-            if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(bm3, sel_registerName("respondsToSelector:"), sD3)) {
-                ProbeWrite("CLOSE-DISMISS-ALL-TRY");
+        // 候选1: SBNotificationBannerDestination withdrawNotificationRequest: —— 撤销通知请求(手动关闭等价)
+        // (1.9.123 探针枚举确认 BND 有此方法; 对象参数无签名风险)
+        if (gPresentLayer) {
+            SEL sW = sel_registerName("withdrawNotificationRequest:");
+            if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(gPresentLayer, sel_registerName("respondsToSelector:"), sW)) {
+                ProbeWrite("CLOSE-WITHDRAW-TRY");
                 @try {
-                    ((void(*)(id, SEL, BOOL, id))objc_msgSend)(bm3, sD3, YES, @"ldd-autoclose");
-                    ProbeWrite("CLOSE-DISMISS-ALL-OK");
+                    ((void(*)(id, SEL, id))objc_msgSend)(gPresentLayer, sW, req);
+                    ProbeWrite("CLOSE-WITHDRAW-OK");
                     return;
-                } @catch (id e) { LogReason("CLOSE-DISMISS-ALL-EXC", e); }
+                } @catch (id e) { LogReason("CLOSE-WITHDRAW-EXC", e); }
             }
         }
-        ProbeWrite("CLOSE-NOMETHOD");
+        // 候选2: _dismissPresentedBannerAnimated:reason:forceIfSticky: —— 关闭当前呈现的横幅
+        if (gPresentLayer) {
+            SEL sD = sel_registerName("_dismissPresentedBannerAnimated:reason:forceIfSticky:");
+            if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(gPresentLayer, sel_registerName("respondsToSelector:"), sD)) {
+                ProbeWrite("CLOSE-DISMISSBANNER-TRY");
+                @try {
+                    ((void(*)(id, SEL, BOOL, id, BOOL))objc_msgSend)(gPresentLayer, sD, YES, @"ldd-autoclose", NO);
+                    ProbeWrite("CLOSE-DISMISSBANNER-OK");
+                    return;
+                } @catch (id e) { LogReason("CLOSE-DISMISSBANNER-EXC", e); }
+            }
+        }
+        // 候选3: _dismissPresentedBannerOnly:reason:animated: —— 备选关闭
+        if (gPresentLayer) {
+            SEL sO = sel_registerName("_dismissPresentedBannerOnly:reason:animated:");
+            if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(gPresentLayer, sel_registerName("respondsToSelector:"), sO)) {
+                ProbeWrite("CLOSE-DISMISSONLY-TRY");
+                @try {
+                    ((void(*)(id, SEL, BOOL, id, BOOL))objc_msgSend)(gPresentLayer, sO, YES, @"ldd-autoclose", YES);
+                    ProbeWrite("CLOSE-DISMISSONLY-OK");
+                    return;
+                } @catch (id e) { LogReason("CLOSE-DISMISSONLY-EXC", e); }
+            }
+        }
+        // 候选4: _revokeAllPresentablesWithRequesterIdentifier:reason:options:
+        if (gPresentLayer) {
+            SEL sR = sel_registerName("_revokeAllPresentablesWithRequesterIdentifier:reason:options:");
+            if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(gPresentLayer, sel_registerName("respondsToSelector:"), sR)) {
+                ProbeWrite("CLOSE-REVOKE-TRY");
+                @try {
+                    ((void(*)(id, SEL, id, id, id))objc_msgSend)(gPresentLayer, sR, @"com.apple.MobileMail", @"ldd-autoclose", nil);
+                    ProbeWrite("CLOSE-REVOKE-OK");
+                    return;
+                } @catch (id e) { LogReason("CLOSE-REVOKE-EXC", e); }
+            }
+        }
+
     } @catch (id e) { LogReason("CLOSE-EXC", e); }
 }
 static void LDDCloseAfter(double sec) {
@@ -1372,7 +1329,7 @@ static void PostRealNotification(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.123-dblclose");
+    ProbeWrite("LDD-BUILD actions-1.9.124-withdraw");
     ProbeWrite("CONSTRUCTOR-RAN");
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
     // 对照组 hook (兼启动延迟器)
