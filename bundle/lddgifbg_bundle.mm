@@ -502,6 +502,20 @@ static id ThumbForPath(NSString *path) {
 - (CGSize)collectionView:(id)cv layout:(id)layout sizeForItemAtIndexPath:(id)ip;
 - (void)closeTapped;
 @end
+// 1.9.131: 素材列表只返回"素材文件夹"(目录), 排除 __ 前缀内部文件(探针/消费标记)
+static id LDDListMaterialFolders(void) {
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSArray *all = [fm contentsOfDirectoryAtPath:@"/var/mobile/lddgifbg" error:nil];
+    NSMutableArray *dirs = [NSMutableArray array];
+    for (NSString *nm in all) {
+        if (((BOOL(*)(id, SEL, id))objc_msgSend)(nm, sel_registerName("hasPrefix:"), @"__")) continue;
+        NSString *fp = [@"/var/mobile/lddgifbg" stringByAppendingPathComponent:nm];
+        BOOL isD = NO;
+        if ([fm fileExistsAtPath:fp isDirectory:&isD] && isD) [dirs addObject:nm];
+    }
+    return dirs;
+}
+
 @implementation LDDMaterialPickerController
 {
     id _folders;
@@ -529,7 +543,7 @@ static id ThumbForPath(NSString *path) {
     NSFileManager *fm = [NSFileManager defaultManager];
     BOOL isDir = NO;
     if ([fm fileExistsAtPath:@"/var/mobile/lddgifbg" isDirectory:&isDir] && isDir) {
-        _folders = [fm contentsOfDirectoryAtPath:@"/var/mobile/lddgifbg" error:nil];
+        _folders = LDDListMaterialFolders();
     }
     _thumbs = [NSMutableDictionary dictionary];
     _anims = [NSMutableDictionary dictionary];
@@ -635,7 +649,7 @@ static id ThumbForPath(NSString *path) {
         }
         [_marked removeAllObjects];
         _delMode = NO;
-        _folders = [fm contentsOfDirectoryAtPath:@"/var/mobile/lddgifbg" error:nil];
+        _folders = LDDListMaterialFolders();
         [self setTitle:[NSString stringWithFormat:@"素材库 (%lu)", (unsigned long)[_folders count]]];
         [(UICollectionView *)_cv reloadData];
     }];
