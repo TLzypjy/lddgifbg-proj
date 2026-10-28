@@ -1087,9 +1087,13 @@ static void LDDCloseAfter(id req) {
 }
 
 // ---------- 真实通知呈现 (灵动通知同款: 直接驱动 SB 横幅呈现层, 不入通知中心) ----------
+// 1.9.128: 当前正在显示的活跃通知 —— 点新通知时先立即关闭它
+static id gActiveReq = nil;
 static void PostRealNotification(void) {
     // 1.9.126: 去掉 1s 投递防抖 —— 点预览立即弹, 连点多次每次立即弹
     ProbeWrite("RN-START");
+    // 1.9.128: 点新通知 -> 立即关闭当前正在显示的旧通知 (始终只显示最新一条)
+    if (gActiveReq) { ProbeWrite("RN-CLOSE-PREV"); LDDCloseFirstBanner(gActiveReq); }
     @try {
         dlopen("/System/Library/Frameworks/UserNotifications.framework/UserNotifications", 2);
         dlopen("/System/Library/PrivateFrameworks/NotificationCenter.framework/NotificationCenter", 2);
@@ -1310,6 +1314,7 @@ static void PostRealNotification(void) {
                 ProbeWrite("RN-PRES-TRYPOST");
                 ((void(*)(id, SEL, id))objc_msgSend)(layer, sPost, req);
                 ProbeWrite("RN-PRES-SENT");
+                gActiveReq = req;
                 LDDCloseAfter(req);
                 return;
             }
@@ -1322,7 +1327,7 @@ static void PostRealNotification(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.127-uidseq");
+    ProbeWrite("LDD-BUILD actions-1.9.128-replace");
     ProbeWrite("CONSTRUCTOR-RAN");
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
     // 对照组 hook (兼启动延迟器)
