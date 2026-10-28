@@ -883,7 +883,7 @@ static id LDDListMaterialFolders(void) {
         UISlider *sl = [[UISlider alloc] initWithFrame:MakeRect(16, 30, b.w - 32, 28)];
         [sl setMinimumValue:0.1];
         [sl setMaximumValue:2.0];
-        [sl setTag:2001];
+        ((void(*)(id, SEL, NSInteger))objc_msgSend)(sl, sel_registerName("setTag:"), 2001);
         NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
         id v = [ud objectForKey:@"lddgifbgScale"];
         double dv = v ? [v doubleValue] : 1.0;
@@ -900,7 +900,7 @@ static id LDDListMaterialFolders(void) {
         UISlider *sl = [[UISlider alloc] initWithFrame:MakeRect(16, 30, b.w - 32, 28)];
         [sl setMinimumValue:0.5];
         [sl setMaximumValue:2.0];
-        [sl setTag:2002];
+        ((void(*)(id, SEL, NSInteger))objc_msgSend)(sl, sel_registerName("setTag:"), 2002);
         NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
         id v = [ud objectForKey:@"lddgifbgSpeed"];
         double dv = v ? [v doubleValue] : 1.0;
@@ -951,7 +951,7 @@ static id LDDListMaterialFolders(void) {
 }
 - (void)sliderChanged:(UISlider *)sl {
     double dv = [sl value];
-    NSInteger tg = [sl tag];
+    NSInteger tg = ((NSInteger(*)(id, SEL))objc_msgSend)(sl, sel_registerName("tag"));
     NSString *key = (tg == 2002) ? @"lddgifbgSpeed" : @"lddgifbgScale";
     NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
     [ud setObject:[NSNumber numberWithDouble:dv] forKey:key];
