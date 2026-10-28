@@ -1093,7 +1093,9 @@ static void PostRealNotification(void) {
     @try {
         dlopen("/System/Library/Frameworks/UserNotifications.framework/UserNotifications", 2);
         dlopen("/System/Library/PrivateFrameworks/NotificationCenter.framework/NotificationCenter", 2);
-        NSString *uid = [NSString stringWithFormat:@"lddpres-%ld", (long)time(0)];
+        // 1.9.127: identifier 加自增序号 —— 同一秒连点多次时每条通知唯一, 系统不会互相替换
+        static long gUidSeq = 0;
+        NSString *uid = [NSString stringWithFormat:@"lddpres-%ld-%ld", (long)time(0), ++gUidSeq];
 
         // === 1. UN 层内容 (供 contentProvider / initWithNotificationRequest 使用) ===
         id clsContent = (id)objc_getClass("UNMutableNotificationContent");
@@ -1320,7 +1322,7 @@ static void PostRealNotification(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.126-nodedup");
+    ProbeWrite("LDD-BUILD actions-1.9.127-uidseq");
     ProbeWrite("CONSTRUCTOR-RAN");
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
     // 对照组 hook (兼启动延迟器)
