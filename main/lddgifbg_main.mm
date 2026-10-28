@@ -322,7 +322,10 @@ static NSString *GetSelectedImagePath(void) {
     NSString *videoPick = nil, *imgPick = nil;
     for (NSString *f in files) {
         NSString *ext = [[f pathExtension] lowercaseString];
-        if ([ext isEqualToString:gGifExt]) return [folder stringByAppendingPathComponent:f];
+        if ([ext isEqualToString:gGifExt]) {
+            char ml[192]; snprintf(ml, sizeof(ml), "MAT-PICK-GIF %s/%s", [name UTF8String], [f UTF8String]); ProbeWrite(ml);
+            return [folder stringByAppendingPathComponent:f];
+        }
         if ([ext isEqualToString:gVideoExtMp4] || [ext isEqualToString:gVideoExtMov]) {
             if (!videoPick) videoPick = [folder stringByAppendingPathComponent:f];
         }
@@ -330,6 +333,7 @@ static NSString *GetSelectedImagePath(void) {
             if (!imgPick) imgPick = [folder stringByAppendingPathComponent:f];
         }
     }
+    if (videoPick) { char ml[192]; snprintf(ml, sizeof(ml), "MAT-PICK-VIDEO %s", [videoPick UTF8String]); ProbeWrite(ml); }
     return videoPick ? videoPick : imgPick;
 }
 
@@ -526,6 +530,7 @@ static void StopVideo(void) {
 // ---------- 素材分发 ----------
 static void LoadMediaWithPathIntoImageView(NSString *path, UIImageView *iv) {
     NSString *ext = [[path pathExtension] lowercaseString];
+    { char ml[192]; snprintf(ml, sizeof(ml), "LOAD-MEDIA %s", ext ? [ext UTF8String] : "nil"); ProbeWrite(ml); }
     if ([ext isEqualToString:gGifExt]) {
         StopVideo();
         [iv setImage:nil];
@@ -586,15 +591,11 @@ static void StartForceMonitor(void) {
 
 static BOOL ForcePreviewActive(void) { return time(0) < gForceUntil; }
 
-// ---------- prefs 缓存 (1秒节流, 避免每帧读文件/扫目录) ----------
-static long gCacheSec = 0;
+// ---------- prefs 缓存 (1.9.129: 去掉秒节流 —— 素材切换/选择变化必须立即生效) ----------
 static BOOL cEnabled, cZxh;
 static double cScale;
 static NSString *cPath;
 static void RefreshPrefsCache(void) {
-    long t = time(0);
-    if (t == gCacheSec) return;
-    gCacheSec = t;
     cEnabled = IsLddGifBgEnabled();
     cZxh = IsZxhLddGifBgEnabled();
     cScale = GetLddGifBgScale();
@@ -1327,7 +1328,7 @@ static void PostRealNotification(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.128-replace");
+    ProbeWrite("LDD-BUILD actions-1.9.129-probe-mat");
     ProbeWrite("CONSTRUCTOR-RAN");
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
     // 对照组 hook (兼启动延迟器)
