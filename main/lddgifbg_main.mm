@@ -1030,31 +1030,41 @@ static void LDDCloseFirstBanner(id req) {
             }
         }
         // 候选1(安全): 视图层收起岛展开 —— 遍历窗口树找 SBSystemApertureContainerView, 设 collapsed=YES
-        // (纯视图状态切换, 无消息签名风险; 1.9.120 的 dismissAllBanners* 已证崩: reason 参数是对象, 传1=retain空指针)
-        id keyW = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIApplication"), sel_registerName("keyWindow"));
-        if (!keyW) {
-            id wins = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIApplication"), sel_registerName("windows"));
-            keyW = wins ? ((id(*)(id, SEL))objc_msgSend)(wins, sel_registerName("firstObject")) : nil;
-        }
+        // (纯视图状态切换, 无消息签名风险; 1.9.121 探针: +[UIApplication keyWindow] 是实例方法, 类方法调用会 EXC)
         BOOL collapsedAny = NO;
-        if (keyW) {
-            id clsAV = (id)objc_getClass("SBSystemApertureContainerView");
-            if (clsAV) {
-                @try {
-                    SEL sCollapse = sel_registerName("setCollapsed:");
-                    NSArray *subs = (NSArray *)((id(*)(id, SEL))objc_msgSend)(keyW, sel_registerName("subviews"));
-                    if (subs) {
-                        for (id v in subs) {
-                            if (v && object_getClass(v) == (Class)clsAV) {
+        id clsAV = (id)objc_getClass("SBSystemApertureContainerView");
+        if (clsAV) {
+            @try {
+                SEL sCollapse = sel_registerName("setCollapsed:");
+                id app = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIApplication"), sel_registerName("sharedApplication"));
+                id wins = app ? ((id(*)(id, SEL))objc_msgSend)(app, sel_registerName("windows")) : nil;
+                if (wins) {
+                    NSArray *ws = (NSArray *)wins;
+                    for (id w in ws) {
+                        if (!w) continue;
+                        // 递归窗口树 (最多2层: window -> 子视图) 找容器视图
+                        NSMutableArray *queue = [NSMutableArray arrayWithObject:w];
+                        for (NSUInteger qi = 0; qi < [queue count]; qi++) {
+                            id v = [queue objectAtIndex:qi];
+                            if (!v) continue;
+                            if (object_getClass(v) == (Class)clsAV) {
                                 if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(v, sel_registerName("respondsToSelector:"), sCollapse)) {
                                     ((void(*)(id, SEL, BOOL))objc_msgSend)(v, sCollapse, YES);
                                     collapsedAny = YES;
                                 }
+                                continue;
+                            }
+                            id subs = ((id(*)(id, SEL))objc_msgSend)(v, sel_registerName("subviews"));
+                            if (subs) {
+                                NSArray *svs = (NSArray *)subs;
+                                if ([queue count] < 64) {
+                                    for (id sv in svs) if (sv) [queue addObject:sv];
+                                }
                             }
                         }
                     }
-                } @catch (id e) { LogReason("CLOSE-COLLAPSE-EXC", e); }
-            }
+                }
+            } @catch (id e) { LogReason("CLOSE-COLLAPSE-EXC", e); }
         }
         ProbeWrite(collapsedAny ? "CLOSE-COLLAPSE-OK" : "CLOSE-COLLAPSE-NOVIEW");
         // 候选2: SBNCNotificationDispatcher removeNotificationRequest: (对象参数, 无签名风险)
@@ -1078,6 +1088,29 @@ static void LDDCloseFirstBanner(id req) {
                         return;
                     } @catch (id e) { LogReason("CLOSE-REMOVE-EXC", e); }
                 }
+            }
+        }
+        // 候选3: SBBannerManager dismissAllBannersInAllWindowScenesAnimated:reason: 传对象
+        // (1.9.120 崩因: reason 传 1(数字) 被当对象 retain; 传 NSString 对象在两种签名下均安全)
+        id sb3 = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIApplication"), sel_registerName("sharedApplication"));
+        id bm3 = nil;
+        if (sb3) {
+            unsigned int cnt3 = 0;
+            void **ivars3 = (void **)class_copyIvarList((Class)objc_getClass("SpringBoard"), &cnt3);
+            for (unsigned int i = 0; i < cnt3; i++) {
+                const char *nm3 = ivar_getName(ivars3[i]);
+                if (nm3 && strstr(nm3, "annerManager")) { bm3 = object_getIvar(sb3, ivars3[i]); break; }
+            }
+        }
+        if (bm3) {
+            SEL sD3 = sel_registerName("dismissAllBannersInAllWindowScenesAnimated:reason:");
+            if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(bm3, sel_registerName("respondsToSelector:"), sD3)) {
+                ProbeWrite("CLOSE-DISMISS-ALL-TRY");
+                @try {
+                    ((void(*)(id, SEL, BOOL, id))objc_msgSend)(bm3, sD3, YES, @"ldd-autoclose");
+                    ProbeWrite("CLOSE-DISMISS-ALL-OK");
+                    return;
+                } @catch (id e) { LogReason("CLOSE-DISMISS-ALL-EXC", e); }
             }
         }
         ProbeWrite("CLOSE-NOMETHOD");
@@ -1307,21 +1340,9 @@ static void PostRealNotification(void) {
                 // 万能转发兜底: 未预知的 UNNotificationContent 私有 getter 不再抛异常
                 LDDInstallFwd(clsUNC);
             }
-            // 优化24: TrollOpen 式直接上岛 (复用已构造的 req, 无 trigger 抽象构造)
-            // SBNotificationBannerDestination.presentModalBannerAndExpandForNotificationRequest:
-            // 直接"模态呈现并展开"通知, 不经过通知中心 post 流程, 无两阶段呈现 -> 只弹一条岛展开(GIF)。
-            SEL sISL = sel_registerName("presentModalBannerAndExpandForNotificationRequest:");
-            if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(layer, sel_registerName("respondsToSelector:"), sISL)) {
-                ProbeWrite("ISL-TRY2");
-                gLastReq = req;
-                @try {
-                    ((void(*)(id, SEL, id))objc_msgSend)(layer, sISL, req);
-                    ProbeWrite("ISL-PRESENT-OK");
-                    LDDCloseAfter(6.0);
-                    return;
-                } @catch (id e) { LogReason("ISL-EXC2", e); }
-            } else { ProbeWrite("ISL-NOMETHOD2"); }
-            // 兜底: postNotificationRequest: (1.9.95 起验证有效; iOS16 呈现为两条, 仅在上岛 API 不可用时使用)
+            // 优化27: 统一走 postNotificationRequest: (1.9.95 起验证有效)
+            // ISL-TRY2(presentModalBannerAndExpand) 1.9.116/1.9.121 已两次证死: 呈现后设置页卡死
+            // post 呈现为 岛展开(第一条) + 标准横幅(第二条), 由 6 秒自动关闭阻断第二条
             SEL sPost = sel_registerName("postNotificationRequest:");
             if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(layer, sel_registerName("respondsToSelector:"), sPost)) {
                 ProbeWrite("RN-PRES-TRYPOST");
@@ -1340,7 +1361,7 @@ static void PostRealNotification(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.121-safedismiss");
+    ProbeWrite("LDD-BUILD actions-1.9.122-postautoclose");
     ProbeWrite("CONSTRUCTOR-RAN");
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
     // 对照组 hook (兼启动延迟器)
