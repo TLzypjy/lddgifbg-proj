@@ -1087,7 +1087,6 @@ static void PostRealNotification(void) {
     if (nowT - gLastPostT < 1.0) return;
     gLastPostT = nowT;
     ProbeWrite("RN-START");
-    int gRealPosted = 0;
     @try {
         dlopen("/System/Library/Frameworks/UserNotifications.framework/UserNotifications", 2);
         dlopen("/System/Library/PrivateFrameworks/NotificationCenter.framework/NotificationCenter", 2);
@@ -1307,7 +1306,6 @@ static void PostRealNotification(void) {
                 @try {
                     ((void(*)(id, SEL, id))objc_msgSend)(layer, sISL, req);
                     ProbeWrite("ISL-PRESENT-OK");
-                    gRealPosted = 1;
                     LDDCloseAfter(6.0);
                     return;
                 } @catch (id e) { LogReason("ISL-EXC2", e); }
@@ -1318,7 +1316,6 @@ static void PostRealNotification(void) {
                 ProbeWrite("RN-PRES-TRYPOST");
                 ((void(*)(id, SEL, id))objc_msgSend)(layer, sPost, req);
                 ProbeWrite("RN-PRES-SENT");
-                gRealPosted = 1;
                 LDDCloseAfter(6.0);
                 return;
             }
