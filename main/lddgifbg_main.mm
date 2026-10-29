@@ -175,6 +175,7 @@ static void PreviewAutoClose(void);
 @interface UIView : NSObject
 - (id)initWithFrame:(CGRect)r;
 - (CGRect)bounds;
+- (CGRect)frame;
 - (void)setFrame:(CGRect)r;
 - (void)insertSubview:(id)v atIndex:(NSInteger)i;
 - (void)addSubview:(id)v;
