@@ -43,6 +43,11 @@ static id CLSSTR(const char *n) { return (id)objc_getClass(n); }
 - (void)performSelector:(SEL)s withObject:(id)o afterDelay:(double)d;
 @end
 @class NSArray;
+@interface NSNotificationCenter : NSObject
++ (id)defaultCenter;
+- (void)postNotificationName:(NSString *)n object:(id)o;
+- (void)addObserver:(id)obs selector:(SEL)sel name:(NSString *)n object:(id)o;
+@end
 @interface NSString : NSObject
 - (id)initWithBytes:(const void *)b length:(NSUInteger)l encoding:(NSUInteger)e;
 + (id)stringWithFormat:(NSString *)f, ...;
@@ -444,6 +449,8 @@ static void LDDUpdatePreview(void) {
         maxTx = (rw - cb.w) / 2.0; if (maxTx < 0) maxTx = 0;
         maxTy = (rh - cb.h) / 2.0; if (maxTy < 0) maxTy = 0;
     }
+    // 1.9.144: 与 main 一致, 偏移上限 60%
+    maxTx *= 0.6; maxTy *= 0.6;
     if (px > maxTx) px = maxTx;
     if (px < -maxTx) px = -maxTx;
     if (py > maxTy) py = maxTy;
@@ -863,6 +870,8 @@ static id LDDListMaterialFolders(void) {
     [ud synchronize];
     WritePrefsFile(@"SelectedMaterialFolder", name);
     [(UICollectionView *)cv reloadData];
+    // 1.9.144: 通知设置页刷新预览 (不依赖 viewWillAppear)
+    [[NSNotificationCenter defaultCenter] postNotificationName:@"LDDMatChanged" object:0];
 }
 @end
 
@@ -893,6 +902,14 @@ static id LDDListMaterialFolders(void) {
     LogB("ROOT-VIEWDIDLOAD");
     @try { [super viewDidLoad]; } @catch (id e) { LogB("ROOT-VD-EXC"); }
     [self setTitle:@"灵动岛GIF背景"];
+    // 1.9.144: 素材切换通知 -> 强制刷新预览行
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(matChanged) name:@"LDDMatChanged" object:0];
+}
+// 1.9.144: 素材切换后刷新
+- (void)matChanged {
+    LogB("MAT-CHANGED-NOTIFY");
+    id tb = [self table];
+    if (tb) [tb reloadData];
 }
 // 1.9.140: 从素材选择器返回时刷新预览行 (跟随新素材)
 - (void)viewWillAppear:(BOOL)animated {
