@@ -287,7 +287,7 @@ static id LoadPrefsValue(NSString *key) {
         NSString *p = [[NSString alloc] initWithBytes:paths[i] length:strlen(paths[i]) encoding:4];
         NSDictionary *d = [NSDictionary dictionaryWithContentsOfFile:p];
         if (d) {
-            if (!merged) merged = ((id(*)(id, SEL, id))objc_msgSend)((id)[NSMutableDictionary class], sel_registerName("dictionaryWithDictionary:"), d);
+            if (!merged) merged = ((id(*)(id, SEL, id))objc_msgSend)((id)objc_getClass("NSMutableDictionary"), sel_registerName("dictionaryWithDictionary:"), d);
             else ((void(*)(id, SEL, id))objc_msgSend)(merged, sel_registerName("addEntriesFromDictionary:"), d);
         }
     }
