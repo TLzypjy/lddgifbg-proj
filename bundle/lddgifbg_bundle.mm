@@ -976,6 +976,9 @@ static id LDDListMaterialFolders(void) {
                 if (w2 > 40 && h2 > 20) { iw = w2; ih = h2; }
             }
         }
+        // 1.9.145: 预览不能超出设置面板可用宽度 (等比缩放保持真实岛比例)
+        double maxw = b.w - 24;
+        if (iw > maxw) { double sc = maxw / iw; iw = maxw; ih *= sc; }
         CGRect cb = MakeRect((b.w - iw) / 2.0, 14, iw, ih);
         UIView *box = [[UIView alloc] initWithFrame:cb];
         [box setBackgroundColor:[UIColor colorWithWhite:0.0 alpha:1.0]];
