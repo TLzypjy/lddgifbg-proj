@@ -173,6 +173,7 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (void)setTransform:(CGAffineTransform)t;
 - (void)setTag:(NSInteger)t;
 - (id)viewWithTag:(NSInteger)t;
+- (id)superview;
 - (void)removeFromSuperview;
 - (void)setBackgroundColor:(id)c;
 - (id)subviews;
