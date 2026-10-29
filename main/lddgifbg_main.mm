@@ -959,8 +959,9 @@ static void LDDIslandLayout(id self) {
     CGRect b = [self bounds];
     [view setFrame:MakeRect(0, 0, b.w, b.h)];
     // 1.9.142: 广播岛容器真实尺寸 -> 设置页预览 1:1 复刻 (尺寸变化才写, 避免高频写盘)
+    // 1.9.151: 仅岛展开时广播 (收起小尺寸会覆盖设置页预览的大药丸)
     { static double iw = -1, ih = -1;
-      if (b.w != iw || b.h != ih) {
+      if (b.w >= 200 && b.h >= 40 && (b.w != iw || b.h != ih)) {
           iw = b.w; ih = b.h;
           NSString *sz = [NSString stringWithFormat:@"%.0f %.0f", b.w, b.h];
           [sz writeToFile:@"/var/mobile/lddgifbg/__island_size__" atomically:YES encoding:4 error:0];
@@ -1468,7 +1469,7 @@ __attribute__((constructor))
 static void LDDInit(void) {
     ProbeWrite("LDD-BUILD actions-1.9.137-merge");
     ProbeWrite("CONSTRUCTOR-RAN");
-    ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
+    // 1.9.151: 构造器不再读 prefs (避免 SpringBoard 启动早期触发 CFPrefs 初始化时序问题)
     // 对照组 hook (兼启动延迟器)
     id clsCtrl = objc_getClass("UIView");
     if (clsCtrl) {
