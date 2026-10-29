@@ -43,6 +43,7 @@ static id CLSSTR(const char *n) { return (id)objc_getClass(n); }
 - (void)performSelector:(SEL)s withObject:(id)o afterDelay:(double)d;
 @end
 @class NSArray;
+@class NSString;
 @interface NSNotificationCenter : NSObject
 + (id)defaultCenter;
 - (void)postNotificationName:(NSString *)n object:(id)o;
