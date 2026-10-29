@@ -891,7 +891,7 @@ static id LDDListMaterialFolders(void) {
         // 1.9.135: 独立 action, 不依赖 tag
         // 1.9.136: 探针确认滑块真实渲染
         LogB("CELL-SCALE-SLIDER");
-        [sl addTarget:self action:@selector(scaleChanged:) forControlEvents:1 << 12];
+        [sl addTarget:self action:@selector(scaleChanged:) forControlEvents:(1 << 12) | (1 << 6) | (1 << 7)];
         [[cell contentView] addSubview:sl];
     } else if (row == 3) {
         // 1.9.133: 播放速度滑块 (0.5x~2.0x)
@@ -910,7 +910,7 @@ static id LDDListMaterialFolders(void) {
         // 1.9.135: 独立 action, 不依赖 tag
         // 1.9.136: 探针确认滑块真实渲染
         LogB("CELL-SPEED-SLIDER");
-        [sl addTarget:self action:@selector(speedChanged:) forControlEvents:1 << 12];
+        [sl addTarget:self action:@selector(speedChanged:) forControlEvents:(1 << 12) | (1 << 6) | (1 << 7)];
         [[cell contentView] addSubview:sl];
     } else {
         NSString *t = (row == 4 ? @"选择素材" : (row == 5 ? @"跳转素材目录" : (row == 6 ? @"预览通知" : @"立即注销")));
@@ -961,6 +961,8 @@ static id LDDListMaterialFolders(void) {
     [ud setObject:[NSNumber numberWithDouble:dv] forKey:@"lddgifbgScale"];
     [ud synchronize];
     WritePrefsFile(@"lddgifbgScale", [NSNumber numberWithDouble:dv]);
+    // 1.9.137: 写后回读验证
+    { id rv = [ud objectForKey:@"lddgifbgScale"]; double rd = rv ? [rv doubleValue] : -1.0; char bl[96]; snprintf(bl, sizeof(bl), "WRITE-SCALE-OK %.2f", rd); LogB(bl); }
 }
 - (void)speedChanged:(UISlider *)sl {
     double dv = [sl value];
@@ -969,6 +971,8 @@ static id LDDListMaterialFolders(void) {
     [ud setObject:[NSNumber numberWithDouble:dv] forKey:@"lddgifbgSpeed"];
     [ud synchronize];
     WritePrefsFile(@"lddgifbgSpeed", [NSNumber numberWithDouble:dv]);
+    // 1.9.137: 写后回读验证
+    { id rv = [ud objectForKey:@"lddgifbgSpeed"]; double rd = rv ? [rv doubleValue] : -1.0; char bl[96]; snprintf(bl, sizeof(bl), "WRITE-SPEED-OK %.2f", rd); LogB(bl); }
 }
 - (void)testNotification {
     PostTestNotification();

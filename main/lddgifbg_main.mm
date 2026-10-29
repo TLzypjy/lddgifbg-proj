@@ -274,6 +274,7 @@ struct CMTimeRaw { long long value; int timescale; unsigned flags; long long epo
 // ---------- prefs (NSUserDefaults + plist 多路径兜底) ----------
 static id LoadPrefsValue(NSString *key) {
     // 文件优先: 与原版一致, 跨进程永远新鲜
+    // 1.9.137: 合并读取所有路径 (后写覆盖先写) —— 防止旧文件遮蔽新写入的键
     const char *paths[] = {
         "/var/jb/User/Library/Preferences/lddgifbg.plist",
         "/var/mobile/Library/Preferences/lddgifbg.plist",
@@ -281,13 +282,18 @@ static id LoadPrefsValue(NSString *key) {
         "@P@/var/mobile/Library/Preferences/lddgifbg.plist",
         0
     };
+    NSMutableDictionary *merged = nil;
     for (int i = 0; paths[i]; i++) {
         NSString *p = [[NSString alloc] initWithBytes:paths[i] length:strlen(paths[i]) encoding:4];
         NSDictionary *d = [NSDictionary dictionaryWithContentsOfFile:p];
         if (d) {
-            id x = [d objectForKeyedSubscript:key];
-            if (x) return x;
+            if (!merged) merged = [NSMutableDictionary dictionaryWithDictionary:d];
+            else [merged addEntriesFromDictionary:d];
         }
+    }
+    if (merged) {
+        id x = [merged objectForKeyedSubscript:key];
+        if (x) return x;
     }
     NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
     return [ud objectForKey:key];
@@ -627,6 +633,8 @@ static void RefreshPrefsCache(void) {
     cScale = GetLddGifBgScale();
     cSpeed = GetLddGifBgSpeed();
     cPath = GetSelectedImagePath();
+    // 1.9.137: 诊断 —— 读文件原始 scale 值 (限流 6 条)
+    { static int psg = 0; if (psg < 6) { psg++; id raw = LoadPrefsValue(@"lddgifbgScale"); double rd = raw ? [raw doubleValue] : -1.0; char al[80]; snprintf(al, sizeof(al), "PREF-SCALE %.2f", rd); ProbeWrite(al); } }
     // 1.9.133: 速度变化即时生效 —— GIF 重启定时器, 视频更新 rate
     if (gLastAppliedSpeed != cSpeed) {
         gLastAppliedSpeed = cSpeed;
@@ -1370,7 +1378,7 @@ static void PostRealNotification(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.133-speed");
+    ProbeWrite("LDD-BUILD actions-1.9.137-merge");
     ProbeWrite("CONSTRUCTOR-RAN");
     ProbeWrite(LoadPrefsValue(@"SelectedMaterialFolder") ? "SF-OK" : "SF-NIL");
     // 对照组 hook (兼启动延迟器)
