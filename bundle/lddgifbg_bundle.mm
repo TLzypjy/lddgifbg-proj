@@ -234,10 +234,11 @@ extern "C" void UIGraphicsEndImageContext(void);
 @end
 @interface UISlider : UIView
 - (id)initWithFrame:(CGRect)r;
-- (void)setMinimumValue:(double)m;
-- (void)setMaximumValue:(double)m;
-- (void)setValue:(double)v;
-- (double)value;
+// 1.9.138: 真实 UIKit 为 float —— double 签名导致 arm64 上 value 读取错位(恒 0.00)
+- (void)setMinimumValue:(float)m;
+- (void)setMaximumValue:(float)m;
+- (void)setValue:(float)v;
+- (float)value;
 - (void)addTarget:(id)t action:(SEL)a forControlEvents:(NSUInteger)e;
 @end
 @interface UITableViewCell : UIView
