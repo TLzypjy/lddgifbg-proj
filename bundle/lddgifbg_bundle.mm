@@ -940,6 +940,13 @@ static id LDDListMaterialFolders(void) {
 - (NSInteger)numberOfSectionsInTableView:(id)tv { return 1; }
 // 1.9.140: 行数 10 (0/1开关 2预览 3水平偏移 4垂直偏移 5速度 6选素材 7跳转 8预览通知 9注销)
 - (NSInteger)tableView:(id)tv numberOfRowsInSection:(NSInteger)s { return 10; }
+// 1.9.156: 输入框预填值去小数 (偏移=整数, 速度=去尾零保留1位)
+static NSString *LDDInputNum(double v, BOOL isSpeed) {
+    if (!isSpeed) return [NSString stringWithFormat:@"%.0f", v];
+    double r = round(v * 10.0) / 10.0;
+    if (r == (double)(long long)r) return [NSString stringWithFormat:@"%.0f", r];
+    return [NSString stringWithFormat:@"%.1f", r];
+}
 // 1.9.146: 预览尺寸 (真实岛比例 + 面板宽缩放), heightForRow/cellForRow 共用
 static void LDDPreviewSize(double bw, double *piw, double *pih) {
     double iw = bw - 32, ih = 100;
@@ -1218,7 +1225,7 @@ static void LDDPreviewSize(double bw, double *piw, double *pih) {
     UIAlertController *ac = [UIAlertController alertControllerWithTitle:title message:hint preferredStyle:1];   // 1.9.154: 必须 Alert(1), ActionSheet(0) 不允许加输入框会崩
     [ac addTextFieldWithConfigurationHandler:^(UITextField *tf){
         [tf setKeyboardType:4];
-        [tf setText:[NSString stringWithFormat:@"%g", dv]];   // 1.9.155: 预填不带小数点
+        [tf setText:LDDInputNum(dv, (tag == 2025))];   // 1.9.156: 偏移整数, 速度去尾零
     }];
     UIAlertAction *ok = [UIAlertAction actionWithTitle:@"确定" style:0 handler:^(UIAlertAction *a){
         id tfs = [ac textFields];
