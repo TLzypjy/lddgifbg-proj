@@ -52,6 +52,7 @@ static id CLSSTR(const char *n) { return (id)objc_getClass(n); }
 @interface NSString : NSObject
 - (id)initWithBytes:(const void *)b length:(NSUInteger)l encoding:(NSUInteger)e;
 + (id)stringWithFormat:(NSString *)f, ...;
+- (double)doubleValue;
 - (NSString *)stringByAppendingPathComponent:(NSString *)s;
 - (NSString *)pathExtension;
 - (NSString *)lowercaseString;
@@ -217,6 +218,7 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (void)setPlaceholder:(NSString *)p;
 - (id)text;
 - (void)setText:(NSString *)t;
+- (void)setKeyboardType:(NSInteger)k;
 @end
 // 1.9.153: 点击数值自定义输入
 @interface UITapGestureRecognizer : NSObject
