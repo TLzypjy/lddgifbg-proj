@@ -51,6 +51,8 @@ static id CLSSTR(const char *n) { return (id)objc_getClass(n); }
 - (NSString *)lastPathComponent;
 - (BOOL)isEqualToString:(NSString *)s;
 - (NSUInteger)length;
++ (id)stringWithContentsOfFile:(NSString *)path encoding:(NSUInteger)enc error:(id *)err;
+- (NSArray *)componentsSeparatedByString:(NSString *)sep;
 @end
 @interface NSArray : NSObject
 + (id)array;
