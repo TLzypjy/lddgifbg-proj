@@ -451,8 +451,8 @@ static void LDDUpdatePreview(void) {
         maxTy = (rh - cb.h) / 2.0; if (maxTy < 0) maxTy = 0;
     }
     // 1.9.148: 与 main 一致, 偏移不限制, ±200 映射 ±400pt, 可直接移出岛范围
-    px = cPosX * 2.0;
-    py = cPosY * 2.0;
+    px *= 2.0;
+    py *= 2.0;
     // 1.9.143: 与 main 一致, 直接改 frame 原点 (不用 transform)
     CGRect pf = [gPrevContent frame];
     double fx = (cb.w - pf.w) / 2.0 + px;
