@@ -42,6 +42,7 @@ static id CLSSTR(const char *n) { return (id)objc_getClass(n); }
 - (void)setValue:(id)v forKey:(id)k;
 - (void)performSelector:(SEL)s withObject:(id)o afterDelay:(double)d;
 @end
+@class NSArray;
 @interface NSString : NSObject
 - (id)initWithBytes:(const void *)b length:(NSUInteger)l encoding:(NSUInteger)e;
 + (id)stringWithFormat:(NSString *)f, ...;
