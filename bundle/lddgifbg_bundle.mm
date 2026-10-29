@@ -161,6 +161,7 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (void)addSubview:(id)v;
 // 1.9.140: 预览偏移用
 - (void)setTransform:(CGAffineTransform)t;
+- (void)setTag:(NSInteger)t;
 - (void)removeFromSuperview;
 - (void)setBackgroundColor:(id)c;
 - (id)subviews;
