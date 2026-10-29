@@ -135,6 +135,9 @@ extern "C" void *kCGImagePropertyGIFUnclampedDelayTime;
 
 typedef struct CGSize { double w, h; } CGSize;
 typedef struct UIEdgeInsets { double top, left, bottom, right; } UIEdgeInsets;
+// 1.9.140: 预览平移
+typedef struct CGAffineTransform { double a, b, c, d, tx, ty; } CGAffineTransform;
+static CGAffineTransform CGMakeTranslate(double tx, double ty) { CGAffineTransform t = {1, 0, 0, 1, tx, ty}; return t; }
 static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, y, w, h}; return r; }
 
 @interface UIColor : NSObject
@@ -156,6 +159,8 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (CGRect)bounds;
 - (void)setFrame:(CGRect)r;
 - (void)addSubview:(id)v;
+// 1.9.140: 预览偏移用
+- (void)setTransform:(CGAffineTransform)t;
 - (void)removeFromSuperview;
 - (void)setBackgroundColor:(id)c;
 - (id)subviews;
@@ -252,6 +257,7 @@ extern "C" void UIGraphicsEndImageContext(void);
 - (void)deselectRowAtIndexPath:(id)ip animated:(BOOL)a;
 @end
 @interface UIViewController : NSObject
+- (void)viewWillAppear:(BOOL)a;
 - (id)initWithNibName:(id)n bundle:(id)b;
 - (id)view;
 - (id)navigationItem;
@@ -348,6 +354,8 @@ extern "C" void UIGraphicsEndImageContext(void);
 @interface PSListController : UIViewController
 - (id)loadSpecifiersFromPlistName:(NSString *)n target:(id)t;
 - (id)specifiers;
+// 1.9.140: 素材选择返回后刷新 (预览行跟随)
+- (id)table;
 @end
 @interface NSBundle : NSObject
 + (id)mainBundle;
@@ -397,6 +405,46 @@ static void PostTestNotification(void) {
         [[NSFileManager defaultManager] createFileAtPath:@"/var/mobile/lddgifbg/__test_notif__" contents:0 attributes:0];
         LogB("TN-FLAG-OK");
     } @catch (id e) { LogB("TN-FLAG-EXC"); }
+}
+
+// ---------- 1.9.140: 设置页实时预览 (灵动岛药丸 + 素材首帧 + 偏移平移) ----------
+static UIView *gPrevContainer = nil;
+static UIImageView *gPrevContent = nil;
+static double gPrevW = 0, gPrevH = 0;
+static NSString *SelectedMaterialPathForPreview(void) {
+    NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
+    NSString *folder = [ud objectForKey:@"SelectedMaterialFolder"];
+    if (!folder) return nil;
+    NSString *dir = [@"/var/mobile/lddgifbg" stringByAppendingPathComponent:folder];
+    NSArray *items = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:dir error:0];
+    for (NSString *it in items) {
+        NSString *e = [[it pathExtension] lowercaseString];
+        if ([e isEqualToString:@"gif"] || [e isEqualToString:@"mp4"] || [e isEqualToString:@"mov"])
+            return [dir stringByAppendingPathComponent:it];
+    }
+    return nil;
+}
+static void LDDUpdatePreview(void) {
+    if (!gPrevContainer || !gPrevContent) return;
+    NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
+    id vx = [ud objectForKey:@"lddgifbgPosX"];
+    id vy = [ud objectForKey:@"lddgifbgPosY"];
+    double px = vx ? [vx doubleValue] : 0.0;
+    double py = vy ? [vy doubleValue] : 0.0;
+    CGRect cb = [gPrevContainer bounds];
+    double maxTx = 0, maxTy = 0;
+    if (gPrevW > 1 && gPrevH > 1) {
+        double sc = (cb.w / gPrevW) > (cb.h / gPrevH) ? (cb.w / gPrevW) : (cb.h / gPrevH);
+        double rw = gPrevW * sc, rh = gPrevH * sc;
+        maxTx = (rw - cb.w) / 2.0; if (maxTx < 0) maxTx = 0;
+        maxTy = (rh - cb.h) / 2.0; if (maxTy < 0) maxTy = 0;
+    }
+    if (px > maxTx) px = maxTx;
+    if (px < -maxTx) px = -maxTx;
+    if (py > maxTy) py = maxTy;
+    if (py < -maxTy) py = -maxTy;
+    [gPrevContent setTransform:CGMakeTranslate(px, py)];
+    { char bl[96]; snprintf(bl, sizeof(bl), "PREVIEW-POS %.0f %.0f", px, py); LogB(bl); }
 }
 
 // ---------- 素材缩略图 ----------
@@ -837,15 +885,24 @@ static id LDDListMaterialFolders(void) {
     @try { [super viewDidLoad]; } @catch (id e) { LogB("ROOT-VD-EXC"); }
     [self setTitle:@"灵动岛GIF背景"];
 }
+// 1.9.140: 从素材选择器返回时刷新预览行 (跟随新素材)
+- (void)viewWillAppear:(BOOL)animated {
+    @try { [super viewWillAppear:animated]; } @catch (id e) { LogB("ROOT-WVA-EXC"); }
+    id tb = [self table];
+    if (tb) [tb reloadData];
+}
 - (id)specifiers {
     @try { return [self loadSpecifiersFromPlistName:@"Root" target:self]; }
     @catch (id e) { LogB("ROOT-SPEC-EXC"); }
     return [NSArray array];
 }
 - (NSInteger)numberOfSectionsInTableView:(id)tv { return 1; }
-// 1.9.139: 行数 9 (0/1开关 2水平偏移 3垂直偏移 4速度 5选素材 6跳转 7预览 8注销)
-- (NSInteger)tableView:(id)tv numberOfRowsInSection:(NSInteger)s { return 9; }
-- (double)tableView:(id)tv heightForRowAtIndexPath:(id)ip { return 60.0; }
+// 1.9.140: 行数 10 (0/1开关 2预览 3水平偏移 4垂直偏移 5速度 6选素材 7跳转 8预览通知 9注销)
+- (NSInteger)tableView:(id)tv numberOfRowsInSection:(NSInteger)s { return 10; }
+- (double)tableView:(id)tv heightForRowAtIndexPath:(id)ip {
+    if ([ip row] == 2) return 130.0;   // 1.9.140: 预览行
+    return 60.0;
+}
 - (double)tableView:(id)tv estimatedHeightForRowAtIndexPath:(id)ip { return 60.0; }
 - (double)tableView:(id)tv heightForHeaderInSection:(NSInteger)s { return 0.0; }
 - (double)tableView:(id)tv heightForFooterInSection:(NSInteger)s { return 0.0; }
@@ -878,7 +935,43 @@ static id LDDListMaterialFolders(void) {
         [sw addTarget:self action:@selector(switchToggled:) forControlEvents:1 << 12];
         [[cell contentView] addSubview:sw];
     } else if (row == 2) {
-        // 1.9.139: 水平偏移 (左右调整显示区域, -200~200, 默认0)
+        // 1.9.140: 实时预览 (黑底药丸模拟灵动岛 + 素材首帧 + 当前偏移)
+        [cell setSelectionStyle:0];
+        CGRect cb = MakeRect(16, 22, b.w - 32, 50);
+        UIView *box = [[UIView alloc] initWithFrame:cb];
+        [box setBackgroundColor:[UIColor colorWithWhite:0.0 alpha:1.0]];
+        [box setTag:2010];
+        id blay = [box layer];
+        [blay setCornerRadius:25.0];
+        [blay setMasksToBounds:YES];
+        [[cell contentView] addSubview:box];
+        gPrevContainer = box;
+        NSString *ppath = SelectedMaterialPathForPreview();
+        UIImage *pimg = ppath ? ThumbForPath(ppath) : nil;
+        if (pimg) {
+            CGSize isz = [pimg size];
+            double cw = cb.w, ch = cb.h;
+            double sc = (cw / isz.w) > (ch / isz.h) ? (cw / isz.w) : (ch / isz.h);
+            cw = isz.w * sc; ch = isz.h * sc;
+            gPrevW = isz.w; gPrevH = isz.h;
+            UIImageView *piv = [[UIImageView alloc] initWithFrame:MakeRect((cb.w - cw) / 2.0, (cb.h - ch) / 2.0, cw, ch)];
+            [piv setContentMode:2];
+            [piv setImage:pimg];
+            [piv setTag:2011];
+            [box addSubview:piv];
+            gPrevContent = piv;
+        } else {
+            gPrevW = 0; gPrevH = 0; gPrevContent = nil;
+            UILabel *tip = [[UILabel alloc] initWithFrame:MakeRect(0, 0, cb.w, cb.h)];
+            [tip setText:@"未选择素材"];
+            [tip setTextColor:[UIColor whiteColor]];
+            [tip setTextAlignment:1];
+            [tip setFont:[UIFont systemFontOfSize:14.0]];
+            [box addSubview:tip];
+        }
+        LDDUpdatePreview();
+    } else if (row == 3) {
+        // 1.9.140: 水平偏移 (左右调整显示区域, -200~200, 默认0)
         UILabel *label = [[UILabel alloc] initWithFrame:MakeRect(16, 8, b.w - 32, 20)];
         [label setText:@"水平偏移"];
         [label setFont:[UIFont systemFontOfSize:15.0]];
@@ -893,8 +986,8 @@ static id LDDListMaterialFolders(void) {
         LogB("CELL-POSX-SLIDER");
         [sl addTarget:self action:@selector(posXChanged:) forControlEvents:(1 << 12) | (1 << 6) | (1 << 7)];
         [[cell contentView] addSubview:sl];
-    } else if (row == 3) {
-        // 1.9.139: 垂直偏移 (上下调整显示区域, -200~200, 默认0)
+    } else if (row == 4) {
+        // 1.9.140: 垂直偏移 (上下调整显示区域, -200~200, 默认0)
         UILabel *label = [[UILabel alloc] initWithFrame:MakeRect(16, 8, b.w - 32, 20)];
         [label setText:@"垂直偏移"];
         [label setFont:[UIFont systemFontOfSize:15.0]];
@@ -909,7 +1002,7 @@ static id LDDListMaterialFolders(void) {
         LogB("CELL-POSY-SLIDER");
         [sl addTarget:self action:@selector(posYChanged:) forControlEvents:(1 << 12) | (1 << 6) | (1 << 7)];
         [[cell contentView] addSubview:sl];
-    } else if (row == 4) {
+    } else if (row == 5) {
         // 1.9.133: 播放速度滑块 (0.5x~2.0x)
         UILabel *label = [[UILabel alloc] initWithFrame:MakeRect(16, 8, b.w - 32, 20)];
         [label setText:@"播放速度"];
@@ -927,11 +1020,11 @@ static id LDDListMaterialFolders(void) {
         [sl addTarget:self action:@selector(speedChanged:) forControlEvents:(1 << 12) | (1 << 6) | (1 << 7)];
         [[cell contentView] addSubview:sl];
     } else {
-        NSString *t = (row == 5 ? @"选择素材" : (row == 6 ? @"跳转素材目录" : (row == 7 ? @"预览通知" : @"立即注销")));
+        NSString *t = (row == 6 ? @"选择素材" : (row == 7 ? @"跳转素材目录" : (row == 8 ? @"预览通知" : @"立即注销")));
         UILabel *label = [[UILabel alloc] initWithFrame:MakeRect(16, 19, b.w - 60, 22)];
         [label setText:t];
         [label setFont:[UIFont systemFontOfSize:16.0]];
-        if (row == 8) [label setTextColor:[UIColor redColor]];
+        if (row == 9) [label setTextColor:[UIColor redColor]];
         [[cell contentView] addSubview:label];
         [cell setSelectionStyle:1];
     }
@@ -940,12 +1033,12 @@ static id LDDListMaterialFolders(void) {
 - (void)tableView:(id)tv didSelectRowAtIndexPath:(id)ip {
     NSInteger row = [ip row];
     [(UITableView *)tv deselectRowAtIndexPath:ip animated:YES];
-    // 1.9.139: 行号与 UI 同步 (0/1开关 2水平偏移 3垂直偏移 4速度 5选素材 6跳转 7预览 8注销)
-    if (row == 5) {
+    // 1.9.140: 行号与 UI 同步 (0/1开关 2预览 3水平偏移 4垂直偏移 5速度 6选素材 7跳转 8预览通知 9注销)
+    if (row == 6) {
         LDDMaterialPickerController *pc = [[LDDMaterialPickerController alloc] init];
         UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:pc];
         [self presentViewController:nav animated:YES completion:0];
-    } else if (row == 6) {
+    } else if (row == 7) {
         UIApplication *app = [UIApplication sharedApplication];
         NSURL *fz = [NSURL URLWithString:@"filza://view/var/mobile/lddgifbg"];
         [app openURL:fz options:[NSDictionary dictionary] completionHandler:^(BOOL ok){
@@ -954,9 +1047,9 @@ static id LDDListMaterialFolders(void) {
                 [app openURL:url options:[NSDictionary dictionary] completionHandler:0];
             }
         }];
-    } else if (row == 7) {
-        [self showBannerPreview];
     } else if (row == 8) {
+        [self showBannerPreview];
+    } else if (row == 9) {
         [self respringNow];
     }
 }
@@ -976,6 +1069,8 @@ static id LDDListMaterialFolders(void) {
     [ud synchronize];
     WritePrefsFile(@"lddgifbgPosX", [NSNumber numberWithDouble:dv]);
     { id rv = [ud objectForKey:@"lddgifbgPosX"]; double rd = rv ? [rv doubleValue] : -1.0; char bl[96]; snprintf(bl, sizeof(bl), "WRITE-POSX-OK %.2f", rd); LogB(bl); }
+    // 1.9.140: 实时刷新预览位置
+    LDDUpdatePreview();
 }
 - (void)posYChanged:(UISlider *)sl {
     double dv = [sl value];
@@ -985,6 +1080,8 @@ static id LDDListMaterialFolders(void) {
     [ud synchronize];
     WritePrefsFile(@"lddgifbgPosY", [NSNumber numberWithDouble:dv]);
     { id rv = [ud objectForKey:@"lddgifbgPosY"]; double rd = rv ? [rv doubleValue] : -1.0; char bl[96]; snprintf(bl, sizeof(bl), "WRITE-POSY-OK %.2f", rd); LogB(bl); }
+    // 1.9.140: 实时刷新预览位置
+    LDDUpdatePreview();
 }
 - (void)speedChanged:(UISlider *)sl {
     double dv = [sl value];
