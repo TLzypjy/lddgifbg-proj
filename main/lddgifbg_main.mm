@@ -950,6 +950,13 @@ static void LDDIslandLayout(id self) {
 
     CGRect b = [self bounds];
     [view setFrame:MakeRect(0, 0, b.w, b.h)];
+    // 1.9.142: 广播岛容器真实尺寸 -> 设置页预览 1:1 复刻 (尺寸变化才写, 避免高频写盘)
+    { static double iw = -1, ih = -1;
+      if (b.w != iw || b.h != ih) {
+          iw = b.w; ih = b.h;
+          NSString *sz = [NSString stringWithFormat:@"%.0f %.0f", b.w, b.h];
+          [sz writeToFile:@"/var/mobile/lddgifbg/__island_size__" atomically:YES encoding:4 error:0];
+      } }
     // 药丸圆角, 贴合灵动岛形状 (容器层裁切)
     id vlay = [view layer];
     [vlay setCornerRadius:b.h / 2.0];

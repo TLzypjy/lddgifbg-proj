@@ -940,12 +940,22 @@ static id LDDListMaterialFolders(void) {
     } else if (row == 2) {
         // 1.9.140: 实时预览 (黑底药丸模拟灵动岛 + 素材首帧 + 当前偏移)
         [cell setSelectionStyle:0];
-        CGRect cb = MakeRect(16, 14, b.w - 32, 100);
+        // 1.9.142: 预览 1:1 复刻真实通知 (读取 main 广播的岛尺寸; 文件缺失用默认)
+        double iw = b.w - 32, ih = 100;
+        NSString *isz = [NSString stringWithContentsOfFile:@"/var/mobile/lddgifbg/__island_size__" encoding:4 error:0];
+        if (isz) {
+            NSArray *parts = [isz componentsSeparatedByString:@" "];
+            if ([parts count] >= 2) {
+                double w2 = [[parts objectAtIndex:0] doubleValue], h2 = [[parts objectAtIndex:1] doubleValue];
+                if (w2 > 40 && h2 > 20) { iw = w2; ih = h2; }
+            }
+        }
+        CGRect cb = MakeRect((b.w - iw) / 2.0, 14, iw, ih);
         UIView *box = [[UIView alloc] initWithFrame:cb];
         [box setBackgroundColor:[UIColor colorWithWhite:0.0 alpha:1.0]];
         [box setTag:2010];
         id blay = [box layer];
-        [blay setCornerRadius:50.0];
+        [blay setCornerRadius:ih / 2.0];
         [blay setMasksToBounds:YES];
         [[cell contentView] addSubview:box];
         gPrevContainer = box;
