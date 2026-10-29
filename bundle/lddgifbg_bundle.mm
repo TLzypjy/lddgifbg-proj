@@ -172,6 +172,7 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 // 1.9.140: 预览偏移用
 - (void)setTransform:(CGAffineTransform)t;
 - (void)setTag:(NSInteger)t;
+- (id)viewWithTag:(NSInteger)t;
 - (void)removeFromSuperview;
 - (void)setBackgroundColor:(id)c;
 - (id)subviews;
@@ -1029,7 +1030,7 @@ static void LDDPreviewSize(double bw, double *piw, double *pih) {
         [label setText:@"水平偏移"];
         [label setFont:[UIFont systemFontOfSize:15.0]];
         [[cell contentView] addSubview:label];
-        UISlider *sl = [[UISlider alloc] initWithFrame:MakeRect(16, 30, b.w - 32, 28)];
+        UISlider *sl = [[UISlider alloc] initWithFrame:MakeRect(16, 30, b.w - 108, 28)];
         [sl setMinimumValue:-200];
         [sl setMaximumValue:200];
         NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
@@ -1039,13 +1040,20 @@ static void LDDPreviewSize(double bw, double *piw, double *pih) {
         LogB("CELL-POSX-SLIDER");
         [sl addTarget:self action:@selector(posXChanged:) forControlEvents:(1 << 12) | (1 << 6) | (1 << 7)];
         [[cell contentView] addSubview:sl];
+        // 1.9.152: 滑块右侧实时数值
+        UILabel *vl = [[UILabel alloc] initWithFrame:MakeRect(b.w - 92, 33, 76, 22)];
+        [vl setTextAlignment:2];
+        [vl setFont:[UIFont systemFontOfSize:15.0]];
+        [vl setTag:2023];
+        [vl setText:[NSString stringWithFormat:@"%.0f", dv]];
+        [[cell contentView] addSubview:vl];
     } else if (row == 4) {
         // 1.9.140: 垂直偏移 (上下调整显示区域, -200~200, 默认0)
         UILabel *label = [[UILabel alloc] initWithFrame:MakeRect(16, 8, b.w - 32, 20)];
         [label setText:@"垂直偏移"];
         [label setFont:[UIFont systemFontOfSize:15.0]];
         [[cell contentView] addSubview:label];
-        UISlider *sl = [[UISlider alloc] initWithFrame:MakeRect(16, 30, b.w - 32, 28)];
+        UISlider *sl = [[UISlider alloc] initWithFrame:MakeRect(16, 30, b.w - 108, 28)];
         [sl setMinimumValue:-200];
         [sl setMaximumValue:200];
         NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
@@ -1055,15 +1063,22 @@ static void LDDPreviewSize(double bw, double *piw, double *pih) {
         LogB("CELL-POSY-SLIDER");
         [sl addTarget:self action:@selector(posYChanged:) forControlEvents:(1 << 12) | (1 << 6) | (1 << 7)];
         [[cell contentView] addSubview:sl];
+        // 1.9.152: 滑块右侧实时数值
+        UILabel *vl = [[UILabel alloc] initWithFrame:MakeRect(b.w - 92, 33, 76, 22)];
+        [vl setTextAlignment:2];
+        [vl setFont:[UIFont systemFontOfSize:15.0]];
+        [vl setTag:2024];
+        [vl setText:[NSString stringWithFormat:@"%.0f", dv]];
+        [[cell contentView] addSubview:vl];
     } else if (row == 5) {
         // 1.9.133: 播放速度滑块 (0.5x~2.0x)
         UILabel *label = [[UILabel alloc] initWithFrame:MakeRect(16, 8, b.w - 32, 20)];
         [label setText:@"播放速度"];
         [label setFont:[UIFont systemFontOfSize:15.0]];
         [[cell contentView] addSubview:label];
-        UISlider *sl = [[UISlider alloc] initWithFrame:MakeRect(16, 30, b.w - 32, 28)];
+        UISlider *sl = [[UISlider alloc] initWithFrame:MakeRect(16, 30, b.w - 108, 28)];
         [sl setMinimumValue:0.5];
-        [sl setMaximumValue:2.0];
+        [sl setMaximumValue:3.0];   // 1.9.152: 支持到三倍速
         NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
         id v = [ud objectForKey:@"lddgifbgSpeed"];
         double dv = v ? [v doubleValue] : 1.0;
@@ -1072,6 +1087,13 @@ static void LDDPreviewSize(double bw, double *piw, double *pih) {
         LogB("CELL-SPEED-SLIDER");
         [sl addTarget:self action:@selector(speedChanged:) forControlEvents:(1 << 12) | (1 << 6) | (1 << 7)];
         [[cell contentView] addSubview:sl];
+        // 1.9.152: 滑块右侧实时数值 (倍速)
+        UILabel *vl = [[UILabel alloc] initWithFrame:MakeRect(b.w - 92, 33, 76, 22)];
+        [vl setTextAlignment:2];
+        [vl setFont:[UIFont systemFontOfSize:15.0]];
+        [vl setTag:2025];
+        [vl setText:[NSString stringWithFormat:@"%.1fx", dv]];
+        [[cell contentView] addSubview:vl];
     } else {
         NSString *t = (row == 6 ? @"选择素材" : (row == 7 ? @"跳转素材目录" : (row == 8 ? @"预览通知" : @"立即注销")));
         UILabel *label = [[UILabel alloc] initWithFrame:MakeRect(16, 19, b.w - 60, 22)];
@@ -1122,6 +1144,9 @@ static void LDDPreviewSize(double bw, double *piw, double *pih) {
     [ud synchronize];
     WritePrefsFile(@"lddgifbgPosX", [NSNumber numberWithDouble:dv]);
     { id rv = [ud objectForKey:@"lddgifbgPosX"]; double rd = rv ? [rv doubleValue] : -1.0; char bl[96]; snprintf(bl, sizeof(bl), "WRITE-POSX-OK %.2f", rd); LogB(bl); }
+    // 1.9.152: 更新右侧数值显示
+    id cv = [sl superview];
+    if (cv) { UILabel *vl = (UILabel *)[cv viewWithTag:2023]; if (vl) [vl setText:[NSString stringWithFormat:@"%.0f", dv]]; }
     // 1.9.140: 实时刷新预览位置
     LDDUpdatePreview();
 }
@@ -1133,6 +1158,9 @@ static void LDDPreviewSize(double bw, double *piw, double *pih) {
     [ud synchronize];
     WritePrefsFile(@"lddgifbgPosY", [NSNumber numberWithDouble:dv]);
     { id rv = [ud objectForKey:@"lddgifbgPosY"]; double rd = rv ? [rv doubleValue] : -1.0; char bl[96]; snprintf(bl, sizeof(bl), "WRITE-POSY-OK %.2f", rd); LogB(bl); }
+    // 1.9.152: 更新右侧数值显示
+    id cv = [sl superview];
+    if (cv) { UILabel *vl = (UILabel *)[cv viewWithTag:2024]; if (vl) [vl setText:[NSString stringWithFormat:@"%.0f", dv]]; }
     // 1.9.140: 实时刷新预览位置
     LDDUpdatePreview();
 }
@@ -1145,6 +1173,9 @@ static void LDDPreviewSize(double bw, double *piw, double *pih) {
     WritePrefsFile(@"lddgifbgSpeed", [NSNumber numberWithDouble:dv]);
     // 1.9.137: 写后回读验证
     { id rv = [ud objectForKey:@"lddgifbgSpeed"]; double rd = rv ? [rv doubleValue] : -1.0; char bl[96]; snprintf(bl, sizeof(bl), "WRITE-SPEED-OK %.2f", rd); LogB(bl); }
+    // 1.9.152: 更新右侧数值显示
+    id cv = [sl superview];
+    if (cv) { UILabel *vl = (UILabel *)[cv viewWithTag:2025]; if (vl) [vl setText:[NSString stringWithFormat:@"%.1fx", dv]]; }
 }
 - (void)testNotification {
     PostTestNotification();
