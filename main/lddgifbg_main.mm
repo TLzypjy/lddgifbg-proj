@@ -132,6 +132,7 @@ typedef struct CGRect { double ox, oy, w, h; } CGRect;
 static void LogReason(const char *tag, id e);
 static void CheckForcePreviewTick(void);
 static void PostRealNotification(void);
+static void ProbeWrite(const char *line);
 // 1.9.133: 播放速度 (GIF 定时器间隔 / AVPlayer rate 共用)
 static double cSpeed = 1.0;
 static double gLastAppliedSpeed = 1.0;
