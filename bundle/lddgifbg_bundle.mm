@@ -935,7 +935,7 @@ static void LDDPreviewSize(double bw, double *piw, double *pih) {
         NSArray *parts = [isz componentsSeparatedByString:@" "];
         if ([parts count] >= 2) {
             double w2 = [[parts objectAtIndex:0] doubleValue], h2 = [[parts objectAtIndex:1] doubleValue];
-            if (w2 > 40 && h2 > 20) { iw = w2; ih = h2; }
+            if (w2 >= 200 && h2 >= 40) { iw = w2; ih = h2; } // 1.9.151: 忽略收起小尺寸, 保持大预览
         }
     }
     // 1.9.147: 预览宽度直接撑满面板可用宽度 (左右不留白), 高度等比保持岛比例
