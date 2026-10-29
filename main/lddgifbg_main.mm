@@ -972,6 +972,10 @@ static void LDDIslandLayout(id self) {
         cw = gMediaW * s; ch = gMediaH * s;
     }
     [cv setFrame:MakeRect((b.w - cw) / 2.0, (b.h - ch) / 2.0, cw, ch)];
+    // 1.9.141: 视频 layer frame 必须跟随内容视图渲染尺寸 (否则视频在 layer 内被二次裁切, 平移看不出效果)
+    if (gPlayerLayer && [gPlayerLayer superlayer] == [cv layer]) {
+        [gPlayerLayer setFrame:[cv bounds]];
+    }
     ApplyPos();
 
     BOOL needReload = YES;
@@ -999,6 +1003,10 @@ static void LDDIslandLayout(id self) {
             double s = (b.w / gMediaW) > (b.h / gMediaH) ? (b.w / gMediaW) : (b.h / gMediaH);
             double cw2 = gMediaW * s, ch2 = gMediaH * s;
             [cv setFrame:MakeRect((b.w - cw2) / 2.0, (b.h - ch2) / 2.0, cw2, ch2)];
+            // 1.9.141: 同步视频 layer
+            if (gPlayerLayer && [gPlayerLayer superlayer] == [cv layer]) {
+                [gPlayerLayer setFrame:[cv bounds]];
+            }
             ApplyPos();
         }
     }

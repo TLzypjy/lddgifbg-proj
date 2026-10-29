@@ -889,8 +889,10 @@ static id LDDListMaterialFolders(void) {
 // 1.9.140: 从素材选择器返回时刷新预览行 (跟随新素材)
 - (void)viewWillAppear:(BOOL)animated {
     @try { [super viewWillAppear:animated]; } @catch (id e) { LogB("ROOT-WVA-EXC"); }
+    // 1.9.141: 素材选择返回后刷新预览行 (探针验证 table 是否取到)
     id tb = [self table];
-    if (tb) [tb reloadData];
+    if (tb) { [tb reloadData]; LogB("PREVIEW-RELOAD-OK"); }
+    else LogB("PREVIEW-RELOAD-NO-TABLE");
 }
 - (id)specifiers {
     @try { return [self loadSpecifiersFromPlistName:@"Root" target:self]; }
@@ -901,7 +903,7 @@ static id LDDListMaterialFolders(void) {
 // 1.9.140: 行数 10 (0/1开关 2预览 3水平偏移 4垂直偏移 5速度 6选素材 7跳转 8预览通知 9注销)
 - (NSInteger)tableView:(id)tv numberOfRowsInSection:(NSInteger)s { return 10; }
 - (double)tableView:(id)tv heightForRowAtIndexPath:(id)ip {
-    if ([ip row] == 2) return 130.0;   // 1.9.140: 预览行
+    if ([ip row] == 2) return 170.0;   // 1.9.141: 预览行 (加大)
     return 60.0;
 }
 - (double)tableView:(id)tv estimatedHeightForRowAtIndexPath:(id)ip { return 60.0; }
@@ -938,12 +940,12 @@ static id LDDListMaterialFolders(void) {
     } else if (row == 2) {
         // 1.9.140: 实时预览 (黑底药丸模拟灵动岛 + 素材首帧 + 当前偏移)
         [cell setSelectionStyle:0];
-        CGRect cb = MakeRect(16, 22, b.w - 32, 50);
+        CGRect cb = MakeRect(16, 14, b.w - 32, 100);
         UIView *box = [[UIView alloc] initWithFrame:cb];
         [box setBackgroundColor:[UIColor colorWithWhite:0.0 alpha:1.0]];
         [box setTag:2010];
         id blay = [box layer];
-        [blay setCornerRadius:25.0];
+        [blay setCornerRadius:50.0];
         [blay setMasksToBounds:YES];
         [[cell contentView] addSubview:box];
         gPrevContainer = box;
