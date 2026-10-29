@@ -943,9 +943,8 @@ static id LDDListMaterialFolders(void) {
 // 1.9.156: 输入框预填值去小数 (偏移=整数, 速度=去尾零保留1位)
 static NSString *LDDInputNum(double v, BOOL isSpeed) {
     if (!isSpeed) return [NSString stringWithFormat:@"%.0f", v];
-    double r = round(v * 10.0) / 10.0;
-    if (r == (double)(long long)r) return [NSString stringWithFormat:@"%.0f", r];
-    return [NSString stringWithFormat:@"%.1f", r];
+    if (v == (double)(long long)v) return [NSString stringWithFormat:@"%.0f", v];
+    return [NSString stringWithFormat:@"%.1f", v];
 }
 // 1.9.146: 预览尺寸 (真实岛比例 + 面板宽缩放), heightForRow/cellForRow 共用
 static void LDDPreviewSize(double bw, double *piw, double *pih) {
