@@ -889,6 +889,8 @@ static id LDDListMaterialFolders(void) {
         if (dv <= 0) dv = 1.0;
         [sl setValue:dv];
         // 1.9.135: 独立 action, 不依赖 tag
+        // 1.9.136: 探针确认滑块真实渲染
+        LogB("CELL-SCALE-SLIDER");
         [sl addTarget:self action:@selector(scaleChanged:) forControlEvents:1 << 12];
         [[cell contentView] addSubview:sl];
     } else if (row == 3) {
@@ -906,6 +908,8 @@ static id LDDListMaterialFolders(void) {
         if (dv <= 0) dv = 1.0;
         [sl setValue:dv];
         // 1.9.135: 独立 action, 不依赖 tag
+        // 1.9.136: 探针确认滑块真实渲染
+        LogB("CELL-SPEED-SLIDER");
         [sl addTarget:self action:@selector(speedChanged:) forControlEvents:1 << 12];
         [[cell contentView] addSubview:sl];
     } else {
@@ -952,6 +956,7 @@ static id LDDListMaterialFolders(void) {
 }
 - (void)scaleChanged:(UISlider *)sl {
     double dv = [sl value];
+    { char bl[96]; snprintf(bl, sizeof(bl), "SCALE-CHANGED %.2f", dv); LogB(bl); }
     NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
     [ud setObject:[NSNumber numberWithDouble:dv] forKey:@"lddgifbgScale"];
     [ud synchronize];
@@ -959,6 +964,7 @@ static id LDDListMaterialFolders(void) {
 }
 - (void)speedChanged:(UISlider *)sl {
     double dv = [sl value];
+    { char bl[96]; snprintf(bl, sizeof(bl), "SPEED-CHANGED %.2f", dv); LogB(bl); }
     NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
     [ud setObject:[NSNumber numberWithDouble:dv] forKey:@"lddgifbgSpeed"];
     [ud synchronize];

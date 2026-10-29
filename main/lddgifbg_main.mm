@@ -898,6 +898,9 @@ static void LDDIslandLayout(id self) {
     CGRect b = [self bounds];
     // 1.9.135: 缩放改用 transform —— frame 保持满容器, 内容按比例缩放,
     // 避免 frame 缩小后 GIF/视频内容不可见或触发重载竞态
+    // 1.9.136: 值保护 + 探针 (确认实际应用值)
+    if (scale < 0.1 || scale > 2.0 || !(scale > 0)) scale = 1.0;
+    { static int slg = 0; if (slg < 6) { slg++; char al[64]; snprintf(al, sizeof(al), "SCALE-APPLY %.2f", scale); ProbeWrite(al); } }
     [view setFrame:MakeRect(0, 0, b.w, b.h)];
     [view setTransform:CGMakeScale(scale)];
     // 药丸圆角, 贴合灵动岛形状
