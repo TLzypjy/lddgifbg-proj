@@ -1218,7 +1218,7 @@ static void LDDPreviewSize(double bw, double *piw, double *pih) {
     UIAlertController *ac = [UIAlertController alertControllerWithTitle:title message:hint preferredStyle:1];   // 1.9.154: 必须 Alert(1), ActionSheet(0) 不允许加输入框会崩
     [ac addTextFieldWithConfigurationHandler:^(UITextField *tf){
         [tf setKeyboardType:4];
-        [tf setText:[NSString stringWithFormat:@"%.1f", dv]];
+        [tf setText:[NSString stringWithFormat:@"%g", dv]];   // 1.9.155: 预填不带小数点
     }];
     UIAlertAction *ok = [UIAlertAction actionWithTitle:@"确定" style:0 handler:^(UIAlertAction *a){
         id tfs = [ac textFields];
