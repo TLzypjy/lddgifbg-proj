@@ -922,11 +922,12 @@ static id LDDListMaterialFolders(void) {
 - (void)tableView:(id)tv didSelectRowAtIndexPath:(id)ip {
     NSInteger row = [ip row];
     [(UITableView *)tv deselectRowAtIndexPath:ip animated:YES];
-    if (row == 3) {
+    // 1.9.134: 行号与 UI 同步 (0/1开关 2缩放 3速度 4选素材 5跳转 6预览 7注销)
+    if (row == 4) {
         LDDMaterialPickerController *pc = [[LDDMaterialPickerController alloc] init];
         UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:pc];
         [self presentViewController:nav animated:YES completion:0];
-    } else if (row == 4) {
+    } else if (row == 5) {
         UIApplication *app = [UIApplication sharedApplication];
         NSURL *fz = [NSURL URLWithString:@"filza://view/var/mobile/lddgifbg"];
         [app openURL:fz options:[NSDictionary dictionary] completionHandler:^(BOOL ok){
@@ -935,9 +936,9 @@ static id LDDListMaterialFolders(void) {
                 [app openURL:url options:[NSDictionary dictionary] completionHandler:0];
             }
         }];
-    } else if (row == 5) {
-        [self showBannerPreview];
     } else if (row == 6) {
+        [self showBannerPreview];
+    } else if (row == 7) {
         [self respringNow];
     }
 }
