@@ -338,8 +338,12 @@ static void ApplyPos(void) {
         maxTx = (rw - cb.w) / 2.0; if (maxTx < 0) maxTx = 0;
         maxTy = (rh - cb.h) / 2.0; if (maxTy < 0) maxTy = 0;
     }
-    // 1.9.148: 偏移完全不限制, 滑块 ±200 映射 ±400pt, 素材可直接移出岛范围 (黑边可接受)
-    double tx = cPosX * 2.0, ty = cPosY * 2.0;
+    // 1.9.150: 偏移限制在素材可移范围内, 画面始终覆盖岛, 不漏黑边
+    double tx = cPosX, ty = cPosY;
+    if (tx > maxTx) tx = maxTx;
+    if (tx < -maxTx) tx = -maxTx;
+    if (ty > maxTy) ty = maxTy;
+    if (ty < -maxTy) ty = -maxTy;
     // 1.9.143: 不用 setTransform —— 系统通知展开动画会覆盖 view transform, 导致偏移被吞掉;
     // 直接改 frame 原点 (位置移动), 系统动画改不了 frame 位置, 偏移必然可见
     CGRect cf = [gContentView frame];
