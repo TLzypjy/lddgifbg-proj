@@ -450,8 +450,6 @@ static void LDDUpdatePreview(void) {
         maxTx = (rw - cb.w) / 2.0; if (maxTx < 0) maxTx = 0;
         maxTy = (rh - cb.h) / 2.0; if (maxTy < 0) maxTy = 0;
     }
-    // 1.9.144: 与 main 一致, 偏移上限 60%
-    maxTx *= 0.6; maxTy *= 0.6;
     if (px > maxTx) px = maxTx;
     if (px < -maxTx) px = -maxTx;
     if (py > maxTy) py = maxTy;
@@ -928,8 +926,30 @@ static id LDDListMaterialFolders(void) {
 - (NSInteger)numberOfSectionsInTableView:(id)tv { return 1; }
 // 1.9.140: 行数 10 (0/1开关 2预览 3水平偏移 4垂直偏移 5速度 6选素材 7跳转 8预览通知 9注销)
 - (NSInteger)tableView:(id)tv numberOfRowsInSection:(NSInteger)s { return 10; }
+// 1.9.146: 预览尺寸 (真实岛比例 + 面板宽缩放), heightForRow/cellForRow 共用
+static void LDDPreviewSize(double bw, double *piw, double *pih) {
+    double iw = bw - 32, ih = 100;
+    NSString *isz = [NSString stringWithContentsOfFile:@"/var/mobile/lddgifbg/__island_size__" encoding:4 error:0];
+    if (isz) {
+        NSArray *parts = [isz componentsSeparatedByString:@" "];
+        if ([parts count] >= 2) {
+            double w2 = [[parts objectAtIndex:0] doubleValue], h2 = [[parts objectAtIndex:1] doubleValue];
+            if (w2 > 40 && h2 > 20) { iw = w2; ih = h2; }
+        }
+    }
+    // 1.9.145: 预览不能超出设置面板可用宽度 (等比缩放保持真实岛比例)
+    double maxw = bw - 24;
+    if (iw > maxw) { double sc = maxw / iw; iw = maxw; ih *= sc; }
+    *piw = iw; *pih = ih;
+}
 - (double)tableView:(id)tv heightForRowAtIndexPath:(id)ip {
-    if ([ip row] == 2) return 170.0;   // 1.9.141: 预览行 (加大)
+    if ([ip row] == 2) {
+        // 1.9.146: 预览行高度贴合预览药丸, 消除上下大面积留白
+        double bw = [tv bounds].size.width; if (bw < 100) bw = 390;
+        double iw = 0, ih = 0;
+        LDDPreviewSize(bw, &iw, &ih);
+        return 14.0 + ih + 14.0;
+    }
     return 60.0;
 }
 - (double)tableView:(id)tv estimatedHeightForRowAtIndexPath:(id)ip { return 60.0; }
@@ -966,19 +986,9 @@ static id LDDListMaterialFolders(void) {
     } else if (row == 2) {
         // 1.9.140: 实时预览 (黑底药丸模拟灵动岛 + 素材首帧 + 当前偏移)
         [cell setSelectionStyle:0];
-        // 1.9.142: 预览 1:1 复刻真实通知 (读取 main 广播的岛尺寸; 文件缺失用默认)
-        double iw = b.w - 32, ih = 100;
-        NSString *isz = [NSString stringWithContentsOfFile:@"/var/mobile/lddgifbg/__island_size__" encoding:4 error:0];
-        if (isz) {
-            NSArray *parts = [isz componentsSeparatedByString:@" "];
-            if ([parts count] >= 2) {
-                double w2 = [[parts objectAtIndex:0] doubleValue], h2 = [[parts objectAtIndex:1] doubleValue];
-                if (w2 > 40 && h2 > 20) { iw = w2; ih = h2; }
-            }
-        }
-        // 1.9.145: 预览不能超出设置面板可用宽度 (等比缩放保持真实岛比例)
-        double maxw = b.w - 24;
-        if (iw > maxw) { double sc = maxw / iw; iw = maxw; ih *= sc; }
+        // 1.9.146: 尺寸统一走 LDDPreviewSize (岛比例 + 面板宽缩放)
+        double iw = 0, ih = 0;
+        LDDPreviewSize(b.w, &iw, &ih);
         CGRect cb = MakeRect((b.w - iw) / 2.0, 14, iw, ih);
         UIView *box = [[UIView alloc] initWithFrame:cb];
         [box setBackgroundColor:[UIColor colorWithWhite:0.0 alpha:1.0]];

@@ -338,8 +338,6 @@ static void ApplyPos(void) {
         maxTx = (rw - cb.w) / 2.0; if (maxTx < 0) maxTx = 0;
         maxTy = (rh - cb.h) / 2.0; if (maxTy < 0) maxTy = 0;
     }
-    // 1.9.144: 偏移上限限到可移范围 60%, 避免画面移出太多露出大面积黑边
-    maxTx *= 0.6; maxTy *= 0.6;
     double tx = cPosX, ty = cPosY;
     if (tx > maxTx) tx = maxTx;
     if (tx < -maxTx) tx = -maxTx;
