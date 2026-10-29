@@ -174,6 +174,7 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (void)setTag:(NSInteger)t;
 - (id)viewWithTag:(NSInteger)t;
 - (id)superview;
+- (void)addGestureRecognizer:(id)g;
 - (void)removeFromSuperview;
 - (void)setBackgroundColor:(id)c;
 - (id)subviews;
@@ -215,6 +216,12 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 @interface UITextField : UIView
 - (void)setPlaceholder:(NSString *)p;
 - (id)text;
+- (void)setText:(NSString *)t;
+@end
+// 1.9.153: 点击数值自定义输入
+@interface UITapGestureRecognizer : NSObject
+- (id)initWithTarget:(id)t action:(SEL)a;
+- (id)view;
 @end
 @interface UIImage : NSObject
 + (id)imageWithContentsOfFile:(NSString *)p;
@@ -883,6 +890,8 @@ static id LDDListMaterialFolders(void) {
 - (NSInteger)tableView:(id)tv numberOfRowsInSection:(NSInteger)s;
 - (id)tableView:(id)tv cellForRowAtIndexPath:(id)ip;
 - (void)tableView:(id)tv didSelectRowAtIndexPath:(id)ip;
+// 1.9.153: 点击数值弹出输入框
+- (void)valTapped:(UITapGestureRecognizer *)g;
 @end
 
 
@@ -1038,6 +1047,7 @@ static void LDDPreviewSize(double bw, double *piw, double *pih) {
         id v = [ud objectForKey:@"lddgifbgPosX"];
         double dv = v ? [v doubleValue] : 0.0;
         [sl setValue:dv];
+        [sl setTag:3003];   // 1.9.153: 自定义输入后同步滑块
         LogB("CELL-POSX-SLIDER");
         [sl addTarget:self action:@selector(posXChanged:) forControlEvents:(1 << 12) | (1 << 6) | (1 << 7)];
         [[cell contentView] addSubview:sl];
@@ -1047,6 +1057,10 @@ static void LDDPreviewSize(double bw, double *piw, double *pih) {
         [vl setFont:[UIFont systemFontOfSize:15.0]];
         [vl setTag:2023];
         [vl setText:[NSString stringWithFormat:@"%.0f", dv]];
+        // 1.9.153: 点击数值可自定义输入
+        [vl setUserInteractionEnabled:YES];
+        UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(valTapped:)];
+        [vl addGestureRecognizer:tap];
         [[cell contentView] addSubview:vl];
     } else if (row == 4) {
         // 1.9.140: 垂直偏移 (上下调整显示区域, -200~200, 默认0)
@@ -1061,6 +1075,7 @@ static void LDDPreviewSize(double bw, double *piw, double *pih) {
         id v = [ud objectForKey:@"lddgifbgPosY"];
         double dv = v ? [v doubleValue] : 0.0;
         [sl setValue:dv];
+        [sl setTag:3004];   // 1.9.153
         LogB("CELL-POSY-SLIDER");
         [sl addTarget:self action:@selector(posYChanged:) forControlEvents:(1 << 12) | (1 << 6) | (1 << 7)];
         [[cell contentView] addSubview:sl];
@@ -1070,6 +1085,10 @@ static void LDDPreviewSize(double bw, double *piw, double *pih) {
         [vl setFont:[UIFont systemFontOfSize:15.0]];
         [vl setTag:2024];
         [vl setText:[NSString stringWithFormat:@"%.0f", dv]];
+        // 1.9.153: 点击数值可自定义输入
+        [vl setUserInteractionEnabled:YES];
+        UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(valTapped:)];
+        [vl addGestureRecognizer:tap];
         [[cell contentView] addSubview:vl];
     } else if (row == 5) {
         // 1.9.133: 播放速度滑块 (0.5x~2.0x)
@@ -1085,6 +1104,7 @@ static void LDDPreviewSize(double bw, double *piw, double *pih) {
         double dv = v ? [v doubleValue] : 1.0;
         if (dv <= 0) dv = 1.0;
         [sl setValue:dv];
+        [sl setTag:3005];   // 1.9.153
         LogB("CELL-SPEED-SLIDER");
         [sl addTarget:self action:@selector(speedChanged:) forControlEvents:(1 << 12) | (1 << 6) | (1 << 7)];
         [[cell contentView] addSubview:sl];
@@ -1094,6 +1114,10 @@ static void LDDPreviewSize(double bw, double *piw, double *pih) {
         [vl setFont:[UIFont systemFontOfSize:15.0]];
         [vl setTag:2025];
         [vl setText:[NSString stringWithFormat:@"%.1fx", dv]];
+        // 1.9.153: 点击数值可自定义输入
+        [vl setUserInteractionEnabled:YES];
+        UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(valTapped:)];
+        [vl addGestureRecognizer:tap];
         [[cell contentView] addSubview:vl];
     } else {
         NSString *t = (row == 6 ? @"选择素材" : (row == 7 ? @"跳转素材目录" : (row == 8 ? @"预览通知" : @"立即注销")));
@@ -1177,6 +1201,54 @@ static void LDDPreviewSize(double bw, double *piw, double *pih) {
     // 1.9.152: 更新右侧数值显示
     id cv = [sl superview];
     if (cv) { UILabel *vl = (UILabel *)[cv viewWithTag:2025]; if (vl) [vl setText:[NSString stringWithFormat:@"%.1fx", dv]]; }
+}
+// 1.9.153: 点击数值 -> 弹输入框自定义填入, 同步滑块/预览/prefs
+- (void)valTapped:(UITapGestureRecognizer *)g {
+    id vl = [g view];
+    NSInteger tag = [vl tag];
+    if (tag != 2023 && tag != 2024 && tag != 2025) return;
+    NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
+    NSString *key = (tag == 2023 ? @"lddgifbgPosX" : (tag == 2024 ? @"lddgifbgPosY" : @"lddgifbgSpeed"));
+    id cur = [ud objectForKey:key];
+    double dv = cur ? [cur doubleValue] : 0.0;
+    NSString *title = (tag == 2023 ? @"水平偏移数值" : (tag == 2024 ? @"垂直偏移数值" : @"播放速度数值"));
+    NSString *hint = (tag == 2025 ? @"输入 0.5 ~ 3.0 倍速" : @"输入 -200 ~ 200");
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:title message:hint preferredStyle:0];
+    [ac addTextFieldWithConfigurationHandler:^(UITextField *tf){
+        [tf setKeyboardType:4];
+        [tf setText:[NSString stringWithFormat:@"%.1f", dv]];
+    }];
+    UIAlertAction *ok = [UIAlertAction actionWithTitle:@"确定" style:0 handler:^(UIAlertAction *a){
+        id tfs = [ac textFields];
+        UITextField *tf = [tfs objectAtIndex:0];
+        NSString *txt = [tf text];
+        double nv = [txt doubleValue];
+        if (tag == 2025) {
+            if (nv < 0.5) nv = 0.5;
+            if (nv > 3.0) nv = 3.0;
+        } else {
+            if (nv < -200) nv = -200;
+            if (nv > 200) nv = 200;
+        }
+        [ud setObject:[NSNumber numberWithDouble:nv] forKey:key];
+        [ud synchronize];
+        WritePrefsFile(key, [NSNumber numberWithDouble:nv]);
+        // 同步滑块
+        id cv = [vl superview];
+        if (cv) {
+            UISlider *sl = (UISlider *)[cv viewWithTag:(tag == 2023 ? 3003 : (tag == 2024 ? 3004 : 3005))];
+            if (sl) [sl setValue:nv];
+        }
+        // 更新数值显示
+        if (tag == 2025) [(UILabel *)vl setText:[NSString stringWithFormat:@"%.1fx", nv]];
+        else [(UILabel *)vl setText:[NSString stringWithFormat:@"%.0f", nv]];
+        // 偏移输入后刷新预览
+        if (tag == 2023 || tag == 2024) LDDUpdatePreview();
+    }];
+    [ac addAction:ok];
+    UIAlertAction *cc = [UIAlertAction actionWithTitle:@"取消" style:1 handler:0];
+    [ac addAction:cc];
+    [self presentViewController:ac animated:YES completion:0];
 }
 - (void)testNotification {
     PostTestNotification();
