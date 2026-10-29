@@ -139,7 +139,9 @@ static void ConsumeForcePreview(void);
 static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, y, w, h}; return r; }
 typedef struct UIEdgeInsets { double top, left, bottom, right; } UIEdgeInsets;
 typedef struct CGAffineTransform { double a, b, c, d, tx, ty; } CGAffineTransform;
-static CGAffineTransform CGMakeScale(double s) { CGAffineTransform t = {s, 0, 0, s, 0, 0}; return t; }
+typedef struct CGSize { double width, height; } CGSize;
+// 1.9.139: 显示区域偏移 (平移内容视图)
+static CGAffineTransform CGMakeTranslate(double tx, double ty) { CGAffineTransform t = {1, 0, 0, 1, tx, ty}; return t; }
 static void PreviewAutoClose(void);
 @interface UIApplication : NSObject
 + (id)sharedApplication;
@@ -242,7 +244,13 @@ static void PreviewAutoClose(void);
 @end
 
 // ---------- 全局 ----------
-static NSString *gPrefsKeyEnable, *gPrefsKeyZxh, *gPrefsKeyScale, *gPrefsKeyFolder;
+static NSString *gPrefsKeyEnable, *gPrefsKeyZxh, *gPrefsKeyPosX, *gPrefsKeyPosY, *gPrefsKeyFolder;
+// 1.9.139: 素材原始尺寸 (AspectFill 渲染尺寸计算用) 与内容视图引用
+static double gMediaW = 0, gMediaH = 0;
+static id gContainerView = nil;
+static id gContentView = nil;
+static double cPosX = 0.0, cPosY = 0.0;
+static double gLastAppliedPosX = 0.0, gLastAppliedPosY = 0.0;
 static NSString *gRootDir, *gGifExt, *gVideoExtMp4, *gVideoExtMov;
 static NSString *gLoadedPath;
 static AVPlayer *gPlayer;
@@ -306,11 +314,34 @@ static BOOL IsZxhLddGifBgEnabled(void) {
     id v = LoadPrefsValue(gPrefsKeyZxh);
     return v ? [v boolValue] : YES;
 }
-static double GetLddGifBgScale(void) {
-    id v = LoadPrefsValue(gPrefsKeyScale);
-    if (!v) return 1.0;
-    double d = [v doubleValue];
-    return d > 0 ? d : 1.0;
+static double GetLddGifBgPos(NSString *key, double fallback) {
+    id v = LoadPrefsValue(key);
+    double d = v ? [v doubleValue] : fallback;
+    return d;
+}
+// 1.9.139: 应用显示区域偏移 —— 平移内容视图, 越界值按素材实际可平移范围收敛
+static void ApplyPos(void) {
+    if (!gContentView || !gContainerView) return;
+    // 视频 presentationSize 可能延迟就绪, 应用前补查
+    if (gPlayer && (gMediaW <= 0 || gMediaH <= 0)) {
+        CGSize psz = ((CGSize(*)(id, SEL))objc_msgSend)(gPlayerItem, sel_registerName("presentationSize"));
+        if (psz.width > 1 && psz.height > 1) { gMediaW = psz.width; gMediaH = psz.height; }
+    }
+    CGRect cb = [gContainerView bounds];
+    double maxTx = 0, maxTy = 0;
+    if (gMediaW > 1 && gMediaH > 1) {
+        double s = (cb.w / gMediaW) > (cb.h / gMediaH) ? (cb.w / gMediaW) : (cb.h / gMediaH);
+        double rw = gMediaW * s, rh = gMediaH * s;
+        maxTx = (rw - cb.w) / 2.0; if (maxTx < 0) maxTx = 0;
+        maxTy = (rh - cb.h) / 2.0; if (maxTy < 0) maxTy = 0;
+    }
+    double tx = cPosX, ty = cPosY;
+    if (tx > maxTx) tx = maxTx;
+    if (tx < -maxTx) tx = -maxTx;
+    if (ty > maxTy) ty = maxTy;
+    if (ty < -maxTy) ty = -maxTy;
+    [gContentView setTransform:CGMakeTranslate(tx, ty)];
+    { static int pg = 0; if (pg < 6) { pg++; char al[96]; snprintf(al, sizeof(al), "POS-APPLY %.0f %.0f (max %.0f %.0f)", tx, ty, maxTx, maxTy); ProbeWrite(al); } }
 }
 
 
@@ -489,6 +520,12 @@ static void LoadGIFWithPathIntoImageView(NSString *path, UIImageView *iv) {
     UIImage *img0 = cg0 ? [UIImage imageWithCGImage:cg0 scale:1.0 orientation:0] : nil;
     if (cg0) CFRelease((void *)cg0);
     [iv setImage:img0];
+    // 1.9.139: 记录素材原始尺寸 (AspectFill 渲染尺寸计算)
+    if (img0) {
+        CGSize isz = ((CGSize(*)(id, SEL))objc_msgSend)(img0, sel_registerName("size"));
+        if (isz.width > 1 && isz.height > 1) { gMediaW = isz.width; gMediaH = isz.height; }
+        { static int ms1 = 0; if (ms1 < 2) { ms1++; char ml[80]; snprintf(ml, sizeof(ml), "MEDIA-SIZE-GIF %.0fx%.0f", gMediaW, gMediaH); ProbeWrite(ml); } }
+    }
     gStreamSrc = src;
     gStreamDelays = delays;
     gStreamCount = count;
@@ -538,6 +575,10 @@ static void LoadVideoWithPathIntoView(NSString *path, UIView *view) {
     CGRect b = [view bounds];
     [gPlayerLayer setFrame:b];
     if ([gPlayerLayer superlayer] != [view layer]) [[view layer] addSublayer:gPlayerLayer];
+    // 1.9.139: 记录视频原始尺寸 (presentationSize 可能延迟就绪, 应用前再补查)
+    CGSize psz = ((CGSize(*)(id, SEL))objc_msgSend)(gPlayerItem, sel_registerName("presentationSize"));
+    if (psz.width > 1 && psz.height > 1) { gMediaW = psz.width; gMediaH = psz.height; }
+    { static int ms2 = 0; if (ms2 < 2) { ms2++; char ml[80]; snprintf(ml, sizeof(ml), "MEDIA-SIZE-VIDEO %.0fx%.0f", gMediaW, gMediaH); ProbeWrite(ml); } }
     // 1.9.133: 视频按设定速度播放 (play 会重置 rate, 故直接用 setRate)
     double sp2 = cSpeed; if (sp2 <= 0.05 || sp2 > 8.0) sp2 = 1.0;
     ((void(*)(id, SEL, float))objc_msgSend)(gPlayer, sel_registerName("setRate:"), (float)sp2);
@@ -618,7 +659,6 @@ static BOOL ForcePreviewActive(void) { return time(0) < gForceUntil; }
 
 // ---------- prefs 缓存 (1.9.129: 去掉秒节流 —— 素材切换/选择变化必须立即生效) ----------
 static BOOL cEnabled, cZxh;
-static double cScale;
 static NSString *cPath;
 // 1.9.133: 播放速度 (0.5x~2.0x, 默认 1.0x)
 static double GetLddGifBgSpeed(void) {
@@ -630,11 +670,10 @@ static double GetLddGifBgSpeed(void) {
 static void RefreshPrefsCache(void) {
     cEnabled = IsLddGifBgEnabled();
     cZxh = IsZxhLddGifBgEnabled();
-    cScale = GetLddGifBgScale();
+    cPosX = GetLddGifBgPos(gPrefsKeyPosX, 0.0);
+    cPosY = GetLddGifBgPos(gPrefsKeyPosY, 0.0);
     cSpeed = GetLddGifBgSpeed();
     cPath = GetSelectedImagePath();
-    // 1.9.137: 诊断 —— 读文件原始 scale 值 (限流 6 条)
-    { static int psg = 0; if (psg < 6) { psg++; id raw = LoadPrefsValue(@"lddgifbgScale"); double rd = raw ? [raw doubleValue] : -1.0; char al[80]; snprintf(al, sizeof(al), "PREF-SCALE %.2f", rd); ProbeWrite(al); } }
     // 1.9.133: 速度变化即时生效 —— GIF 重启定时器, 视频更新 rate
     if (gLastAppliedSpeed != cSpeed) {
         gLastAppliedSpeed = cSpeed;
@@ -643,6 +682,12 @@ static void RefreshPrefsCache(void) {
             ((void(*)(id, SEL, float))objc_msgSend)(gPlayer, sel_registerName("setRate:"), (float)cSpeed);
             ProbeWrite("SPEED-APPLY-VIDEO");
         }
+    }
+    // 1.9.139: 偏移变化即时生效 (平移内容视图)
+    if (gLastAppliedPosX != cPosX || gLastAppliedPosY != cPosY) {
+        gLastAppliedPosX = cPosX;
+        gLastAppliedPosY = cPosY;
+        ApplyPos();
     }
 }
 
@@ -902,40 +947,59 @@ static void LDDIslandLayout(id self) {
         [self insertSubview:view atIndex:0];
     }
 
-    double scale = cScale;
     CGRect b = [self bounds];
-    // 1.9.135: 缩放改用 transform —— frame 保持满容器, 内容按比例缩放,
-    // 避免 frame 缩小后 GIF/视频内容不可见或触发重载竞态
-    // 1.9.136: 值保护 + 探针 (确认实际应用值)
-    if (scale < 0.1 || scale > 2.0 || !(scale > 0)) scale = 1.0;
-    { static int slg = 0; if (slg < 6) { slg++; char al[64]; snprintf(al, sizeof(al), "SCALE-APPLY %.2f", scale); ProbeWrite(al); } }
     [view setFrame:MakeRect(0, 0, b.w, b.h)];
-    [view setTransform:CGMakeScale(scale)];
-    // 药丸圆角, 贴合灵动岛形状
+    // 药丸圆角, 贴合灵动岛形状 (容器层裁切)
     id vlay = [view layer];
     [vlay setCornerRadius:b.h / 2.0];
     [vlay setMasksToBounds:YES];
 
+    // 1.9.139: 内容视图 —— GIF/视频都挂载于此, 偏移 = 平移内容视图, 容器圆角裁切
+    UIImageView *cv = (UIImageView *)[view viewWithTag:9998];
+    if (!cv) {
+        cv = [[UIImageView alloc] initWithFrame:MakeRect(0, 0, b.w, b.h)];
+        [cv setContentMode:2];
+        [cv setTag:9998];
+        [view addSubview:cv];
+    }
+    gContainerView = view;
+    gContentView = cv;
+    // AspectFill 渲染尺寸: 素材填满容器不露边, 超出部分由容器裁切
+    double cw = b.w, ch = b.h;
+    if (gMediaW > 1 && gMediaH > 1) {
+        double s = (b.w / gMediaW) > (b.h / gMediaH) ? (b.w / gMediaW) : (b.h / gMediaH);
+        cw = gMediaW * s; ch = gMediaH * s;
+    }
+    [cv setFrame:MakeRect((b.w - cw) / 2.0, (b.h - ch) / 2.0, cw, ch)];
+    ApplyPos();
+
     BOOL needReload = YES;
     if (gLoadedPath && [gLoadedPath isEqualToString:path]) {
-        // 视频"播放中"必须 layer 还挂在 view 上 (StopVideo 已移除 layer 但 gPlayerLayer 非 nil -> 旧判定误判跳过重载 = 二次通知无背景 bug)
-        BOOL playing = [view isAnimating];
+        // 视频"播放中"必须 layer 还挂在内容视图上 (StopVideo 已移除 layer 但 gPlayerLayer 非 nil -> 旧判定误判跳过重载 = 二次通知无背景 bug)
+        BOOL playing = [cv isAnimating];
         if (!playing && gPlayerLayer) {
             id sl = ((id(*)(id, SEL))objc_msgSend)(gPlayerLayer, sel_registerName("superlayer"));
-            id vly = ((id(*)(id, SEL))objc_msgSend)(view, sel_registerName("layer"));
+            id vly = ((id(*)(id, SEL))objc_msgSend)(cv, sel_registerName("layer"));
             if (sl == vly) playing = YES;
         }
         if (playing) needReload = NO;
-        // 优化8: GIF 流仍挂在当前 view 上 -> 免重载; 若 timer 被暂停(岛隐藏/视图重建)立即保活恢复
+        // 优化8: GIF 流仍挂在当前内容视图上 -> 免重载; 若 timer 被暂停(岛隐藏/视图重建)立即保活恢复
         // 1.9.130: 续 GIF 流必须当前素材仍是同一个 (gLoadedPath 匹配) —— 否则强重载
-        if (gStreamSrc && gStreamIV == view && gLoadedPath && [gLoadedPath isEqualToString:path]) {
+        if (gStreamSrc && gStreamIV == cv && gLoadedPath && [gLoadedPath isEqualToString:path]) {
             needReload = NO;
             if (!gStreamTimer) StreamRestartTimer();
         }
     }
     if (needReload) {
         gLoadedPath = path;
-        LoadMediaWithPathIntoImageView(path, view);
+        LoadMediaWithPathIntoImageView(path, cv);
+        // 素材原始尺寸就绪后重算内容视图 AspectFill 尺寸并重应用偏移
+        if (gMediaW > 1 && gMediaH > 1) {
+            double s = (b.w / gMediaW) > (b.h / gMediaH) ? (b.w / gMediaW) : (b.h / gMediaH);
+            double cw2 = gMediaW * s, ch2 = gMediaH * s;
+            [cv setFrame:MakeRect((b.w - cw2) / 2.0, (b.h - ch2) / 2.0, cw2, ch2)];
+            ApplyPos();
+        }
     }
     // 优化5: 仅在不在 index0 时才重插 (避免布局涟漪)
     id subs = ((id(*)(id, SEL))objc_msgSend)(self, sel_registerName("subviews"));
@@ -1391,7 +1455,8 @@ static void LDDInit(void) {
     }
     gPrefsKeyEnable = @"Enablelddgifbg";
     gPrefsKeyZxh = @"Enablezxhlddgifbg";
-    gPrefsKeyScale = @"lddgifbgScale";
+    gPrefsKeyPosX = @"lddgifbgPosX";
+    gPrefsKeyPosY = @"lddgifbgPosY";
     gPrefsKeyFolder = @"SelectedMaterialFolder";
     gRootDir = @"/var/mobile/lddgifbg";
     gGifExt = @"gif";
