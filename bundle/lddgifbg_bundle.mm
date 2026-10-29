@@ -945,7 +945,8 @@ static void LDDPreviewSize(double bw, double *piw, double *pih) {
 - (double)tableView:(id)tv heightForRowAtIndexPath:(id)ip {
     if ([ip row] == 2) {
         // 1.9.146: 预览行高度贴合预览药丸, 消除上下大面积留白
-        double bw = [tv bounds].size.width; if (bw < 100) bw = 390;
+        CGRect tb = [tv bounds];
+        double bw = tb.w; if (bw < 100) bw = 390;
         double iw = 0, ih = 0;
         LDDPreviewSize(bw, &iw, &ih);
         return 14.0 + ih + 14.0;
