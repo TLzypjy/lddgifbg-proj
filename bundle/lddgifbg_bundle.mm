@@ -883,13 +883,13 @@ static id LDDListMaterialFolders(void) {
         UISlider *sl = [[UISlider alloc] initWithFrame:MakeRect(16, 30, b.w - 32, 28)];
         [sl setMinimumValue:0.1];
         [sl setMaximumValue:2.0];
-        ((void(*)(id, SEL, NSInteger))objc_msgSend)(sl, sel_registerName("setTag:"), 2001);
         NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
         id v = [ud objectForKey:@"lddgifbgScale"];
         double dv = v ? [v doubleValue] : 1.0;
         if (dv <= 0) dv = 1.0;
         [sl setValue:dv];
-        [sl addTarget:self action:@selector(sliderChanged:) forControlEvents:1 << 12];
+        // 1.9.135: 独立 action, 不依赖 tag
+        [sl addTarget:self action:@selector(scaleChanged:) forControlEvents:1 << 12];
         [[cell contentView] addSubview:sl];
     } else if (row == 3) {
         // 1.9.133: 播放速度滑块 (0.5x~2.0x)
@@ -900,20 +900,20 @@ static id LDDListMaterialFolders(void) {
         UISlider *sl = [[UISlider alloc] initWithFrame:MakeRect(16, 30, b.w - 32, 28)];
         [sl setMinimumValue:0.5];
         [sl setMaximumValue:2.0];
-        ((void(*)(id, SEL, NSInteger))objc_msgSend)(sl, sel_registerName("setTag:"), 2002);
         NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
         id v = [ud objectForKey:@"lddgifbgSpeed"];
         double dv = v ? [v doubleValue] : 1.0;
         if (dv <= 0) dv = 1.0;
         [sl setValue:dv];
-        [sl addTarget:self action:@selector(sliderChanged:) forControlEvents:1 << 12];
+        // 1.9.135: 独立 action, 不依赖 tag
+        [sl addTarget:self action:@selector(speedChanged:) forControlEvents:1 << 12];
         [[cell contentView] addSubview:sl];
     } else {
         NSString *t = (row == 4 ? @"选择素材" : (row == 5 ? @"跳转素材目录" : (row == 6 ? @"预览通知" : @"立即注销")));
         UILabel *label = [[UILabel alloc] initWithFrame:MakeRect(16, 19, b.w - 60, 22)];
         [label setText:t];
         [label setFont:[UIFont systemFontOfSize:16.0]];
-        if (row == 6) [label setTextColor:[UIColor redColor]];
+        if (row == 7) [label setTextColor:[UIColor redColor]];
         [[cell contentView] addSubview:label];
         [cell setSelectionStyle:1];
     }
@@ -950,14 +950,19 @@ static id LDDListMaterialFolders(void) {
     [ud synchronize];
     WritePrefsFile(key, [NSNumber numberWithBool:on]);
 }
-- (void)sliderChanged:(UISlider *)sl {
+- (void)scaleChanged:(UISlider *)sl {
     double dv = [sl value];
-    NSInteger tg = ((NSInteger(*)(id, SEL))objc_msgSend)(sl, sel_registerName("tag"));
-    NSString *key = (tg == 2002) ? @"lddgifbgSpeed" : @"lddgifbgScale";
     NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
-    [ud setObject:[NSNumber numberWithDouble:dv] forKey:key];
+    [ud setObject:[NSNumber numberWithDouble:dv] forKey:@"lddgifbgScale"];
     [ud synchronize];
-    WritePrefsFile(key, [NSNumber numberWithDouble:dv]);
+    WritePrefsFile(@"lddgifbgScale", [NSNumber numberWithDouble:dv]);
+}
+- (void)speedChanged:(UISlider *)sl {
+    double dv = [sl value];
+    NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
+    [ud setObject:[NSNumber numberWithDouble:dv] forKey:@"lddgifbgSpeed"];
+    [ud synchronize];
+    WritePrefsFile(@"lddgifbgSpeed", [NSNumber numberWithDouble:dv]);
 }
 - (void)testNotification {
     PostTestNotification();

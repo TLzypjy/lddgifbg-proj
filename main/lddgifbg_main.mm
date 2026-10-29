@@ -896,11 +896,13 @@ static void LDDIslandLayout(id self) {
 
     double scale = cScale;
     CGRect b = [self bounds];
-    double w = b.w * scale, h = b.h * scale;
-    [view setFrame:MakeRect((b.w - w) / 2.0, (b.h - h) / 2.0, w, h)];
+    // 1.9.135: 缩放改用 transform —— frame 保持满容器, 内容按比例缩放,
+    // 避免 frame 缩小后 GIF/视频内容不可见或触发重载竞态
+    [view setFrame:MakeRect(0, 0, b.w, b.h)];
+    [view setTransform:CGMakeScale(scale)];
     // 药丸圆角, 贴合灵动岛形状
     id vlay = [view layer];
-    [vlay setCornerRadius:h / 2.0];
+    [vlay setCornerRadius:b.h / 2.0];
     [vlay setMasksToBounds:YES];
 
     BOOL needReload = YES;
