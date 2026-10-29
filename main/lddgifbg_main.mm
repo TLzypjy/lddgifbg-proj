@@ -75,6 +75,7 @@ extern "C" { extern void *kCGImagePropertyGIFDictionary; extern void *kCGImagePr
 - (NSString *)pathExtension;
 - (NSString *)lowercaseString;
 - (BOOL)isEqualToString:(NSString *)s;
+- (BOOL)writeToFile:(NSString *)path atomically:(BOOL)at encoding:(NSUInteger)enc error:(id *)err;
 @end
 @interface NSDictionary : NSObject
 + (id)dictionaryWithContentsOfFile:(NSString *)p;
