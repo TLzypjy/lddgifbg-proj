@@ -1215,7 +1215,7 @@ static void LDDPreviewSize(double bw, double *piw, double *pih) {
     double dv = cur ? [cur doubleValue] : 0.0;
     NSString *title = (tag == 2023 ? @"水平偏移数值" : (tag == 2024 ? @"垂直偏移数值" : @"播放速度数值"));
     NSString *hint = (tag == 2025 ? @"输入 0.5 ~ 3.0 倍速" : @"输入 -200 ~ 200");
-    UIAlertController *ac = [UIAlertController alertControllerWithTitle:title message:hint preferredStyle:0];
+    UIAlertController *ac = [UIAlertController alertControllerWithTitle:title message:hint preferredStyle:1];   // 1.9.154: 必须 Alert(1), ActionSheet(0) 不允许加输入框会崩
     [ac addTextFieldWithConfigurationHandler:^(UITextField *tf){
         [tf setKeyboardType:4];
         [tf setText:[NSString stringWithFormat:@"%.1f", dv]];
