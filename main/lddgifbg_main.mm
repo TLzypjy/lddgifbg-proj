@@ -342,8 +342,13 @@ static void ApplyPos(void) {
     if (tx < -maxTx) tx = -maxTx;
     if (ty > maxTy) ty = maxTy;
     if (ty < -maxTy) ty = -maxTy;
-    [gContentView setTransform:CGMakeTranslate(tx, ty)];
-    { static int pg = 0; if (pg < 6) { pg++; char al[96]; snprintf(al, sizeof(al), "POS-APPLY %.0f %.0f (max %.0f %.0f)", tx, ty, maxTx, maxTy); ProbeWrite(al); } }
+    // 1.9.143: 不用 setTransform —— 系统通知展开动画会覆盖 view transform, 导致偏移被吞掉;
+    // 直接改 frame 原点 (位置移动), 系统动画改不了 frame 位置, 偏移必然可见
+    CGRect cf = [gContentView frame];
+    double fx = (cb.w - cf.w) / 2.0 + tx;
+    double fy = (cb.h - cf.h) / 2.0 + ty;
+    [gContentView setFrame:MakeRect(fx, fy, cf.w, cf.h)];
+    { static int pg = 0; if (pg < 20) { pg++; char al[128]; snprintf(al, sizeof(al), "POS-APPLY %.0f %.0f (max %.0f %.0f) f=%.0f,%.0f", tx, ty, maxTx, maxTy, fx, fy); ProbeWrite(al); } }
 }
 
 

@@ -447,7 +447,11 @@ static void LDDUpdatePreview(void) {
     if (px < -maxTx) px = -maxTx;
     if (py > maxTy) py = maxTy;
     if (py < -maxTy) py = -maxTy;
-    [gPrevContent setTransform:CGMakeTranslate(px, py)];
+    // 1.9.143: 与 main 一致, 直接改 frame 原点 (不用 transform)
+    CGRect pf = [gPrevContent frame];
+    double fx = (cb.w - pf.w) / 2.0 + px;
+    double fy = (cb.h - pf.h) / 2.0 + py;
+    [gPrevContent setFrame:MakeRect(fx, fy, pf.w, pf.h)];
     { char bl[96]; snprintf(bl, sizeof(bl), "PREVIEW-POS %.0f %.0f", px, py); LogB(bl); }
 }
 
