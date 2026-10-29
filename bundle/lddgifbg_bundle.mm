@@ -160,6 +160,7 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 @interface UIView : NSObject
 - (id)initWithFrame:(CGRect)r;
 - (CGRect)bounds;
+- (CGRect)frame;
 - (void)setFrame:(CGRect)r;
 - (void)addSubview:(id)v;
 // 1.9.140: 预览偏移用
