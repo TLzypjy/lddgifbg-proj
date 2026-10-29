@@ -338,6 +338,9 @@ static void ApplyPos(void) {
         maxTx = (rw - cb.w) / 2.0; if (maxTx < 0) maxTx = 0;
         maxTy = (rh - cb.h) / 2.0; if (maxTy < 0) maxTy = 0;
     }
+    // 1.9.147: 保底可移范围 = 容器尺寸, 横屏/等比素材也能自由上下左右移动 (露出黑边可接受)
+    if (maxTx < cb.w) maxTx = cb.w;
+    if (maxTy < cb.h) maxTy = cb.h;
     double tx = cPosX, ty = cPosY;
     if (tx > maxTx) tx = maxTx;
     if (tx < -maxTx) tx = -maxTx;

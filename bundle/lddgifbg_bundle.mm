@@ -450,6 +450,9 @@ static void LDDUpdatePreview(void) {
         maxTx = (rw - cb.w) / 2.0; if (maxTx < 0) maxTx = 0;
         maxTy = (rh - cb.h) / 2.0; if (maxTy < 0) maxTy = 0;
     }
+    // 1.9.147: 与 main 一致, 保底可移范围 = 容器尺寸
+    if (maxTx < cb.w) maxTx = cb.w;
+    if (maxTy < cb.h) maxTy = cb.h;
     if (px > maxTx) px = maxTx;
     if (px < -maxTx) px = -maxTx;
     if (py > maxTy) py = maxTy;
@@ -937,9 +940,8 @@ static void LDDPreviewSize(double bw, double *piw, double *pih) {
             if (w2 > 40 && h2 > 20) { iw = w2; ih = h2; }
         }
     }
-    // 1.9.145: 预览不能超出设置面板可用宽度 (等比缩放保持真实岛比例)
-    double maxw = bw - 24;
-    if (iw > maxw) { double sc = maxw / iw; iw = maxw; ih *= sc; }
+    // 1.9.147: 预览宽度直接撑满面板可用宽度 (左右不留白), 高度等比保持岛比例
+    if (iw > bw) { double sc = bw / iw; iw = bw; ih *= sc; }
     *piw = iw; *pih = ih;
 }
 - (double)tableView:(id)tv heightForRowAtIndexPath:(id)ip {
