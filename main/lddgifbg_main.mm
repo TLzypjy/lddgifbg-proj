@@ -1507,6 +1507,13 @@ static void PostRealNotification(void) {
                 ((void(*)(id, SEL, id))objc_msgSend)(layer, sPost, req);
                 ProbeWrite("RN-PRES-SENT");
                 gActiveReq = req;
+                // 1.9.163: 预览通知弹出时视频从头播放 (seek 0, 合法 CMTime)
+                if (gPlayer && gPlayerItem) {
+                    typedef id (*Fn)(id, SEL, struct CMTimeRaw);
+                    Fn fn = (Fn)objc_msgSend;
+                    struct CMTimeRaw z0 = {0, 600, 1, 0};
+                    fn(gPlayer, sel_registerName("seekToTime:"), z0);
+                }
                 LDDCloseAfter(req);
                 return;
             }

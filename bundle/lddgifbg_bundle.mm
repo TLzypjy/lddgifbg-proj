@@ -948,17 +948,16 @@ static NSString *LDDInputNum(double v, BOOL isSpeed) {
 }
 // 1.9.146: 预览尺寸 (真实岛比例 + 面板宽缩放), heightForRow/cellForRow 共用
 static void LDDPreviewSize(double bw, double *piw, double *pih) {
-    double iw = bw - 32, ih = 100;
+    // 1.9.163: 宽度一律撑满面板, 高度按岛真实比例等比 —— 小尺寸广播不再导致预览缩成小药丸
+    double iw = bw, ih = 100;
     NSString *isz = [NSString stringWithContentsOfFile:@"/var/mobile/lddgifbg/__island_size__" encoding:4 error:0];
     if (isz) {
         NSArray *parts = [isz componentsSeparatedByString:@" "];
         if ([parts count] >= 2) {
             double w2 = [[parts objectAtIndex:0] doubleValue], h2 = [[parts objectAtIndex:1] doubleValue];
-            if (w2 >= 200 && h2 >= 40) { iw = w2; ih = h2; } // 1.9.151: 忽略收起小尺寸, 保持大预览
+            if (w2 >= 200 && h2 >= 40 && w2 > 0) { ih = h2 * (bw / w2); } // 撑满宽, 等比高
         }
     }
-    // 1.9.147: 预览宽度直接撑满面板可用宽度 (左右不留白), 高度等比保持岛比例
-    if (iw > bw) { double sc = bw / iw; iw = bw; ih *= sc; }
     *piw = iw; *pih = ih;
 }
 - (double)tableView:(id)tv heightForRowAtIndexPath:(id)ip {
