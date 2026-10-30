@@ -1118,10 +1118,23 @@ static void LDDIslandLayout(id self) {
     id subs = ((id(*)(id, SEL))objc_msgSend)(self, sel_registerName("subviews"));
     id firstSub = subs ? ((id(*)(id, SEL))objc_msgSend)(subs, sel_registerName("firstObject")) : nil;
     if (firstSub != view) [self insertSubview:view atIndex:0];
-    // 1.9.167: 紧凑横条(如直播 167x37)背景置顶铺满 —— 系统 logo/图标(汉堡/信号)盖在底层背景上只露中间
-    // 展开态(>=65)保持底层, 通知文字/内容仍在背景之上
+    // 1.9.168: 紧凑横条(如直播 167x37)背景透出方案 —— 不置顶(避免盖住系统图标),
+    // 而是把同层系统内容视图的黑底透明化: GIF 背景从黑底下透出铺满, 汉堡/信号图标图案保留浮在背景上
     if (b.h < 65.0) {
-        [self bringSubviewToFront:view];
+        id supX = [selfv superview];
+        if (supX) {
+            id subsX = ((id(*)(id, SEL))objc_msgSend)(supX, sel_registerName("subviews"));
+            if (subsX) {
+                long n = (long)((id(*)(id, SEL))objc_msgSend)(subsX, sel_registerName("count"));
+                for (long ix = 0; ix < n; ix++) {
+                    id v = ((id(*)(id, SEL))objc_msgSend)(subsX, sel_registerName("objectAtIndex:"), ix);
+                    if (v && v != self && v != view) {
+                        id cc = ((id(*)(id, SEL))objc_msgSend)(objc_getClass("UIColor"), sel_registerName("clearColor"));
+                        ((void(*)(id, SEL, id))objc_msgSend)(v, sel_registerName("setBackgroundColor:"), cc);
+                    }
+                }
+            }
+        }
     }
     objc_autoreleasePoolPop(pool);
     } @catch (id e) { LogReason("LDD-LAYOUT-EXC", e); objc_autoreleasePoolPop(pool); }
