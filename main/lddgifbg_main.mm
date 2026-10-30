@@ -479,7 +479,7 @@ static void StreamRestartTimer(void) {
     // 1.9.133: 播放速度 —— 快放帧间隔变短, 慢放变长
     double sp = cSpeed; if (sp <= 0.05 || sp > 8.0) sp = 1.0;
     double interval = d / sp;
-    if (interval < 0.033) interval = 0.033;   // 1.9.157: 软解码帧率上限 ~30fps, 防 3x 时解码风暴烧 CPU/发热
+    if (interval < 0.0167) interval = 0.0167;   // 1.9.158: 软解码帧率上限 60fps(屏幕刷新极限), 3x 不降速, 仅拦截 >60fps 解码风暴
     gStreamTimer = [NSTimer scheduledTimerWithTimeInterval:interval target:gStreamTarget selector:@selector(streamTick:) userInfo:nil repeats:NO];
     // 优化9: 加入 common modes —— 横幅展开动画在 tracking 模式下跑, default 模式 timer 不回调
     // (这就是"首次通知不动, 连续通知才动"的根因: 首次加载后动画窗口内一次都不触发, 收起即被暂停)
