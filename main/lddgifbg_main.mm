@@ -1114,12 +1114,31 @@ static void LDDIslandLayout(id self) {
     id subs = ((id(*)(id, SEL))objc_msgSend)(self, sel_registerName("subviews"));
     id firstSub = subs ? ((id(*)(id, SEL))objc_msgSend)(subs, sel_registerName("firstObject")) : nil;
     if (firstSub != view) [self insertSubview:view atIndex:0];
-    // 1.9.170: 紧凑横条(如直播 167x37)背景置顶铺满 —— 169 的 addSubview 因 view 已在底层(index0)永不触发,
-    // 改为检查"是否已在顶层"(lastObject)后 bringSubviewToFront; 展开态(>=65)保持底层(通知内容在背景之上)
+    // 1.9.171: 紧凑横条(如直播 167x37)"铺满+图标保留"安全版 —— 背景保持底层,
+    // 只把本容器(ContentView)子视图中系统图标视图的黑底透明化: GIF 背景从黑底下透出铺满, 图标图案保留浮上
+    // 安全措施: 仅 self 子视图(不碰 sup 的 MagiciansCurtain/GainMap 敏感层, 168 崩溃源); 每实例仅执行一次;
+    //          @try 兜底; respondsToSelector 过滤非 UIView
     if (b.h < 65.0) {
-        id subsT = ((id(*)(id, SEL))objc_msgSend)(self, sel_registerName("subviews"));
-        id lastT = subsT ? ((id(*)(id, SEL))objc_msgSend)(subsT, sel_registerName("lastObject")) : nil;
-        if (lastT != view) [self bringSubviewToFront:view];
+        static id lastTrt = nil;
+        if (lastTrt != self) {
+            lastTrt = self;
+            @try {
+                id subsC = ((id(*)(id, SEL))objc_msgSend)(self, sel_registerName("subviews"));
+                if (subsC) {
+                    long n = (long)((id(*)(id, SEL))objc_msgSend)(subsC, sel_registerName("count"));
+                    for (long iy = 0; iy < n; iy++) {
+                        id v = ((id(*)(id, SEL, long))objc_msgSend)(subsC, sel_registerName("objectAtIndex:"), iy);
+                        if (v && v != view && v != cv) {
+                            SEL sbc = sel_registerName("setBackgroundColor:");
+                            if (((bool(*)(id, SEL, SEL))objc_msgSend)(v, sel_registerName("respondsToSelector:"), sbc)) {
+                                id cc = ((id(*)(id, SEL))objc_msgSend)(objc_getClass("UIColor"), sel_registerName("clearColor"));
+                                ((void(*)(id, SEL, id))objc_msgSend)(v, sel_registerName("setBackgroundColor:"), cc);
+                            }
+                        }
+                    }
+                }
+            } @catch (id e) { /* 透明化失败不影响主流程 */ }
+        }
     }
     objc_autoreleasePoolPop(pool);
     } @catch (id e) { LogReason("LDD-LAYOUT-EXC", e); objc_autoreleasePoolPop(pool); }
