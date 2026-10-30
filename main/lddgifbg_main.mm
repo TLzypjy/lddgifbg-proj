@@ -997,6 +997,27 @@ static void LDDIslandLayout(id self) {
 
     CGRect b = [self bounds];
     [view setFrame:MakeRect(0, 0, b.w, b.h)];
+    // 1.9.165: 探针 —— 收起(小)岛背景"只占中间一小块"定位: 记录 bounds/父容器/窗口渲染尺寸链
+    if (b.h < 65.0 && b.w < 200.0) {
+        static int mc = 0;
+        if (mc < 20) {
+            mc++;
+            id sup = [selfv superview];
+            CGRect sbz = sup ? [sup bounds] : b;
+            CGRect wrc = [selfv convertRect:[selfv bounds] toView:nil];
+            CGRect vf = [view frame];
+            CGRect cff = [cv frame];
+            char spc[64];
+            const char *spn = sup ? object_getClassName(sup) : "nil";
+            snprintf(spc, sizeof(spc), "%s", spn ? spn : "nil");
+            char lb[256];
+            snprintf(lb, sizeof(lb),
+                "MINISZ: self=%.0fx%.0f sup=%s sb=%.0fx%.0f win=%.0f,%.0f,%.0fx%.0f view=%.0fx%.0f cv=%.0fx%.0f media=%.0fx%.0f",
+                b.w, b.h, spc, sbz.w, sbz.h, wrc.origin.x, wrc.origin.y, wrc.size.w, wrc.size.h,
+                vf.w, vf.h, cff.w, cff.h, gMediaW, gMediaH);
+            ProbeWrite(lb);
+        }
+    }
     // 1.9.142: 广播岛容器真实尺寸 -> 设置页预览 1:1 复刻 (尺寸变化才写, 避免高频写盘)
     // 1.9.151: 仅岛展开时广播 (收起小尺寸会覆盖设置页预览的大药丸)
     { static double iw = -1, ih = -1;
