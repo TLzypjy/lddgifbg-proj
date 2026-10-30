@@ -1039,25 +1039,6 @@ static void LDDIslandLayout(id self) {
     }
     gContainerView = view;
     gContentView = cv;
-    // 1.9.165: 探针 —— 收起(小)岛背景"只占中间一小块"定位: bounds/父容器/内容视图尺寸链
-    if (b.h < 65.0 && b.w < 200.0) {
-        static int mc = 0;
-        if (mc < 20) {
-            mc++;
-            id sup = [selfv superview];
-            CGRect sbz = sup ? [sup bounds] : b;
-            CGRect vf = [view frame];
-            CGRect cff = [cv frame];
-            char spc[64];
-            const char *spn = sup ? object_getClassName(sup) : "nil";
-            snprintf(spc, sizeof(spc), "%s", spn ? spn : "nil");
-            char lb[256];
-            snprintf(lb, sizeof(lb),
-                "MINISZ: self=%.0fx%.0f sup=%s sb=%.0fx%.0f view=%.0fx%.0f cv=%.0fx%.0f media=%.0fx%.0f",
-                b.w, b.h, spc, sbz.w, sbz.h, vf.w, vf.h, cff.w, cff.h, gMediaW, gMediaH);
-            ProbeWrite(lb);
-        }
-    }
     // AspectFill 渲染尺寸: 素材填满容器不露边, 超出部分由容器裁切
     double cw = b.w, ch = b.h;
     if (gMediaW > 1 && gMediaH > 1) {
@@ -1095,6 +1076,21 @@ static void LDDIslandLayout(id self) {
         }
     }
     if (needReload) {
+        // 1.9.170: 同素材防抖 —— 系统动画中 ContentView 反复重建导致媒体反复重载拖卡,
+        // 同一素材 2 秒窗口内不再重复重载(素材真正切换仍立即加载)
+        if (gLoadedPath && [gLoadedPath isEqualToString:path]) {
+            id nd = ((id(*)(id, SEL))objc_msgSend)(objc_getClass("NSDate"), sel_registerName("date"));
+            double nt = ((double(*)(id, SEL))objc_msgSend)(nd, sel_registerName("timeIntervalSince1970"));
+            static double lastLdT = 0.0;
+            if (lastLdT > 0.0 && (nt - lastLdT) < 2.0) {
+                needReload = NO;
+            } else {
+                lastLdT = nt;
+            }
+        }
+        if (!needReload) { /* 防抖跳过本次重载 */ }
+    }
+    if (needReload) {
         gLoadedPath = path;
         LoadMediaWithPathIntoImageView(path, cv);
         // 素材原始尺寸就绪后重算内容视图 AspectFill 尺寸并重应用偏移
@@ -1118,12 +1114,12 @@ static void LDDIslandLayout(id self) {
     id subs = ((id(*)(id, SEL))objc_msgSend)(self, sel_registerName("subviews"));
     id firstSub = subs ? ((id(*)(id, SEL))objc_msgSend)(subs, sel_registerName("firstObject")) : nil;
     if (firstSub != view) [self insertSubview:view atIndex:0];
-    // 1.9.169: 紧凑横条(如直播 167x37)背景置顶铺满(安全方案)
-    // 168 的"系统视图黑底透明化"在系统动画中修改系统视图导致 EXC_BAD_ACCESS, 已回滚
-    // 本版只操作自有背景视图: 紧凑态加到顶层(幂等), 展开态保持底层(通知内容在背景之上)
+    // 1.9.170: 紧凑横条(如直播 167x37)背景置顶铺满 —— 169 的 addSubview 因 view 已在底层(index0)永不触发,
+    // 改为检查"是否已在顶层"(lastObject)后 bringSubviewToFront; 展开态(>=65)保持底层(通知内容在背景之上)
     if (b.h < 65.0) {
-        id vsup = ((id(*)(id, SEL))objc_msgSend)(view, sel_registerName("superview"));
-        if (vsup != self) [self addSubview:view];
+        id subsT = ((id(*)(id, SEL))objc_msgSend)(self, sel_registerName("subviews"));
+        id lastT = subsT ? ((id(*)(id, SEL))objc_msgSend)(subsT, sel_registerName("lastObject")) : nil;
+        if (lastT != view) [self bringSubviewToFront:view];
     }
     objc_autoreleasePoolPop(pool);
     } @catch (id e) { LogReason("LDD-LAYOUT-EXC", e); objc_autoreleasePoolPop(pool); }
