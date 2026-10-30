@@ -699,10 +699,10 @@ static id LDDListMaterialFolders(void) {
     [al addAction:cc];
     [self presentViewController:al animated:YES completion:0];
 }
-- (void)doRename:(NSString *)old to:(NSString *)new {
-    if (!new || [new length] == 0) return;
+- (void)doRename:(NSString *)old to:(NSString *)newName {
+    if (!newName || [newName length] == 0) return;
     NSString *src = [@"/var/mobile/lddgifbg" stringByAppendingPathComponent:old];
-    NSString *dst = [@"/var/mobile/lddgifbg" stringByAppendingPathComponent:new];
+    NSString *dst = [@"/var/mobile/lddgifbg" stringByAppendingPathComponent:newName];
     NSFileManager *fm = [NSFileManager defaultManager];
     if ([fm fileExistsAtPath:dst]) { [self showTip:@"已存在同名素材"]; return; }
     if ([fm moveItemAtPath:src toPath:dst error:0]) {
@@ -712,9 +712,9 @@ static id LDDListMaterialFolders(void) {
         [(UICollectionView *)_cv reloadData];
         [self setTitle:[NSString stringWithFormat:@"素材库 (%lu)", (unsigned long)[_folders count]]];
         if (_sel && [_sel isEqualToString:old]) {
-            _sel = new;
+            _sel = newName;
             NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
-            [ud setObject:new forKey:@"SelectedMaterialFolder"];
+            [ud setObject:newName forKey:@"SelectedMaterialFolder"];
         }
     } else {
         [self showTip:@"改名失败"];
