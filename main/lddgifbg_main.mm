@@ -270,15 +270,24 @@ struct CMTimeRaw { long long value; int timescale; unsigned flags; long long epo
 @end
 @implementation LDDVideoLoopObserver
 - (void)videoDidEnd:(id)n {
-    if (gPlayer) {
-        typedef id (*Fn)(id, SEL, struct CMTimeRaw);
-        Fn fn = (Fn)objc_msgSend;
-        struct CMTimeRaw zero = {0, 0, 0, 0};
-        fn(gPlayer, sel_registerName("seekToTime:"), zero);
-        // 1.9.133: 循环保持播放速度 (play 会重置 rate 为 1.0)
-        double sp3 = cSpeed; if (sp3 <= 0.05 || sp3 > 8.0) sp3 = 1.0;
-        ((void(*)(id, SEL, float))objc_msgSend)(gPlayer, sel_registerName("setRate:"), (float)sp3);
+    // 1.9.159: 只处理当前 item 的结束事件 —— replace 后旧 item 的通知晚到会错位 seek
+    if (!gPlayer || !gPlayerItem) return;
+    if (n) {
+        id obj = ((id(*)(id, SEL))objc_msgSend)(n, sel_registerName("object"));
+        if (obj && obj != gPlayerItem) return;
     }
+    // 1.9.159: 防重入 —— 高频循环/3x 下 seek 风暴
+    static int looping = 0;
+    if (looping) return;
+    looping = 1;
+    typedef id (*Fn)(id, SEL, struct CMTimeRaw);
+    Fn fn = (Fn)objc_msgSend;
+    struct CMTimeRaw zero = {0, 0, 0, 0};
+    fn(gPlayer, sel_registerName("seekToTime:"), zero);
+    // 1.9.133: 循环保持播放速度 (play 会重置 rate 为 1.0)
+    double sp3 = cSpeed; if (sp3 <= 0.05 || sp3 > 8.0) sp3 = 1.0;
+    ((void(*)(id, SEL, float))objc_msgSend)(gPlayer, sel_registerName("setRate:"), (float)sp3);
+    looping = 0;
 }
 @end
 
@@ -325,10 +334,15 @@ static double GetLddGifBgPos(NSString *key, double fallback) {
 // 1.9.139: 应用显示区域偏移 —— 平移内容视图, 越界值按素材实际可平移范围收敛
 static void ApplyPos(void) {
     if (!gContentView || !gContainerView) return;
-    // 视频 presentationSize 可能延迟就绪, 应用前补查
+    // 视频 presentationSize 可能延迟就绪, 应用前补查 (1.9.159: 0.5s 节流, 防每帧查 AVFoundation)
     if (gPlayer && (gMediaW <= 0 || gMediaH <= 0)) {
-        CGSize psz = ((CGSize(*)(id, SEL))objc_msgSend)(gPlayerItem, sel_registerName("presentationSize"));
-        if (psz.width > 1 && psz.height > 1) { gMediaW = psz.width; gMediaH = psz.height; }
+        static double lastPsz = 0;
+        double now = CFAbsoluteTimeGetCurrent();
+        if (now - lastPsz >= 0.5) {
+            lastPsz = now;
+            CGSize psz = ((CGSize(*)(id, SEL))objc_msgSend)(gPlayerItem, sel_registerName("presentationSize"));
+            if (psz.width > 1 && psz.height > 1) { gMediaW = psz.width; gMediaH = psz.height; }
+        }
     }
     CGRect cb = [gContainerView bounds];
     double maxTx = 0, maxTy = 0;
@@ -558,17 +572,23 @@ static void EnsureAVFoundation(void) {
     static int done = 0;
     if (!done) { dlopen("/System/Library/Frameworks/AVFoundation.framework/AVFoundation", 2); done = 1; }
 }
+// 1.9.159: 视频重载防抖 —— 布局/收起-展开交替时同素材不反复 replace (每次 replace 新建解码器, 高频=崩溃风险)
+static double gLastVideoReload = 0;
 static void LoadVideoWithPathIntoView(NSString *path, UIView *view) {
     EnsureAVFoundation();
     NSURL *url = [NSURL fileURLWithPath:path];
     typedef id (*FnA)(id, SEL, NSURL *);
     FnA fna = (FnA)objc_msgSend;
     if (gPlayer && gPlayerItem) {
+        double now = CFAbsoluteTimeGetCurrent();
+        if (now - gLastVideoReload < 0.5) return;   // 防抖: 0.5s 内同素材不重载
+        gLastVideoReload = now;
+        NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
+        // 1.9.159: 必须先移除旧 observer 再 replace —— 避免对已释放 item 的悬垂操作
+        [nc removeObserver:gObserver name:@"AVPlayerItemDidPlayToEndTimeNotification" object:gPlayerItem];
         id item = fna((id)objc_getClass("AVPlayerItem"), sel_registerName("playerItemWithURL:"), url);
         [gPlayer replaceCurrentItemWithPlayerItem:item];
         // replace 后通知对象变成新 item: 换绑循环观察者, 否则第二次通知起视频播完不循环
-        NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
-        [nc removeObserver:gObserver name:@"AVPlayerItemDidPlayToEndTimeNotification" object:gPlayerItem];
         gPlayerItem = item;
         [nc addObserver:gObserver selector:@selector(videoDidEnd:) name:@"AVPlayerItemDidPlayToEndTimeNotification" object:gPlayerItem];
     } else {
@@ -997,8 +1017,14 @@ static void LDDIslandLayout(id self) {
     }
     [cv setFrame:MakeRect((b.w - cw) / 2.0, (b.h - ch) / 2.0, cw, ch)];
     // 1.9.141: 视频 layer frame 必须跟随内容视图渲染尺寸 (否则视频在 layer 内被二次裁切, 平移看不出效果)
+    // 1.9.159: 仅尺寸变化才 setFrame, 避免布局每帧触发 AVPlayerLayer 重布局
     if (gPlayerLayer && [gPlayerLayer superlayer] == [cv layer]) {
-        [gPlayerLayer setFrame:[cv bounds]];
+        CGRect cvb = [cv bounds];
+        static double lastLw = -1, lastLh = -1;
+        if (cvb.w != lastLw || cvb.h != lastLh) {
+            lastLw = cvb.w; lastLh = cvb.h;
+            [gPlayerLayer setFrame:cvb];
+        }
     }
     ApplyPos();
 
@@ -1027,9 +1053,14 @@ static void LDDIslandLayout(id self) {
             double s = (b.w / gMediaW) > (b.h / gMediaH) ? (b.w / gMediaW) : (b.h / gMediaH);
             double cw2 = gMediaW * s, ch2 = gMediaH * s;
             [cv setFrame:MakeRect((b.w - cw2) / 2.0, (b.h - ch2) / 2.0, cw2, ch2)];
-            // 1.9.141: 同步视频 layer
+            // 1.9.141: 同步视频 layer (1.9.159: 尺寸变化才设置)
             if (gPlayerLayer && [gPlayerLayer superlayer] == [cv layer]) {
-                [gPlayerLayer setFrame:[cv bounds]];
+                CGRect cvb2 = [cv bounds];
+                static double lastLw2 = -1, lastLh2 = -1;
+                if (cvb2.w != lastLw2 || cvb2.h != lastLh2) {
+                    lastLw2 = cvb2.w; lastLh2 = cvb2.h;
+                    [gPlayerLayer setFrame:cvb2];
+                }
             }
             ApplyPos();
         }
