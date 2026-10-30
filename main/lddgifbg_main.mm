@@ -1118,6 +1118,11 @@ static void LDDIslandLayout(id self) {
     id subs = ((id(*)(id, SEL))objc_msgSend)(self, sel_registerName("subviews"));
     id firstSub = subs ? ((id(*)(id, SEL))objc_msgSend)(subs, sel_registerName("firstObject")) : nil;
     if (firstSub != view) [self insertSubview:view atIndex:0];
+    // 1.9.167: 紧凑横条(如直播 167x37)背景置顶铺满 —— 系统 logo/图标(汉堡/信号)盖在底层背景上只露中间
+    // 展开态(>=65)保持底层, 通知文字/内容仍在背景之上
+    if (b.h < 65.0) {
+        [self bringSubviewToFront:view];
+    }
     objc_autoreleasePoolPop(pool);
     } @catch (id e) { LogReason("LDD-LAYOUT-EXC", e); objc_autoreleasePoolPop(pool); }
 }
