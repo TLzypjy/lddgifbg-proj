@@ -1,9 +1,9 @@
 Package: com.tlzypjy.github
-Name: 灵动岛GIF背景
+Name: 通知背景美化
 Author: TL
-Description: 灵动岛GIF背景 重制版：素材选择器带缩略图预览（GIF首帧/视频首帧/图片直显），支持视频素材(MP4/MOV 直接循环播放)。素材放 /var/mobile/lddgifbg/ 下的子文件夹。无依赖，兼容无根与隐根。
+Description: 通知背景美化（原灵动岛GIF背景）：把通知横幅背景替换为你自己的 GIF/视频/图片素材，支持播放速度与位置偏移自定义，素材放 /var/mobile/lddgifbg/ 下子文件夹。无依赖，兼容无根与隐根。
 Maintainer: TL
 Section: Tweaks
 Architecture: iphoneos-arm64
-Version: 1.9.156
+Version: 1.9.157
 Icon: https://axs66.github.io/repo/icon/lddgifbg.png

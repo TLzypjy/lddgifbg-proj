@@ -914,7 +914,7 @@ static id LDDListMaterialFolders(void) {
 - (void)viewDidLoad {
     LogB("ROOT-VIEWDIDLOAD");
     @try { [super viewDidLoad]; } @catch (id e) { LogB("ROOT-VD-EXC"); }
-    [self setTitle:@"灵动岛GIF背景"];
+    [self setTitle:@"通知背景美化"];   // 1.9.157: 更名
     // 1.9.144: 素材切换通知 -> 强制刷新预览行
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(matChanged) name:@"LDDMatChanged" object:0];
 }

@@ -478,7 +478,9 @@ static void StreamRestartTimer(void) {
     }
     // 1.9.133: 播放速度 —— 快放帧间隔变短, 慢放变长
     double sp = cSpeed; if (sp <= 0.05 || sp > 8.0) sp = 1.0;
-    gStreamTimer = [NSTimer scheduledTimerWithTimeInterval:(d / sp) target:gStreamTarget selector:@selector(streamTick:) userInfo:nil repeats:NO];
+    double interval = d / sp;
+    if (interval < 0.033) interval = 0.033;   // 1.9.157: 软解码帧率上限 ~30fps, 防 3x 时解码风暴烧 CPU/发热
+    gStreamTimer = [NSTimer scheduledTimerWithTimeInterval:interval target:gStreamTarget selector:@selector(streamTick:) userInfo:nil repeats:NO];
     // 优化9: 加入 common modes —— 横幅展开动画在 tracking 模式下跑, default 模式 timer 不回调
     // (这就是"首次通知不动, 连续通知才动"的根因: 首次加载后动画窗口内一次都不触发, 收起即被暂停)
     id rl = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("NSRunLoop"), sel_registerName("mainRunLoop"));
@@ -669,6 +671,9 @@ static BOOL ForcePreviewActive(void) { return time(0) < gForceUntil; }
 // ---------- prefs 缓存 (1.9.129: 去掉秒节流 —— 素材切换/选择变化必须立即生效) ----------
 static BOOL cEnabled, cZxh;
 static NSString *cPath;
+// 1.9.157: prefs 刷新节流 0.5s —— layoutSubviews 每帧触发时不再反复读 4 个 plist+NSUserDefaults,
+// 磁盘 IO 从每帧(最高60次/s)降到 2次/s, 大幅降低发热与 CPU; 设置变化最多 0.5s 内生效
+static double gLastPrefsRefresh = 0;
 // 1.9.133: 播放速度 (0.5x~2.0x, 默认 1.0x)
 static double GetLddGifBgSpeed(void) {
     id v = LoadPrefsValue(@"lddgifbgSpeed");
@@ -677,6 +682,9 @@ static double GetLddGifBgSpeed(void) {
     return d;
 }
 static void RefreshPrefsCache(void) {
+    double now = CFAbsoluteTimeGetCurrent();
+    if (now - gLastPrefsRefresh < 0.5) return;
+    gLastPrefsRefresh = now;
     cEnabled = IsLddGifBgEnabled();
     cZxh = IsZxhLddGifBgEnabled();
     cPosX = GetLddGifBgPos(gPrefsKeyPosX, 0.0);
@@ -1245,7 +1253,7 @@ static void PostRealNotification(void) {
         id clsContent = (id)objc_getClass("UNMutableNotificationContent");
         id content = clsContent ? ((id(*)(id, SEL))objc_msgSend)((id)clsContent, sel_registerName("new")) : nil;
         if (content) {
-            ((void(*)(id, SEL, id))objc_msgSend)(content, sel_registerName("setTitle:"), @"灵动岛GIF背景");
+            ((void(*)(id, SEL, id))objc_msgSend)(content, sel_registerName("setTitle:"), @"通知背景美化");
             ((void(*)(id, SEL, id))objc_msgSend)(content, sel_registerName("setBody:"), @"预览通知：岛展开显示您的背景");
         }
         // 优化12: 不再创建 UNTimeIntervalNotificationTrigger (传 nil)。
@@ -1391,8 +1399,8 @@ static void PostRealNotification(void) {
                                 SEL sNCI = sel_registerName(ncInits[j]);
                                 if (ncInst && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(ncInst, sel_registerName("respondsToSelector:"), sNCI)) {
                                     if (j == 0) ncContent = ((id(*)(id, SEL, id))objc_msgSend)(ncInst, sNCI, unreq);
-                                    else if (j == 1) ncContent = ((id(*)(id, SEL, id, id))objc_msgSend)(ncInst, sNCI, @"灵动岛GIF背景", @"预览通知");
-                                    else ncContent = ((id(*)(id, SEL, id, id, id))objc_msgSend)(ncInst, sNCI, @"灵动岛GIF背景", @"预览通知", @"岛展开显示您的背景");
+                                    else if (j == 1) ncContent = ((id(*)(id, SEL, id, id))objc_msgSend)(ncInst, sNCI, @"通知背景美化", @"预览通知");
+                                    else ncContent = ((id(*)(id, SEL, id, id, id))objc_msgSend)(ncInst, sNCI, @"通知背景美化", @"预览通知", @"岛展开显示您的背景");
                                 }
                             }
                             if (ncContent) {
