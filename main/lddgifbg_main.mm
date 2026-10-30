@@ -284,7 +284,8 @@ struct CMTimeRaw { long long value; int timescale; unsigned flags; long long epo
     @try {
     typedef id (*Fn)(id, SEL, struct CMTimeRaw);
     Fn fn = (Fn)objc_msgSend;
-    struct CMTimeRaw zero = {0, 600, 0, 0};
+    // 1.9.162: CMTime flags=1 (kCMTimeFlags_Valid) —— 0=INVALID, seek 被拒抛异常导致视频循环中断画面卡死
+    struct CMTimeRaw zero = {0, 600, 1, 0};
     fn(gPlayer, sel_registerName("seekToTime:"), zero);
     // 1.9.133: 循环保持播放速度 (play 会重置 rate 为 1.0)
     // 1.9.160: AVPlayer rate 系统标准范围 0~2.0, 超 2.0 抛异常崩 SpringBoard -> 钳 2.0 (视频最快 2x, GIF 3x 不受影响)
