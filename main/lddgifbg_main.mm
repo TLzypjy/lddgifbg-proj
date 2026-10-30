@@ -952,7 +952,8 @@ static void LDDIslandLayout(id self) {
     if (mainOn) {
         CGRect b0 = [self bounds];
         if (cZxh) show = YES;          // 小岛开: 常显
-        else if (b0.h >= 65.0) show = YES;               // 小岛关: 仅展开时
+        // 1.9.166: 阈值 65->37 —— 直播等紧凑横条(167x37) 在"小岛关"时也显示背景并铺满
+        else if (b0.h >= 37.0) show = YES;
     }
     static int slog2 = 0;
     if (slog2 < 20) {
@@ -962,12 +963,29 @@ static void LDDIslandLayout(id self) {
         ProbeWrite(sb);
     }
     if (!show) {
-        // 优化4: 岛隐藏时停止一切播放; 保留素材状态与视图 -> 下次通知走续播秒恢复
+        // 1.9.166: 节流 —— 仅"仍有内容/视频层挂着"才清理一次, 避免直播横条(167x37)每帧重复空清理拖卡
         UIImageView *oldV = (UIImageView *)[self viewWithTag:9999];
-        if (oldV) { [oldV stopAnimating]; [oldV setImage:nil]; [oldV setAnimationImages:nil]; }
-        StopVideo();
-        StreamPause();
-        RemoveTagged(self, 9998);
+        BOOL dirty = NO;
+        if (oldV) {
+            id img = ((id(*)(id, SEL))objc_msgSend)(oldV, sel_registerName("image"));
+            if (img) dirty = YES;
+            id anims = ((id(*)(id, SEL))objc_msgSend)(oldV, sel_registerName("animationImages"));
+            if (anims) {
+                long cnt = (long)((id(*)(id, SEL))objc_msgSend)(anims, sel_registerName("count"));
+                if (cnt > 0) dirty = YES;
+            }
+        }
+        BOOL hasLayer = NO;
+        if (gPlayerLayer) {
+            id sl = ((id(*)(id, SEL))objc_msgSend)(gPlayerLayer, sel_registerName("superlayer"));
+            if (sl) hasLayer = YES;
+        }
+        if (dirty || hasLayer) {
+            if (oldV) { [oldV stopAnimating]; [oldV setImage:nil]; [oldV setAnimationImages:nil]; }
+            StopVideo();
+            StreamPause();
+            RemoveTagged(self, 9998);
+        }
         objc_autoreleasePoolPop(pool);
         return;
     }
