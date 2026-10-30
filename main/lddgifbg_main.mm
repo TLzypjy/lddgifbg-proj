@@ -285,7 +285,8 @@ struct CMTimeRaw { long long value; int timescale; unsigned flags; long long epo
     struct CMTimeRaw zero = {0, 0, 0, 0};
     fn(gPlayer, sel_registerName("seekToTime:"), zero);
     // 1.9.133: 循环保持播放速度 (play 会重置 rate 为 1.0)
-    double sp3 = cSpeed; if (sp3 <= 0.05 || sp3 > 8.0) sp3 = 1.0;
+    // 1.9.160: AVPlayer rate 系统标准范围 0~2.0, 超 2.0 抛异常崩 SpringBoard -> 钳 2.0 (视频最快 2x, GIF 3x 不受影响)
+    double sp3 = cSpeed; if (sp3 <= 0.05 || sp3 > 2.0) sp3 = 2.0;
     ((void(*)(id, SEL, float))objc_msgSend)(gPlayer, sel_registerName("setRate:"), (float)sp3);
     looping = 0;
 }
@@ -611,7 +612,8 @@ static void LoadVideoWithPathIntoView(NSString *path, UIView *view) {
     if (psz.width > 1 && psz.height > 1) { gMediaW = psz.width; gMediaH = psz.height; }
     { static int ms2 = 0; if (ms2 < 2) { ms2++; char ml[80]; snprintf(ml, sizeof(ml), "MEDIA-SIZE-VIDEO %.0fx%.0f", gMediaW, gMediaH); ProbeWrite(ml); } }
     // 1.9.133: 视频按设定速度播放 (play 会重置 rate, 故直接用 setRate)
-    double sp2 = cSpeed; if (sp2 <= 0.05 || sp2 > 8.0) sp2 = 1.0;
+    // 1.9.160: AVPlayer rate 上限 2.0 (超 2.0 抛 NSInvalidArgumentException 崩 SpringBoard)
+    double sp2 = cSpeed; if (sp2 <= 0.05 || sp2 > 2.0) sp2 = 2.0;
     ((void(*)(id, SEL, float))objc_msgSend)(gPlayer, sel_registerName("setRate:"), (float)sp2);
 }
 static void StopVideo(void) {
@@ -716,7 +718,8 @@ static void RefreshPrefsCache(void) {
         gLastAppliedSpeed = cSpeed;
         if (gStreamSrc) { StreamRestartTimer(); ProbeWrite("SPEED-APPLY-GIF"); }
         if (gPlayer) {
-            ((void(*)(id, SEL, float))objc_msgSend)(gPlayer, sel_registerName("setRate:"), (float)cSpeed);
+            double vsp = cSpeed; if (vsp <= 0.05 || vsp > 2.0) vsp = 2.0;   // 1.9.160: rate 上限 2.0
+            ((void(*)(id, SEL, float))objc_msgSend)(gPlayer, sel_registerName("setRate:"), (float)vsp);
             ProbeWrite("SPEED-APPLY-VIDEO");
         }
     }
