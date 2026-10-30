@@ -280,14 +280,17 @@ struct CMTimeRaw { long long value; int timescale; unsigned flags; long long epo
     static int looping = 0;
     if (looping) return;
     looping = 1;
+    // 1.9.161: 通知处理全程兜底 + CMTime 合法化 (timescale=0 非法, 可能触发 AVFoundation 异常)
+    @try {
     typedef id (*Fn)(id, SEL, struct CMTimeRaw);
     Fn fn = (Fn)objc_msgSend;
-    struct CMTimeRaw zero = {0, 0, 0, 0};
+    struct CMTimeRaw zero = {0, 600, 0, 0};
     fn(gPlayer, sel_registerName("seekToTime:"), zero);
     // 1.9.133: 循环保持播放速度 (play 会重置 rate 为 1.0)
     // 1.9.160: AVPlayer rate 系统标准范围 0~2.0, 超 2.0 抛异常崩 SpringBoard -> 钳 2.0 (视频最快 2x, GIF 3x 不受影响)
     double sp3 = cSpeed; if (sp3 <= 0.05 || sp3 > 2.0) sp3 = 2.0;
     ((void(*)(id, SEL, float))objc_msgSend)(gPlayer, sel_registerName("setRate:"), (float)sp3);
+    } @catch (id e) { LogReason("VIDEO-END-EXC", e); }
     looping = 0;
 }
 @end
@@ -681,7 +684,9 @@ static void CheckForcePreviewTick(void) {
 // 之前 CheckForcePreviewTick 只在 CtrlLayoutHook 里调用且被尺寸过滤挡掉,
 // 用户在设置页点预览时若 SB 无布局事件, 触发文件无人消费 -> "要点好几次才弹"。
 static void ForceMonitorTick(void) {
-    CheckForcePreviewTick();
+    // 1.9.161: 主队列轮询 block 兜底 —— 异常不再冒泡到 runloop 崩进程
+    @try { CheckForcePreviewTick(); }
+    @catch (id e) { LogReason("FMT-EXC", e); }
     dispatch_after(dispatch_time(0, 100 * 1000000LL), &_dispatch_main_q, ^{ ForceMonitorTick(); });
 }
 static void StartForceMonitor(void) {
@@ -909,6 +914,8 @@ static void LDDIslandLayout(id self) {
     static int first = 0;
     if (!first) { first = 1; ProbeWrite("ISLAND-LAYOUT-ENTERED"); }
     void *pool = objc_autoreleasePoolPush();
+    // 1.9.161: 布局 hook 全程异常兜底 —— 任何 UIKit/私有 API 抛异常都被吞掉记录, 不再崩 SpringBoard
+    @try {
     // 优化10: 仅接管真正的内容层 _SBSystemApertureContainerViewContentView。
     // 特效层(MagiciansCurtain/GainMap)与容器层若各自创建 GIF 子视图,
     // 首屏会被挂到不可见层 -> 首次通知"不动"; 连续通知时特效层停摆、内容层重建才恢复。
@@ -1073,6 +1080,7 @@ static void LDDIslandLayout(id self) {
     id firstSub = subs ? ((id(*)(id, SEL))objc_msgSend)(subs, sel_registerName("firstObject")) : nil;
     if (firstSub != view) [self insertSubview:view atIndex:0];
     objc_autoreleasePoolPop(pool);
+    } @catch (id e) { LogReason("LDD-LAYOUT-EXC", e); objc_autoreleasePoolPop(pool); }
 }
 
 // ---------- 构造 ----------
@@ -1263,9 +1271,10 @@ static void LDDCloseFirstBanner(id req) {
 static void LDDCloseAfter(id req) {
     // 快照绑定: 每个通知的定时器只关闭它自己, 防止连续点击时误关新通知
     id captured = req;
-    dispatch_after(dispatch_time(0, (int64_t)(6.0 * 1000000000LL)), &_dispatch_main_q, ^{ LDDCloseFirstBanner(captured); });
+    // 1.9.161: 延迟 block 兜底 —— 关闭路径异常不再崩 SpringBoard
+    dispatch_after(dispatch_time(0, (int64_t)(6.0 * 1000000000LL)), &_dispatch_main_q, ^{ @try { LDDCloseFirstBanner(captured); } @catch (id e) { LogReason("LDD-CLOSE-DLY-EXC", e); } });
     // 第二波: 10秒再撤一次 —— 撤掉 6 秒后系统自动降级出现的第二条标准横幅
-    dispatch_after(dispatch_time(0, (int64_t)(10.0 * 1000000000LL)), &_dispatch_main_q, ^{ LDDCloseFirstBanner(captured); });
+    dispatch_after(dispatch_time(0, (int64_t)(10.0 * 1000000000LL)), &_dispatch_main_q, ^{ @try { LDDCloseFirstBanner(captured); } @catch (id e) { LogReason("LDD-CLOSE-DLY-EXC", e); } });
 }
 
 // ---------- 真实通知呈现 (灵动通知同款: 直接驱动 SB 横幅呈现层, 不入通知中心) ----------
