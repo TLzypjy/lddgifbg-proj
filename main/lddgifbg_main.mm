@@ -1127,7 +1127,7 @@ static void LDDIslandLayout(id self) {
             if (subsX) {
                 long n = (long)((id(*)(id, SEL))objc_msgSend)(subsX, sel_registerName("count"));
                 for (long ix = 0; ix < n; ix++) {
-                    id v = ((id(*)(id, SEL))objc_msgSend)(subsX, sel_registerName("objectAtIndex:"), ix);
+                    id v = ((id(*)(id, SEL, long))objc_msgSend)(subsX, sel_registerName("objectAtIndex:"), ix);
                     if (v && v != self && v != view) {
                         id cc = ((id(*)(id, SEL))objc_msgSend)(objc_getClass("UIColor"), sel_registerName("clearColor"));
                         ((void(*)(id, SEL, id))objc_msgSend)(v, sel_registerName("setBackgroundColor:"), cc);
