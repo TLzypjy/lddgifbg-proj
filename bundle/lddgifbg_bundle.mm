@@ -92,6 +92,7 @@ static id CLSSTR(const char *n) { return (id)objc_getClass(n); }
 - (void)addEntriesFromDictionary:(NSDictionary *)other;
 - (void)setObject:(id)obj forKeyedSubscript:(id)k;
 - (void)setObject:(id)obj forKey:(id)k;
+- (void)removeObjectForKey:(id)k;
 @end
 @interface NSData : NSObject
 + (id)dataWithContentsOfFile:(NSString *)p;
@@ -111,6 +112,7 @@ static id CLSSTR(const char *n) { return (id)objc_getClass(n); }
 - (BOOL)createDirectoryAtPath:(NSString *)p withIntermediateDirectories:(BOOL)b attributes:(id)a error:(id *)e;
 - (BOOL)copyItemAtURL:(id)src toURL:(id)dst error:(id *)e;
 - (BOOL)removeItemAtPath:(NSString *)p error:(id *)e;
+- (BOOL)moveItemAtPath:(NSString *)p toPath:(NSString *)t error:(id *)e;
 - (BOOL)createFileAtPath:(NSString *)p contents:(id)c attributes:(id)a;
 - (id)contentsOfDirectoryAtPath:(NSString *)p error:(id *)e;
 @end
@@ -118,6 +120,7 @@ static id CLSSTR(const char *n) { return (id)objc_getClass(n); }
 - (id)initWithSuiteName:(NSString *)n;
 - (id)objectForKey:(id)k;
 - (void)setObject:(id)obj forKey:(id)k;
+- (void)removeObjectForKey:(NSString *)k;
 - (BOOL)synchronize;
 @end
 @interface NSURL : NSObject
@@ -185,6 +188,7 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (void)setAlpha:(double)a;
 - (id)window;
 - (void)setUserInteractionEnabled:(BOOL)e;
+- (void)addGestureRecognizer:(id)g;
 @end
 
 @interface UIWindow : UIView
@@ -201,6 +205,14 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 + (id)sharedApplication;
 - (id)keyWindow;
 - (void)openURL:(id)u options:(id)o completionHandler:(id)c;
+@end
+@interface UIGestureRecognizer : NSObject
+- (id)initWithTarget:(id)target action:(SEL)action;
+- (long)state;
+- (id)view;
+- (CGPoint)locationInView:(id)v;
+@end
+@interface UILongPressGestureRecognizer : UIGestureRecognizer
 @end
 @interface UIControl : UIView
 - (void)addTarget:(id)t action:(SEL)a forControlEvents:(NSUInteger)e;
@@ -329,6 +341,7 @@ extern "C" void UIGraphicsEndImageContext(void);
 - (void)registerClass:(id)cls forCellWithReuseIdentifier:(NSString *)ri;
 - (id)dequeueReusableCellWithReuseIdentifier:(NSString *)ri forIndexPath:(id)ip;
 - (void)reloadData;
+- (id)indexPathForItemAtPoint:(CGPoint)p;
 @end
 @interface UIImagePickerController : UIViewController
 - (void)setSourceType:(NSInteger)t;
@@ -637,6 +650,8 @@ static id LDDListMaterialFolders(void) {
     [cv setDelegate:self];
     [cv setDataSource:self];
     [cv registerClass:[UICollectionViewCell class] forCellWithReuseIdentifier:@"m"];
+    UILongPressGestureRecognizer *lp = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(longPressTapped:)];
+    [cv addGestureRecognizer:lp];
     [[self view] addSubview:cv];
     _cv = cv;
     NSString *cnt = [NSString stringWithFormat:@"素材库 (%lu)", (unsigned long)[_folders count]];
@@ -644,6 +659,97 @@ static id LDDListMaterialFolders(void) {
 }
 - (void)closeTapped {
     [self dismissViewControllerAnimated:YES completion:0];
+}
+// 1.9.164: 长按缩略图 -> 改名字 / 删除素材
+- (void)longPressTapped:(id)lp {
+    if ((long)[lp state] != 1) return; // UIGestureRecognizerStateBegan
+    id v = [lp view];
+    CGPoint p = [lp locationInView:v];
+    NSIndexPath *ip = [(UICollectionView *)_cv indexPathForItemAtPoint:p];
+    if (!ip) return;
+    NSInteger row = [ip row];
+    if (!_folders || row >= (NSInteger)[_folders count]) return;
+    NSString *name = [_folders objectAtIndex:(NSUInteger)row];
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:name message:nil preferredStyle:0];
+    UIAlertAction *ren = [UIAlertAction actionWithTitle:@"改名字" style:0 handler:^(UIAlertAction *a){
+        [self renameTapped:name];
+    }];
+    UIAlertAction *del = [UIAlertAction actionWithTitle:@"删除素材" style:2 handler:^(UIAlertAction *a){
+        [self confirmDelete:name];
+    }];
+    UIAlertAction *cc = [UIAlertAction actionWithTitle:@"取消" style:1 handler:0];
+    [sheet addAction:ren];
+    [sheet addAction:del];
+    [sheet addAction:cc];
+    [self presentViewController:sheet animated:YES completion:0];
+}
+- (void)renameTapped:(NSString *)name {
+    UIAlertController *al = [UIAlertController alertControllerWithTitle:@"改名字" message:@"输入新名字" preferredStyle:1];
+    [al addTextFieldWithConfigurationHandler:^(UITextField *tf){
+        [tf setText:name];
+    }];
+    UIAlertAction *ok = [UIAlertAction actionWithTitle:@"确定" style:0 handler:^(UIAlertAction *a){
+        id tfs = [al textFields];
+        UITextField *tf = [tfs objectAtIndex:0];
+        NSString *nn = [tf text];
+        [self doRename:name to:nn];
+    }];
+    UIAlertAction *cc = [UIAlertAction actionWithTitle:@"取消" style:1 handler:0];
+    [al addAction:ok];
+    [al addAction:cc];
+    [self presentViewController:al animated:YES completion:0];
+}
+- (void)doRename:(NSString *)old to:(NSString *)new {
+    if (!new || [new length] == 0) return;
+    NSString *src = [@"/var/mobile/lddgifbg" stringByAppendingPathComponent:old];
+    NSString *dst = [@"/var/mobile/lddgifbg" stringByAppendingPathComponent:new];
+    NSFileManager *fm = [NSFileManager defaultManager];
+    if ([fm fileExistsAtPath:dst]) { [self showTip:@"已存在同名素材"]; return; }
+    if ([fm moveItemAtPath:src toPath:dst error:0]) {
+        _folders = LDDListMaterialFolders();
+        [_thumbs removeObjectForKey:old];
+        [_anims removeObjectForKey:old];
+        [(UICollectionView *)_cv reloadData];
+        [self setTitle:[NSString stringWithFormat:@"素材库 (%lu)", (unsigned long)[_folders count]]];
+        if (_sel && [_sel isEqualToString:old]) {
+            _sel = new;
+            NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
+            [ud setObject:new forKey:@"SelectedMaterialFolder"];
+        }
+    } else {
+        [self showTip:@"改名失败"];
+    }
+}
+- (void)confirmDelete:(NSString *)name {
+    UIAlertController *al = [UIAlertController alertControllerWithTitle:@"删除素材" message:[NSString stringWithFormat:@"确定删除「%@」? 不可恢复", name] preferredStyle:1];
+    UIAlertAction *yes = [UIAlertAction actionWithTitle:@"删除" style:2 handler:^(UIAlertAction *a){
+        NSString *p = [@"/var/mobile/lddgifbg" stringByAppendingPathComponent:name];
+        NSFileManager *fm = [NSFileManager defaultManager];
+        if ([fm removeItemAtPath:p error:0]) {
+            _folders = LDDListMaterialFolders();
+            [_thumbs removeObjectForKey:name];
+            [_anims removeObjectForKey:name];
+            [(UICollectionView *)_cv reloadData];
+            [self setTitle:[NSString stringWithFormat:@"素材库 (%lu)", (unsigned long)[_folders count]]];
+            if (_sel && [_sel isEqualToString:name]) {
+                _sel = nil;
+                NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
+                [ud removeObjectForKey:@"SelectedMaterialFolder"];
+            }
+        } else {
+            [self showTip:@"删除失败"];
+        }
+    }];
+    UIAlertAction *cc = [UIAlertAction actionWithTitle:@"取消" style:1 handler:0];
+    [al addAction:yes];
+    [al addAction:cc];
+    [self presentViewController:al animated:YES completion:0];
+}
+- (void)showTip:(NSString *)msg {
+    UIAlertController *al = [UIAlertController alertControllerWithTitle:@"提示" message:msg preferredStyle:1];
+    UIAlertAction *ok = [UIAlertAction actionWithTitle:@"好" style:0 handler:0];
+    [al addAction:ok];
+    [self presentViewController:al animated:YES completion:0];
 }
 - (void)importTapped {
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"导入素材" message:@"选择来源" preferredStyle:0];
