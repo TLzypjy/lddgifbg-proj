@@ -1118,23 +1118,12 @@ static void LDDIslandLayout(id self) {
     id subs = ((id(*)(id, SEL))objc_msgSend)(self, sel_registerName("subviews"));
     id firstSub = subs ? ((id(*)(id, SEL))objc_msgSend)(subs, sel_registerName("firstObject")) : nil;
     if (firstSub != view) [self insertSubview:view atIndex:0];
-    // 1.9.168: 紧凑横条(如直播 167x37)背景透出方案 —— 不置顶(避免盖住系统图标),
-    // 而是把同层系统内容视图的黑底透明化: GIF 背景从黑底下透出铺满, 汉堡/信号图标图案保留浮在背景上
+    // 1.9.169: 紧凑横条(如直播 167x37)背景置顶铺满(安全方案)
+    // 168 的"系统视图黑底透明化"在系统动画中修改系统视图导致 EXC_BAD_ACCESS, 已回滚
+    // 本版只操作自有背景视图: 紧凑态加到顶层(幂等), 展开态保持底层(通知内容在背景之上)
     if (b.h < 65.0) {
-        id supX = [selfv superview];
-        if (supX) {
-            id subsX = ((id(*)(id, SEL))objc_msgSend)(supX, sel_registerName("subviews"));
-            if (subsX) {
-                long n = (long)((id(*)(id, SEL))objc_msgSend)(subsX, sel_registerName("count"));
-                for (long ix = 0; ix < n; ix++) {
-                    id v = ((id(*)(id, SEL, long))objc_msgSend)(subsX, sel_registerName("objectAtIndex:"), ix);
-                    if (v && v != self && v != view) {
-                        id cc = ((id(*)(id, SEL))objc_msgSend)(objc_getClass("UIColor"), sel_registerName("clearColor"));
-                        ((void(*)(id, SEL, id))objc_msgSend)(v, sel_registerName("setBackgroundColor:"), cc);
-                    }
-                }
-            }
-        }
+        id vsup = ((id(*)(id, SEL))objc_msgSend)(view, sel_registerName("superview"));
+        if (vsup != self) [self addSubview:view];
     }
     objc_autoreleasePoolPop(pool);
     } @catch (id e) { LogReason("LDD-LAYOUT-EXC", e); objc_autoreleasePoolPop(pool); }
