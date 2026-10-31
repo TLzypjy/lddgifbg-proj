@@ -992,9 +992,9 @@ static void LDDIslandLayout(id self) {
                 }
             }
             BOOL capAll = (cap || rpRec);
-            // 探针: 录屏状态命中情况(节流10次)
+            // 探针: 录屏状态命中情况(节流40次), 用于确认用户录屏时 isCaptured 是否生效
             static int caplog = 0;
-            if (caplog < 10) {
+            if (caplog < 40) {
                 caplog++;
                 char cl[64];
                 snprintf(cl, sizeof(cl), "CAP-DETECT-%d-rp%d-w%.0f-h%.0f", cap ? 1 : 0, rpRec ? 1 : 0, b0.w, b0.h);
@@ -1004,21 +1004,25 @@ static void LDDIslandLayout(id self) {
                 show = YES;                       // 通知展开/横幅: 不受小岛开关控制, 始终显示
             } else {
                 double nowT = CFAbsoluteTimeGetCurrent();
-                BOOL nActive = (gNotifActive && (nowT - gNotifTs) < 12.0);   // 通知活跃: 横幅未关闭且12秒硬窗口
+                BOOL nActive = (gNotifActive && (nowT - gNotifTs) < 30.0);   // 通知活跃: 横幅未关闭且30秒硬窗口
                 if (nActive && b0.w < 150.0) {
                     show = YES;                   // 通知收起态(129x38窄条): 横幅活跃期间常显
                 } else if (nActive && b0.w >= 250.0 && b0.h >= 40.0) {
                     show = YES;                   // 通知重新弹出动画中间态(403x44等): 横幅活跃期间常显
+                } else if (capAll && b0.w < 150.0) {
+                    show = YES;                   // 录屏收起窄条(129x38等): 录屏中不受小岛开关控制
+                    static int reclog = 0;
+                    if (reclog < 8) { reclog++; char rb[96]; snprintf(rb, sizeof(rb), "REC-CAPTURED-ON-w%.0f-h%.0f", b0.w, b0.h); ProbeWrite(rb); }
                 } else if (capAll && ((b0.w >= 170.0 && b0.w < 250.0) || b0.w >= 340.0)) {
                     show = YES;                   // 录屏横条: TrollOpen 176x37(170-250带) / 控制中心 345x38(>=340带)
-                    static int reclog = 0;
-                    if (reclog < 8) { reclog++; ProbeWrite("REC-CAPTURED-ON"); }
+                    static int reclog2 = 0;
+                    if (reclog2 < 8) { reclog2++; char rb[96]; snprintf(rb, sizeof(rb), "REC-CAPTURED-ON-w%.0f-h%.0f", b0.w, b0.h); ProbeWrite(rb); }
                 }
             }
         }
     }
     static int slog2 = 0;
-    if (slog2 < 20) {
+    if (slog2 < 40) {
         slog2++;
         char sb[96];
         snprintf(sb, sizeof(sb), "SHOW-%d h=%.0f w=%.0f", show ? 1 : 0, jr.h, jr.w);
@@ -1644,6 +1648,9 @@ static void PostRealNotification(void) {
                 ((void(*)(id, SEL, id))objc_msgSend)(layer, sPost, req);
                 ProbeWrite("RN-PRES-SENT");
                 gActiveReq = req;
+                // 1.9.183: 预览通知呈现成功 -> 通知活跃生命周期绑定 RN 流程 (返回桌面收起/重弹全程显示, 不依赖 BND init)
+                gNotifTs = CFAbsoluteTimeGetCurrent();
+                gNotifActive = YES;
                 // 1.9.163: 预览通知弹出时视频从头播放 (seek 0, 合法 CMTime)
                 if (gPlayer && gPlayerItem) {
                     typedef id (*Fn)(id, SEL, struct CMTimeRaw);
