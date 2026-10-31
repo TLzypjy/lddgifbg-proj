@@ -744,8 +744,8 @@ static void LogReason(const char *tag, id e) {
     @try {
         id r = ((id(*)(id, SEL))objc_msgSend)(e, sel_registerName("reason"));
         const char *c = r ? ((const char *(*)(id, SEL))objc_msgSend)(r, sel_registerName("UTF8String")) : 0;
-        char buf[300]; snprintf(buf, sizeof(buf), "%s: %.220s", tag, c ? c : "?"); 
-    } @catch (id e2) {  }
+        char buf[300]; snprintf(buf, sizeof(buf), "%s: %.220s", tag, c ? c : "?"); ProbeWrite(buf);
+    } @catch (id e2) { ProbeWrite(tag); }
 }
 
 // ---------- 捕获横幅呈现层 (hook SBNotificationBannerDestination init) ----------
