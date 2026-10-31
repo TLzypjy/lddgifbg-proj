@@ -158,6 +158,7 @@ static void PreviewAutoClose(void);
 @interface UIScreen : NSObject
 + (id)mainScreen;
 - (CGRect)bounds;
+- (BOOL)isCaptured;
 @end
 
 
@@ -949,11 +950,20 @@ static void LDDIslandLayout(id self) {
     BOOL mainOn = cEnabled;
     BOOL show = NO;
     if (mainOn) {
-        CGRect b0 = [self bounds];
-        if (cZxh) show = YES;          // 小岛开: 常显
-        // 1.9.166: 阈值 65->37 —— 直播等紧凑横条(167x37) 在"小岛关"时也显示背景并铺满
-        // 1.9.175: 增加宽度>=150 —— 直播横条(167/164宽)保留背景, 小岛收起态(129/125宽)在"小岛关"时不再点亮, 使"启用小岛"开关真正生效
-        else if (b0.h >= 37.0 && b0.w >= 150.0) show = YES;
+        // 1.9.176: 小岛开关语义 —— 仅"启用小岛"开启时显示背景(放歌/直播/通知等所有岛场景), 关闭则一律不显示
+        if (cZxh) {
+            show = YES;
+        } else {
+            // 1.9.176: 录屏状态(UIScreen.isCaptured)常显背景, 不受小岛开关影响
+            id scr = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIScreen"), sel_registerName("mainScreen"));
+            BOOL cap = NO;
+            if (scr) cap = ((BOOL(*)(id, SEL))objc_msgSend)(scr, sel_registerName("isCaptured"));
+            if (cap) {
+                show = YES;
+                static int reclog = 0;
+                if (reclog < 8) { reclog++; ProbeWrite("REC-CAPTURED-ON"); }
+            }
+        }
     }
     static int slog2 = 0;
     if (slog2 < 20) {
