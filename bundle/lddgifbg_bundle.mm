@@ -1089,6 +1089,8 @@ static void LDDPreviewSize(double bw, double *piw, double *pih) {
 - (double)tableView:(id)tv estimatedHeightForRowAtIndexPath:(id)ip { return 60.0; }
 - (double)tableView:(id)tv heightForHeaderInSection:(NSInteger)s { return 0.0; }
 - (double)tableView:(id)tv heightForFooterInSection:(NSInteger)s { return 96.0; }
+// 1.1: 阻断 PSListController 私有 titleAlignmentForFooterInSection (内部 objectAtIndex 越界 → NSRangeException → 设置闪退)
+- (NSInteger)tableView:(id)tv titleAlignmentForFooterInSection:(NSInteger)s { return 0; }
 - (id)tableView:(id)tv viewForHeaderInSection:(NSInteger)s { return nil; }
 // 1.9.185: 底部三行版权 footer (作者/版本号/越狱源), 越狱源点击复制
 - (id)tableView:(id)tv viewForFooterInSection:(NSInteger)s {
