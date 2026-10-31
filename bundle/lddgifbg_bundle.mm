@@ -1109,6 +1109,7 @@ static void LDDPreviewSize(double bw, double *piw, double *pih) {
     [l1 setFont:[UIFont systemFontOfSize:13.0]];
     [l1 setTextColor:[UIColor colorWithWhite:0.35 alpha:1.0]];
     [l1 setTextAlignment:1];
+    [l1 setAutoresizingMask:98];
     [fv addSubview:l1];
     UILabel *l2 = [[UILabel alloc] initWithFrame:MakeRect(0, 36, sw, 18)];
     NSString *ver = [[NSBundle bundleForClass:(Class)objc_msgSend((id)self, sel_registerName("class"))] objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
@@ -1117,6 +1118,7 @@ static void LDDPreviewSize(double bw, double *piw, double *pih) {
     [l2 setFont:[UIFont systemFontOfSize:11.0]];
     [l2 setTextColor:[UIColor colorWithWhite:0.5 alpha:1.0]];
     [l2 setTextAlignment:1];
+    [l2 setAutoresizingMask:98];
     [fv addSubview:l2];
     UILabel *l3 = [[UILabel alloc] initWithFrame:MakeRect(0, 60, sw, 18)];
     [l3 setText:@"越狱源：https://tlzypjy.github.io/jb-repo/"];
@@ -1124,6 +1126,7 @@ static void LDDPreviewSize(double bw, double *piw, double *pih) {
     [l3 setTextColor:[UIColor colorWithRed:0.0 green:0.45 blue:1.0 alpha:1.0]];
     [l3 setUserInteractionEnabled:YES];
     [l3 setTextAlignment:1];
+    [l3 setAutoresizingMask:98];
     UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(footerCopyTapped:)];
     [l3 addGestureRecognizer:tap];
     [fv addSubview:l3];
