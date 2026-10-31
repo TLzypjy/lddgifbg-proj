@@ -1099,36 +1099,31 @@ static void LDDPreviewSize(double bw, double *piw, double *pih) {
 - (id)tableView:(id)tv viewForHeaderInSection:(NSInteger)s { return nil; }
 // 1.9.185: 底部三行版权 footer (作者/版本号/越狱源), 越狱源点击复制
 - (id)tableView:(id)tv viewForFooterInSection:(NSInteger)s {
-    // 1.3: 屏幕宽 + sizeToFit 手动居中 (不依赖 tableView bounds), 版本号动态读取 bundle
-    CGRect sb = [[UIScreen mainScreen] bounds];
-    double sw = sb.w; if (sw < 100) sw = 390;
+    // 1.4: 全宽 label + textAlignment 居中 (与容器宽度无关, 不会偏), 字号改小
+    CGRect tb = ((CGRect(*)(id, SEL))objc_msgSend)(tv, sel_registerName("bounds"));
+    double sw = tb.w;
+    if (sw < 100) { CGRect sbb = [[UIScreen mainScreen] bounds]; sw = sbb.w; }
     UIView *fv = [[UIView alloc] initWithFrame:MakeRect(0, 0, sw, 96)];
-    UILabel *l1 = [[UILabel alloc] initWithFrame:MakeRect(0, 8, sw, 24)];
+    UILabel *l1 = [[UILabel alloc] initWithFrame:MakeRect(0, 10, sw, 20)];
     [l1 setText:@"作者：TL"];
-    [l1 setFont:[UIFont systemFontOfSize:17.0]];
+    [l1 setFont:[UIFont systemFontOfSize:13.0]];
     [l1 setTextColor:[UIColor colorWithWhite:0.35 alpha:1.0]];
-    [l1 sizeToFit];
-    CGRect f1 = [l1 frame];
-    [l1 setFrame:MakeRect((sw - f1.w) / 2.0, 8, f1.w, f1.h)];
+    [l1 setTextAlignment:1];
     [fv addSubview:l1];
-    UILabel *l2 = [[UILabel alloc] initWithFrame:MakeRect(0, 36, sw, 20)];
+    UILabel *l2 = [[UILabel alloc] initWithFrame:MakeRect(0, 36, sw, 18)];
     NSString *ver = [[NSBundle bundleForClass:(Class)objc_msgSend((id)self, sel_registerName("class"))] objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
     if (!ver || [ver length] == 0) ver = @"1.0";
     [l2 setText:[NSString stringWithFormat:@"版本号：%@", ver]];
-    [l2 setFont:[UIFont systemFontOfSize:13.0]];
+    [l2 setFont:[UIFont systemFontOfSize:11.0]];
     [l2 setTextColor:[UIColor colorWithWhite:0.5 alpha:1.0]];
-    [l2 sizeToFit];
-    CGRect f2 = [l2 frame];
-    [l2 setFrame:MakeRect((sw - f2.w) / 2.0, 36, f2.w, f2.h)];
+    [l2 setTextAlignment:1];
     [fv addSubview:l2];
-    UILabel *l3 = [[UILabel alloc] initWithFrame:MakeRect(0, 60, sw, 24)];
+    UILabel *l3 = [[UILabel alloc] initWithFrame:MakeRect(0, 60, sw, 18)];
     [l3 setText:@"越狱源：https://tlzypjy.github.io/jb-repo/"];
-    [l3 setFont:[UIFont systemFontOfSize:12.0]];
+    [l3 setFont:[UIFont systemFontOfSize:10.0]];
     [l3 setTextColor:[UIColor colorWithRed:0.0 green:0.45 blue:1.0 alpha:1.0]];
     [l3 setUserInteractionEnabled:YES];
-    [l3 sizeToFit];
-    CGRect f3 = [l3 frame];
-    [l3 setFrame:MakeRect((sw - f3.w) / 2.0, 60, f3.w, f3.h)];
+    [l3 setTextAlignment:1];
     UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(footerCopyTapped:)];
     [l3 addGestureRecognizer:tap];
     [fv addSubview:l3];
