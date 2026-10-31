@@ -1045,8 +1045,8 @@ static id LDDListMaterialFolders(void) {
 }
 - (NSInteger)numberOfSectionsInTableView:(id)tv { return 1; }
 // 1.9.140: 行数 10 (0/1开关 2预览 3水平偏移 4垂直偏移 5速度 6选素材 7跳转 8预览通知 9注销)
-// 1.9.174: 行数 12 (新增 10版本 11作者)
-- (NSInteger)tableView:(id)tv numberOfRowsInSection:(NSInteger)s { return 12; }
+// 1.9.184: 行数 10 (版本/作者 移除, 改底部居中版权 footer)
+- (NSInteger)tableView:(id)tv numberOfRowsInSection:(NSInteger)s { return 10; }
 // 1.9.156: 输入框预填值去小数 (偏移=整数, 速度=去尾零保留1位)
 static NSString *LDDInputNum(double v, BOOL isSpeed) {
     if (!isSpeed) return [NSString stringWithFormat:@"%.0f", v];
@@ -1080,9 +1080,26 @@ static void LDDPreviewSize(double bw, double *piw, double *pih) {
 }
 - (double)tableView:(id)tv estimatedHeightForRowAtIndexPath:(id)ip { return 60.0; }
 - (double)tableView:(id)tv heightForHeaderInSection:(NSInteger)s { return 0.0; }
-- (double)tableView:(id)tv heightForFooterInSection:(NSInteger)s { return 0.0; }
+- (double)tableView:(id)tv heightForFooterInSection:(NSInteger)s { return 70.0; }
 - (id)tableView:(id)tv viewForHeaderInSection:(NSInteger)s { return nil; }
-- (id)tableView:(id)tv viewForFooterInSection:(NSInteger)s { return nil; }
+// 1.9.184: 底部居中版权 footer (仿"灵动岛动画"插件底部: 2025 © 作者 / 副行)
+- (id)tableView:(id)tv viewForFooterInSection:(NSInteger)s {
+    CGRect tb = ((CGRect(*)(id, SEL))objc_msgSend)((id)tv, sel_registerName("bounds"));
+    UIView *fv = [[UIView alloc] initWithFrame:MakeRect(0, 0, tb.w, 70)];
+    UILabel *l1 = [[UILabel alloc] initWithFrame:MakeRect(0, 10, tb.w, 24)];
+    [l1 setText:@"2025 © TL"];
+    [l1 setTextAlignment:1];
+    [l1 setFont:[UIFont systemFontOfSize:17.0]];
+    [l1 setTextColor:[UIColor colorWithWhite:0.35 alpha:1.0]];
+    [fv addSubview:l1];
+    UILabel *l2 = [[UILabel alloc] initWithFrame:MakeRect(0, 38, tb.w, 20)];
+    [l2 setText:@"版本 1.9.184"];
+    [l2 setTextAlignment:1];
+    [l2 setFont:[UIFont systemFontOfSize:13.0]];
+    [l2 setTextColor:[UIColor colorWithWhite:0.5 alpha:1.0]];
+    [fv addSubview:l2];
+    return fv;
+}
 - (id)tableView:(id)tv titleForHeaderInSection:(NSInteger)s { return @""; }
 - (id)tableView:(id)tv titleForFooterInSection:(NSInteger)s { return @""; }
 - (id)tableView:(id)tv cellForRowAtIndexPath:(id)ip {
@@ -1233,21 +1250,6 @@ static void LDDPreviewSize(double bw, double *piw, double *pih) {
         UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(valTapped:)];
         [vl addGestureRecognizer:tap];
         [[cell contentView] addSubview:vl];
-    } else if (row == 10 || row == 11) {
-        // 1.9.174: 底部 版本/作者 (仿 cc播放器设置页, 左标题右灰色值)
-        NSString *t = (row == 10 ? @"版本" : @"作者");
-        NSString *v = (row == 10 ? @"1.9.183" : @"TL");
-        UILabel *label = [[UILabel alloc] initWithFrame:MakeRect(16, 19, b.w / 2.0, 22)];
-        [label setText:t];
-        [label setFont:[UIFont systemFontOfSize:16.0]];
-        [[cell contentView] addSubview:label];
-        UILabel *vl = [[UILabel alloc] initWithFrame:MakeRect(b.w / 2.0, 19, b.w / 2.0 - 16, 22)];
-        [vl setText:v];
-        [vl setTextAlignment:2];
-        [vl setFont:[UIFont systemFontOfSize:16.0]];
-        [vl setTextColor:[UIColor colorWithWhite:0.5 alpha:1.0]];
-        [[cell contentView] addSubview:vl];
-        [cell setSelectionStyle:0];
     } else {
         NSString *t = (row == 6 ? @"选择素材" : (row == 7 ? @"跳转素材目录" : (row == 8 ? @"预览通知" : @"立即注销")));
         UILabel *label = [[UILabel alloc] initWithFrame:MakeRect(16, 19, b.w - 60, 22)];
@@ -1262,7 +1264,7 @@ static void LDDPreviewSize(double bw, double *piw, double *pih) {
 - (void)tableView:(id)tv didSelectRowAtIndexPath:(id)ip {
     NSInteger row = [ip row];
     [(UITableView *)tv deselectRowAtIndexPath:ip animated:YES];
-    // 1.9.140: 行号与 UI 同步 (0/1开关 2预览 3水平偏移 4垂直偏移 5速度 6选素材 7跳转 8预览通知 9注销 10版本 11作者)
+    // 1.9.184: 行号与 UI 同步 (0/1开关 2预览 3水平偏移 4垂直偏移 5速度 6选素材 7跳转 8预览通知 9注销)
     if (row == 6) {
         LDDMaterialPickerController *pc = [[LDDMaterialPickerController alloc] init];
         UINavigationController *nav = [[UINavigationController alloc] initWithRootViewController:pc];

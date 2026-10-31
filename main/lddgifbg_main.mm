@@ -975,31 +975,38 @@ static void LDDIslandLayout(id self) {
                 }
             }
             jr = b0;
-            // 录屏检测: UIScreen isCaptured + RPScreenRecorder isRecording/isCapturePending (troll open 菜单栏录屏不触发 isCaptured)
-            id scr = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIScreen"), sel_registerName("mainScreen"));
-            BOOL cap = NO;
-            if (scr) cap = ((BOOL(*)(id, SEL))objc_msgSend)(scr, sel_registerName("isCaptured"));
-            BOOL rpRec = NO;
-            id rpCls = (id)objc_getClass("RPScreenRecorder");
-            if (rpCls) {
-                id sr = ((id(*)(id, SEL))objc_msgSend)(rpCls, sel_registerName("sharedRecorder"));
-                if (sr) {
-                    SEL sRec = sel_registerName("isRecording");
-                    if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(sr, sel_registerName("respondsToSelector:"), sRec)) {
-                        rpRec = ((BOOL(*)(id, SEL))objc_msgSend)(sr, sRec);
+            // 录屏检测 0.3s 节流 (1.9.184): isCaptured/isRecording 每帧 msgSend 有系统查询开销,
+            // 录屏状态不会在 0.3s 内突变, 缓存瞬时值足够; 探针只在重算窗口打印(40次=12s覆盖)
+            static double gCapT = -10.0;
+            static BOOL gCapC = NO;
+            static BOOL gCapR = NO;
+            double capNow = CFAbsoluteTimeGetCurrent();
+            if (capNow - gCapT >= 0.3) {
+                gCapT = capNow;
+                id scr = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIScreen"), sel_registerName("mainScreen"));
+                BOOL cap = NO;
+                if (scr) cap = ((BOOL(*)(id, SEL))objc_msgSend)(scr, sel_registerName("isCaptured"));
+                BOOL rpRec = NO;
+                id rpCls = (id)objc_getClass("RPScreenRecorder");
+                if (rpCls) {
+                    id sr = ((id(*)(id, SEL))objc_msgSend)(rpCls, sel_registerName("sharedRecorder"));
+                    if (sr) {
+                        SEL sRec = sel_registerName("isRecording");
+                        if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(sr, sel_registerName("respondsToSelector:"), sRec)) {
+                            rpRec = ((BOOL(*)(id, SEL))objc_msgSend)(sr, sRec);
+                        }
                     }
-                    // 1.9.182: 不再调用 isCapturePending —— iOS 16 无此 selector, 每帧抛异常中断判定(非录屏时通知背景被清)
+                }
+                gCapC = cap; gCapR = rpRec;
+                static int caplog = 0;
+                if (caplog < 40) {
+                    caplog++;
+                    char cl[64];
+                    snprintf(cl, sizeof(cl), "CAP-DETECT-%d-rp%d-w%.0f-h%.0f", cap ? 1 : 0, rpRec ? 1 : 0, b0.w, b0.h);
+                    ProbeWrite(cl);
                 }
             }
-            BOOL capAll = (cap || rpRec);
-            // 探针: 录屏状态命中情况(节流40次), 用于确认用户录屏时 isCaptured 是否生效
-            static int caplog = 0;
-            if (caplog < 40) {
-                caplog++;
-                char cl[64];
-                snprintf(cl, sizeof(cl), "CAP-DETECT-%d-rp%d-w%.0f-h%.0f", cap ? 1 : 0, rpRec ? 1 : 0, b0.w, b0.h);
-                ProbeWrite(cl);
-            }
+            BOOL capAll = (gCapC || gCapR);
             if (b0.h >= 52.0) {
                 show = YES;                       // 通知展开/横幅: 不受小岛开关控制, 始终显示
             } else {
@@ -1030,7 +1037,11 @@ static void LDDIslandLayout(id self) {
     }
     if (!show) {
         // 1.9.166: 节流 —— 仅"仍有内容/视频层挂着"才清理一次, 避免直播横条(167x37)每帧重复空清理拖卡
-        UIImageView *oldV = (UIImageView *)[self viewWithTag:9999];
+        // 1.9.184: 清理用缓存视图 (避免每帧 viewWithTag 递归遍历子视图树); 缓存失效(不在视图树)才回退递归查找
+        UIImageView *oldV = gContainerView;
+        if (!oldV || ((id(*)(id, SEL))objc_msgSend)(oldV, sel_registerName("superview")) == 0) {
+            oldV = (UIImageView *)[self viewWithTag:9999];
+        }
         BOOL dirty = NO;
         if (oldV) {
             id img = ((id(*)(id, SEL))objc_msgSend)(oldV, sel_registerName("image"));
