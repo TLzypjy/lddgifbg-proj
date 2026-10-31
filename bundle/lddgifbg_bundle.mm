@@ -382,7 +382,6 @@ extern "C" void UIGraphicsEndImageContext(void);
 @interface NSTimer : NSObject
 + (id)scheduledTimerWithTimeInterval:(double)t target:(id)target selector:(SEL)s userInfo:(id)info repeats:(BOOL)r;
 - (id)userInfo;
-@end
 - (void)invalidate;
 @end
 @interface CALayer : NSObject
