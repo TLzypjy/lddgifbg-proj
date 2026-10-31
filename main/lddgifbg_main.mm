@@ -133,6 +133,7 @@ typedef struct CGRect { double ox, oy, w, h; } CGRect;
 static void LogReason(const char *tag, id e);
 static void CheckForcePreviewTick(void);
 static void PostRealNotification(void);
+static void ProbeWrite(const char *line);
 // 1.9.133: 播放速度 (GIF 定时器间隔 / AVPlayer rate 共用)
 static double cSpeed = 1.0;
 static double gLastAppliedSpeed = 1.0;
@@ -369,12 +370,12 @@ static void ApplyPos(void) {
     double fx = (cb.w - cf.w) / 2.0 + tx;
     double fy = (cb.h - cf.h) / 2.0 + ty;
     [gContentView setFrame:MakeRect(fx, fy, cf.w, cf.h)];
-    { static int pg = 0; if (pg < 20) { pg++; char al[128]; snprintf(al, sizeof(al), "POS-APPLY %.0f %.0f (max %.0f %.0f) f=%.0f,%.0f", tx, ty, maxTx, maxTy, fx, fy);  } }
+    { static int pg = 0; if (pg < 20) { pg++; char al[128]; snprintf(al, sizeof(al), "POS-APPLY %.0f %.0f (max %.0f %.0f) f=%.0f,%.0f", tx, ty, maxTx, maxTy, fx, fy); ProbeWrite(al); } }
 }
 
 
 // ---------- 注入自检探针: 证明 dylib 已加载 / hook 已触发 ----------
-static void  {
+static void ProbeWrite(const char *line) {
     FILE *f = fopen("/var/mobile/lddgifbg/__plugin_probe__.txt", "a");
     if (f) { fprintf(f, "%s\n", line); fclose(f); }
 }
@@ -395,7 +396,7 @@ static NSString *GetSelectedImagePath(void) {
         if ([ext isEqualToString:gGifExt]) {
             const char *nc = name ? ((const char *(*)(id, SEL))objc_msgSend)(name, sel_registerName("UTF8String")) : "?";
             const char *fc = f ? ((const char *(*)(id, SEL))objc_msgSend)(f, sel_registerName("UTF8String")) : "?";
-            char ml[192]; snprintf(ml, sizeof(ml), "MAT-PICK-GIF %s/%s", nc, fc); 
+            char ml[192]; snprintf(ml, sizeof(ml), "MAT-PICK-GIF %s/%s", nc, fc); ProbeWrite(ml);
             return [folder stringByAppendingPathComponent:f];
         }
         if ([ext isEqualToString:gVideoExtMp4] || [ext isEqualToString:gVideoExtMov]) {
@@ -407,7 +408,7 @@ static NSString *GetSelectedImagePath(void) {
     }
     if (videoPick) {
         const char *vc = ((const char *(*)(id, SEL))objc_msgSend)(videoPick, sel_registerName("UTF8String"));
-        char ml[192]; snprintf(ml, sizeof(ml), "MAT-PICK-VIDEO %s", vc); 
+        char ml[192]; snprintf(ml, sizeof(ml), "MAT-PICK-VIDEO %s", vc); ProbeWrite(ml);
     }
     return videoPick ? videoPick : imgPick;
 }
@@ -438,7 +439,7 @@ static void StreamPause(void) {
     // 只停 timer, 保留素材/帧状态 -> 岛再次展开时走最稳的续播路径
     if (gStreamTimer) {
         static int plog = 0;
-        if (plog < 8) { plog++;  }
+        if (plog < 8) { plog++; ProbeWrite("STREAM-PAUSE"); }
         [gStreamTimer invalidate]; gStreamTimer = nil;
     }
 }static void StreamStop(void) {
@@ -464,7 +465,7 @@ static UIImage *StreamCacheGet(int frameIdx) {
 static void StreamAdvance(void) {
     if (!gStreamSrc || gStreamCount == 0) { StreamStop(); return; }
     static int tlog = 0;
-    if (tlog < 5) { tlog++; char tb[64]; snprintf(tb, sizeof(tb), "STREAM-TICK %lu", (unsigned long)gStreamIdx);  }
+    if (tlog < 5) { tlog++; char tb[64]; snprintf(tb, sizeof(tb), "STREAM-TICK %lu", (unsigned long)gStreamIdx); ProbeWrite(tb); }
     gStreamIdx = (gStreamIdx + 1) % gStreamCount;
     if ((int)gStreamIdx != gStreamFrameCacheIdx) {
         gStreamCur = StreamCacheGet((int)gStreamIdx);
@@ -505,20 +506,20 @@ static void StreamRestartTimer(void) {
     id rl = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("NSRunLoop"), sel_registerName("mainRunLoop"));
     if (rl) ((void(*)(id, SEL, id, id))objc_msgSend)(rl, sel_registerName("addTimer:forMode:"), gStreamTimer, @"kCFRunLoopCommonModes");
     static int rlog2 = 0;
-    if (rlog2 < 8) { rlog2++;  }
+    if (rlog2 < 8) { rlog2++; ProbeWrite("STREAM-RESTART"); }
 }
 static void LoadGIFWithPathIntoImageView(NSString *path, UIImageView *iv) {
     if (!path || !iv) return;
     if (gStreamPath && [gStreamPath isEqualToString:path] && gStreamSrc) {
         // 同素材续播 (隐藏时 timer 已停); 布局高频时仅 timer 停止才恢复, 避免反复重启卡帧
         static int rlog = 0;
-        if (rlog < 10) { rlog++;  }
+        if (rlog < 10) { rlog++; ProbeWrite("STREAM-RESUME"); }
         gStreamIV = iv;
         if (gStreamCur) [iv setImage:gStreamCur];
         if (!gStreamTimer) StreamRestartTimer();
         return;
     }
-    
+    ProbeWrite("STREAM-RELOAD");
     StreamStop();
     NSData *data = [NSData dataWithContentsOfFile:path];
     if (!data) return;
@@ -554,7 +555,7 @@ static void LoadGIFWithPathIntoImageView(NSString *path, UIImageView *iv) {
     if (img0) {
         CGSize isz = ((CGSize(*)(id, SEL))objc_msgSend)(img0, sel_registerName("size"));
         if (isz.width > 1 && isz.height > 1) { gMediaW = isz.width; gMediaH = isz.height; }
-        { static int ms1 = 0; if (ms1 < 2) { ms1++; char ml[80]; snprintf(ml, sizeof(ml), "MEDIA-SIZE-GIF %.0fx%.0f", gMediaW, gMediaH);  } }
+        { static int ms1 = 0; if (ms1 < 2) { ms1++; char ml[80]; snprintf(ml, sizeof(ml), "MEDIA-SIZE-GIF %.0fx%.0f", gMediaW, gMediaH); ProbeWrite(ml); } }
     }
     gStreamSrc = src;
     gStreamDelays = delays;
@@ -569,7 +570,7 @@ static void LoadGIFWithPathIntoImageView(NSString *path, UIImageView *iv) {
     if (img0) StreamCachePut(img0, 0);
     StreamRestartTimer();
     static int slog = 0;
-    if (slog < 3) { slog++; char lb[96]; snprintf(lb, sizeof(lb), "STREAM-START %lu", (unsigned long)count);  }
+    if (slog < 3) { slog++; char lb[96]; snprintf(lb, sizeof(lb), "STREAM-START %lu", (unsigned long)count); ProbeWrite(lb); }
 }
 
 // ---------- 视频载入 ----------
@@ -614,7 +615,7 @@ static void LoadVideoWithPathIntoView(NSString *path, UIView *view) {
     // 1.9.139: 记录视频原始尺寸 (presentationSize 可能延迟就绪, 应用前再补查)
     CGSize psz = ((CGSize(*)(id, SEL))objc_msgSend)(gPlayerItem, sel_registerName("presentationSize"));
     if (psz.width > 1 && psz.height > 1) { gMediaW = psz.width; gMediaH = psz.height; }
-    { static int ms2 = 0; if (ms2 < 2) { ms2++; char ml[80]; snprintf(ml, sizeof(ml), "MEDIA-SIZE-VIDEO %.0fx%.0f", gMediaW, gMediaH);  } }
+    { static int ms2 = 0; if (ms2 < 2) { ms2++; char ml[80]; snprintf(ml, sizeof(ml), "MEDIA-SIZE-VIDEO %.0fx%.0f", gMediaW, gMediaH); ProbeWrite(ml); } }
     // 1.9.133: 视频按设定速度播放 (play 会重置 rate, 故直接用 setRate)
     // 1.9.160: AVPlayer rate 上限 2.0 (超 2.0 抛 NSInvalidArgumentException 崩 SpringBoard)
     double sp2 = cSpeed; if (sp2 <= 0.05 || sp2 > 2.0) sp2 = 2.0;
@@ -629,7 +630,7 @@ static void StopVideo(void) {
 static void LoadMediaWithPathIntoImageView(NSString *path, UIImageView *iv) {
     NSString *ext = [[path pathExtension] lowercaseString];
     const char *ec = ext ? ((const char *(*)(id, SEL))objc_msgSend)(ext, sel_registerName("UTF8String")) : "nil";
-    { char ml[192]; snprintf(ml, sizeof(ml), "LOAD-MEDIA %s", ec);  }
+    { char ml[192]; snprintf(ml, sizeof(ml), "LOAD-MEDIA %s", ec); ProbeWrite(ml); }
     if ([ext isEqualToString:gGifExt]) {
         StopVideo();
         [iv setImage:nil];
@@ -721,11 +722,11 @@ static void RefreshPrefsCache(void) {
     // 1.9.133: 速度变化即时生效 —— GIF 重启定时器, 视频更新 rate
     if (gLastAppliedSpeed != cSpeed) {
         gLastAppliedSpeed = cSpeed;
-        if (gStreamSrc) { StreamRestartTimer();  }
+        if (gStreamSrc) { StreamRestartTimer(); ProbeWrite("SPEED-APPLY-GIF"); }
         if (gPlayer) {
             double vsp = cSpeed; if (vsp <= 0.05 || vsp > 2.0) vsp = 2.0;   // 1.9.160: rate 上限 2.0
             ((void(*)(id, SEL, float))objc_msgSend)(gPlayer, sel_registerName("setRate:"), (float)vsp);
-            
+            ProbeWrite("SPEED-APPLY-VIDEO");
         }
     }
     // 1.9.139: 偏移变化即时生效 (平移内容视图)
@@ -737,11 +738,6 @@ static void RefreshPrefsCache(void) {
 }
 
 
-
-static void ProbeWrite(const char *line) {
-    FILE *f = fopen("/var/mobile/lddgifbg/__plugin_probe__.txt", "a");
-    if (f) { fprintf(f, "%s\n", line); fclose(f); }
-}
 
 static void LogReason(const char *tag, id e) {
     @try {
@@ -756,7 +752,7 @@ static id gPresentLayer = nil;
 static id (*origBNDInit)(id, SEL);
 static id HookBNDInit(id self, SEL _c) {
     id r = origBNDInit(self, _c);
-    if (!gPresentLayer) { gPresentLayer = r;  }
+    if (!gPresentLayer) { gPresentLayer = r; ProbeWrite("BND-CAPTURED"); }
     return r;
 }
 // 运行时兜底: 从 dispatcher destinations / SB ivar 找呈现层
@@ -766,7 +762,7 @@ static void FindLayerConsider(id o, SEL sISL, SEL sPost, id *bestISL, id *bestPo
     if (cn) {
         char line[128];
         snprintf(line, sizeof(line), "PRES-CAND-%s", cn);
-        
+        ProbeWrite(line);
         if (strstr(cn, "BannerManager") || strstr(cn, "NotificationDispatcher")) {
             static int enl = 0;
             if (enl < 80) {
@@ -782,7 +778,7 @@ static void FindLayerConsider(id o, SEL sISL, SEL sPost, id *bestISL, id *bestPo
                         enl++;
                         char ml[192];
                         snprintf(ml, sizeof(ml), "PRES-%s-METHOD-%s", cn, mn);
-                        
+                        ProbeWrite(ml);
                     }
                 }
             }
@@ -800,7 +796,7 @@ static id FindPresentLayer(void) {
     SEL sPost = sel_registerName("postNotificationRequest:");
     // 路线1: NCNotificationDispatcher 的 destinations 集合
     id clsD = (id)objc_getClass("NCNotificationDispatcher");
-    if (clsD)  else 
+    if (clsD) ProbeWrite("PRES-DISP-CLS-YES"); else ProbeWrite("PRES-DISP-CLS-NO");
     id disp = nil;
     if (clsD) {
         const char *sels[] = {"sharedInstance", "defaultDispatcher", "sharedDispatcher",
@@ -813,12 +809,12 @@ static id FindPresentLayer(void) {
         }
     }
     if (disp) {
-        
+        ProbeWrite("PRES-DISP-OBJ-YES");
         unsigned int cnt = 0;
         void **ivars = (void **)class_copyIvarList((Class)clsD, &cnt);
         char dbg[192];
         snprintf(dbg, sizeof(dbg), "PRES-DISP-IVARS-%u", cnt);
-        
+        ProbeWrite(dbg);
         for (unsigned int i = 0; i < cnt; i++) {
             const char *nm = ivar_getName(ivars[i]);
             if (!nm) continue;
@@ -828,7 +824,7 @@ static id FindPresentLayer(void) {
                 {
                     char dn[192];
                     snprintf(dn, sizeof(dn), "PRES-DEST-COLL-%s", nm);
-                    
+                    ProbeWrite(dn);
                 }
                 id arr = nil;
                 SEL sAll = sel_registerName("allObjects");
@@ -839,7 +835,7 @@ static id FindPresentLayer(void) {
                 {
                     char cn[128];
                     snprintf(cn, sizeof(cn), "PRES-DEST-N-%lu", (unsigned long)n);
-                    
+                    ProbeWrite(cn);
                 }
                 for (NSUInteger k = 0; k < n; k++) {
                     id obj = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(arr, sel_registerName("objectAtIndex:"), k);
@@ -847,12 +843,12 @@ static id FindPresentLayer(void) {
                 }
             }
         }
-        if (bestISL) {  gPresentLayer = bestISL; return bestISL; }
-        if (bestPost) {  gPresentLayer = bestPost; return bestPost; }
+        if (bestISL) { ProbeWrite("PRES-CHOOSE-DEST-ISL"); gPresentLayer = bestISL; return bestISL; }
+        if (bestPost) { ProbeWrite("PRES-CHOOSE-DEST-POST"); gPresentLayer = bestPost; return bestPost; }
     }
     // 路线2: UIApplication(SpringBoard 实例) ivar 扫 —— iOS16.4 呈现层由 SpringBoard 持有
     id sb = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIApplication"), sel_registerName("sharedApplication"));
-    if (sb)  else 
+    if (sb) ProbeWrite("PRES-UIAPP-YES"); else ProbeWrite("PRES-UIAPP-NO");
     if (sb) {
         unsigned int cnt = 0;
         void **ivars = (void **)class_copyIvarList((Class)objc_getClass("SpringBoard"), &cnt);
@@ -863,7 +859,7 @@ static id FindPresentLayer(void) {
                 {
                     char ivn[192];
                     snprintf(ivn, sizeof(ivn), "PRES-SBIVAR-%s", nm);
-                    
+                    ProbeWrite(ivn);
                 }
                 id v = object_getIvar(sb, ivars[i]);
                 if (v) {
@@ -871,17 +867,17 @@ static id FindPresentLayer(void) {
                     if (vcn) {
                         char vn[192];
                         snprintf(vn, sizeof(vn), "PRES-SBIVAR-VAL-%s", vcn);
-                        
+                        ProbeWrite(vn);
                     }
                 }
                 FindLayerConsider(v, sISL, sPost, &bestISL, &bestPost);
             }
         }
-        if (bestISL) {  gPresentLayer = bestISL; return bestISL; }
-        if (bestPost) {  gPresentLayer = bestPost; return bestPost; }
+        if (bestISL) { ProbeWrite("PRES-CHOOSE-SB-ISL"); gPresentLayer = bestISL; return bestISL; }
+        if (bestPost) { ProbeWrite("PRES-CHOOSE-SB-POST"); gPresentLayer = bestPost; return bestPost; }
     }
     // 路线3: BND-CAPTURED 缓存兜底
-    if (gPresentLayer) {  return gPresentLayer; }
+    if (gPresentLayer) { ProbeWrite("PRES-BND-FALLBACK"); return gPresentLayer; }
     return nil;
 }
 
@@ -917,7 +913,7 @@ static void ShowBlock(id self, int colorIsRed) {
 // ---------- layoutSubviews hook ----------
 static void LDDIslandLayout(id self) {
     static int first = 0;
-    if (!first) { first = 1;  }
+    if (!first) { first = 1; ProbeWrite("ISLAND-LAYOUT-ENTERED"); }
     void *pool = objc_autoreleasePoolPush();
     // 1.9.161: 布局 hook 全程异常兜底 —— 任何 UIKit/私有 API 抛异常都被吞掉记录, 不再崩 SpringBoard
     @try {
@@ -927,12 +923,12 @@ static void LDDIslandLayout(id self) {
     const char *cn = object_getClassName(self);
     if (!cn || !strstr(cn, "ContainerViewContentView")) {
         static int skiplog = 0;
-        if (skiplog < 5) { skiplog++; char lb[96]; snprintf(lb, sizeof(lb), "LDD-SKIP-OTHER: %s", cn ? cn : "?");  }
+        if (skiplog < 5) { skiplog++; char lb[96]; snprintf(lb, sizeof(lb), "LDD-SKIP-OTHER: %s", cn ? cn : "?"); ProbeWrite(lb); }
         objc_autoreleasePoolPop(pool);
         return;
     }
     static int cvlog = 0;
-    if (cvlog < 3) { cvlog++; char lb[128]; snprintf(lb, sizeof(lb), "LDD-CONTENT-VIEW: %s", cn);  }
+    if (cvlog < 3) { cvlog++; char lb[128]; snprintf(lb, sizeof(lb), "LDD-CONTENT-VIEW: %s", cn); ProbeWrite(lb); }
     // 过滤: 只处理挂在真实窗口、且尺寸接近灵动岛的视图 (排除整屏容器)
     UIView *selfv = (UIView *)self;
     id win = [selfv window];
@@ -946,7 +942,7 @@ static void LDDIslandLayout(id self) {
         aclog++;
         char al[128];
         snprintf(al, sizeof(al), "ACCEPT-VIEW: %s %.0fx%.0f", object_getClassName(self), bb.w, bb.h);
-        
+        ProbeWrite(al);
     }
 
     RefreshPrefsCache();
@@ -963,7 +959,7 @@ static void LDDIslandLayout(id self) {
         slog2++;
         char sb[96];
         snprintf(sb, sizeof(sb), "SHOW-%d h=%.0f", show ? 1 : 0, bb.h);
-        
+        ProbeWrite(sb);
     }
     if (!show) {
         // 1.9.166: 节流 —— 仅"仍有内容/视频层挂着"才清理一次, 避免直播横条(167x37)每帧重复空清理拖卡
@@ -1148,7 +1144,7 @@ static void (*origCtrlLayout)(id, SEL);
 static void LDDIslandLayout(id self);
 static void CtrlLayoutHook(id self, SEL _cmd) {
     static int once = 0;
-    if (!once) { once = 1;  }
+    if (!once) { once = 1; ProbeWrite("CTRL-HOOK-FIRED"); }
     // 优化1: 尺寸快速过滤 (绝大多数视图整屏/极小, 直接跳过, 零消息开销之外的成本)
     CGRect bb = ((CGRect(*)(id, SEL))objc_msgSend)(self, sel_registerName("bounds"));
     if (bb.w > 460.0 || bb.h > 150.0 || bb.w < 40.0 || bb.h < 10.0) {
@@ -1177,7 +1173,7 @@ static void CtrlLayoutHook(id self, SEL _cmd) {
                         logged = 1;
                         char line[160];
                         snprintf(line, sizeof(line), "MATCH-CLASS: %s", cn);
-                        
+                        ProbeWrite(line);
                     }
                     LDDIslandLayout(self);
                 } else if (gSkipN < 64) {
@@ -1270,7 +1266,7 @@ static void LDDCloseFirstBanner(id req) {
                         strstr(mn, "Presentable")) {
                         char ml[320];
                         snprintf(ml, sizeof(ml), "CLOSE-METHOD-%s-%s", clsNames[i], mn);
-                        
+                        ProbeWrite(ml);
                     }
                 }
             }
@@ -1280,10 +1276,10 @@ static void LDDCloseFirstBanner(id req) {
         if (gPresentLayer) {
             SEL sW = sel_registerName("withdrawNotificationRequest:");
             if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(gPresentLayer, sel_registerName("respondsToSelector:"), sW)) {
-                
+                ProbeWrite("CLOSE-WITHDRAW-TRY");
                 @try {
                     ((void(*)(id, SEL, id))objc_msgSend)(gPresentLayer, sW, req);
-                    
+                    ProbeWrite("CLOSE-WITHDRAW-OK");
                     return;
                 } @catch (id e) { LogReason("CLOSE-WITHDRAW-EXC", e); }
             }
@@ -1292,10 +1288,10 @@ static void LDDCloseFirstBanner(id req) {
         if (gPresentLayer) {
             SEL sD = sel_registerName("_dismissPresentedBannerAnimated:reason:forceIfSticky:");
             if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(gPresentLayer, sel_registerName("respondsToSelector:"), sD)) {
-                
+                ProbeWrite("CLOSE-DISMISSBANNER-TRY");
                 @try {
                     ((void(*)(id, SEL, BOOL, id, BOOL))objc_msgSend)(gPresentLayer, sD, YES, @"ldd-autoclose", NO);
-                    
+                    ProbeWrite("CLOSE-DISMISSBANNER-OK");
                     return;
                 } @catch (id e) { LogReason("CLOSE-DISMISSBANNER-EXC", e); }
             }
@@ -1304,10 +1300,10 @@ static void LDDCloseFirstBanner(id req) {
         if (gPresentLayer) {
             SEL sO = sel_registerName("_dismissPresentedBannerOnly:reason:animated:");
             if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(gPresentLayer, sel_registerName("respondsToSelector:"), sO)) {
-                
+                ProbeWrite("CLOSE-DISMISSONLY-TRY");
                 @try {
                     ((void(*)(id, SEL, BOOL, id, BOOL))objc_msgSend)(gPresentLayer, sO, YES, @"ldd-autoclose", YES);
-                    
+                    ProbeWrite("CLOSE-DISMISSONLY-OK");
                     return;
                 } @catch (id e) { LogReason("CLOSE-DISMISSONLY-EXC", e); }
             }
@@ -1316,10 +1312,10 @@ static void LDDCloseFirstBanner(id req) {
         if (gPresentLayer) {
             SEL sR = sel_registerName("_revokeAllPresentablesWithRequesterIdentifier:reason:options:");
             if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(gPresentLayer, sel_registerName("respondsToSelector:"), sR)) {
-                
+                ProbeWrite("CLOSE-REVOKE-TRY");
                 @try {
                     ((void(*)(id, SEL, id, id, id))objc_msgSend)(gPresentLayer, sR, @"com.apple.MobileMail", @"ldd-autoclose", nil);
-                    
+                    ProbeWrite("CLOSE-REVOKE-OK");
                     return;
                 } @catch (id e) { LogReason("CLOSE-REVOKE-EXC", e); }
             }
@@ -1341,9 +1337,9 @@ static void LDDCloseAfter(id req) {
 static id gActiveReq = nil;
 static void PostRealNotification(void) {
     // 1.9.126: 去掉 1s 投递防抖 —— 点预览立即弹, 连点多次每次立即弹
-    
+    ProbeWrite("RN-START");
     // 1.9.128: 点新通知 -> 立即关闭当前正在显示的旧通知 (始终只显示最新一条)
-    if (gActiveReq) {  LDDCloseFirstBanner(gActiveReq); }
+    if (gActiveReq) { ProbeWrite("RN-CLOSE-PREV"); LDDCloseFirstBanner(gActiveReq); }
     @try {
         dlopen("/System/Library/Frameworks/UserNotifications.framework/UserNotifications", 2);
         dlopen("/System/Library/PrivateFrameworks/NotificationCenter.framework/NotificationCenter", 2);
@@ -1369,7 +1365,7 @@ static void PostRealNotification(void) {
             SEL sR = sel_registerName("requestWithIdentifier:content:trigger:");
             unreq = ((id(*)(id, SEL, id, id, id))objc_msgSend)(clsUNReq, sR, uid, content, trigger);
         }
-        if (unreq) 
+        if (unreq) ProbeWrite("RN-UN-BUILT");
 
         // === 2. NCNotificationRequest + ContentProvider ===
         // 修复思路: iOS16 的 initWithNotificationRequest: 内部会访问 UNNotificationRequest.sectionIdentifier,
@@ -1429,23 +1425,23 @@ static void PostRealNotification(void) {
                         class_addMethod((Class)clsUNR, sSel, (IMP)patches[i].imp, patches[i].types);
                     }
                 }
-                
+                ProbeWrite("RN-REQ-ADDSECTION");
                 // 万能转发兜底: 未预知的 UNNotificationRequest 私有 getter 不再抛异常
                 LDDInstallFwd(clsUNR);
             }
             id inst = ((id(*)(id, SEL))objc_msgSend)((id)clsReq, sel_registerName("alloc"));
-            
+            ProbeWrite(inst ? "RN-REQ-ALLOC-OK" : "RN-REQ-ALLOC-FAIL");
             // 2a. initWithNotificationRequest: (UN 层转系统层)。单独包 @try:
             // 该函数在 iOS16 内部会访问 UNNotificationRequest 的私有方法, 万一仍有缺失,
             // 异常在此捕获, 不中断后续 2b/2c 兜底。
             SEL sInitN = sel_registerName("initWithNotificationRequest:");
             @try {
                 if (inst && unreq && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(inst, sel_registerName("respondsToSelector:"), sInitN)) {
-                    
+                    ProbeWrite("RN-REQ-INITN-TRY");
                     req = ((id(*)(id, SEL, id))objc_msgSend)(inst, sInitN, unreq);
-                    if (req)  else 
+                    if (req) ProbeWrite("RN-REQ-INITN-OK"); else ProbeWrite("RN-REQ-INITN-NIL");
                 } else {
-                    
+                    ProbeWrite(inst ? (unreq ? "RN-REQ-NOINITN" : "RN-REQ-NOUNREQ") : "RN-REQ-NOALLOC");
                 }
             } @catch (id e) {
                 LogReason("RN-INITN-EXC", e);
@@ -1453,7 +1449,7 @@ static void PostRealNotification(void) {
             }
             // 2b. 兜底: alloc/init + setContentProvider
             if (!req && inst) {
-                
+                ProbeWrite("RN-REQ-FB-TRY");
                 req = ((id(*)(id, SEL))objc_msgSend)(inst, sel_registerName("init"));
                 id clsCP = (id)objc_getClass("NCNotificationRequestContentProvider");
                 if (req && clsCP) {
@@ -1464,22 +1460,22 @@ static void PostRealNotification(void) {
                     for (int i = 0; cpInits[i] && !cp; i++) {
                         SEL sCPI = sel_registerName(cpInits[i]);
                         if (cpinst && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(cpinst, sel_registerName("respondsToSelector:"), sCPI)) {
-                            
+                            ProbeWrite(i == 0 ? "RN-REQ-CP-IOI" : "RN-REQ-CP-ALT");
                             if (i == 0) cp = ((id(*)(id, SEL, id, id))objc_msgSend)(cpinst, sCPI, (unreq ? (id)unreq : (id)content), uid);
                             else if (i == 1) cp = ((id(*)(id, SEL, id))objc_msgSend)(cpinst, sCPI, unreq);
                             else cp = ((id(*)(id, SEL, id, id, id))objc_msgSend)(cpinst, sCPI, uid, content, trigger);
                         }
                     }
                     if (cp) {
-                        
+                        ProbeWrite("RN-REQ-CP-OK");
                         SEL sSetCP = sel_registerName("setContentProvider:");
                         if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(req, sel_registerName("respondsToSelector:"), sSetCP)) {
                             ((void(*)(id, SEL, id))objc_msgSend)(req, sSetCP, cp);
-                            
-                        } else 
-                    } else 
+                            ProbeWrite("RN-REQ-CP-SET");
+                        } else ProbeWrite("RN-REQ-NOSETCP");
+                    } else ProbeWrite("RN-REQ-CP-FAIL");
                 } else {
-                    
+                    ProbeWrite(req ? "RN-REQ-NOCP" : "RN-REQ-EMPTYINIT");
                 }
                 // 2c. 终极兜底: setter 填充关键字段 (identifier/sectionIdentifier/content)
                 if (req) {
@@ -1507,21 +1503,21 @@ static void PostRealNotification(void) {
                             }
                             if (ncContent) {
                                 ((void(*)(id, SEL, id))objc_msgSend)(req, sSetContent, ncContent);
-                                
-                            } else 
-                        } else 
+                                ProbeWrite("RN-REQ-SETCONTENT-OK");
+                            } else ProbeWrite("RN-REQ-SETCONTENT-NOC");
+                        } else ProbeWrite("RN-REQ-SETCONTENT-NOCLS");
                     }
-                    
+                    ProbeWrite("RN-REQ-SETTERS-DONE");
                 }
             }
         } else {
-            
+            ProbeWrite("RN-REQ-NOCLS");
         }
-        if (req)  else 
+        if (req) ProbeWrite("RN-REQ-BUILT"); else ProbeWrite("RN-REQ-FAIL");
 
         // === 3. 找呈现层并投递 ===
         id layer = FindPresentLayer();
-        if (layer)  else 
+        if (layer) ProbeWrite("RN-PRES-FOUND"); else ProbeWrite("RN-PRES-NIL");
         if (req && layer) {
             // 3a. (已删除) 持久化标记 setPersistentNotificationAppBundleIdentifiers:
             // 曾导致一次投递被呈现层渲染成两条横幅(持久条目 + 普通横幅), 用户要求只显示一条。
@@ -1561,9 +1557,9 @@ static void PostRealNotification(void) {
             // post 呈现为 岛展开(第一条) + 标准横幅(第二条), 由 6 秒自动关闭阻断第二条
             SEL sPost = sel_registerName("postNotificationRequest:");
             if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(layer, sel_registerName("respondsToSelector:"), sPost)) {
-                
+                ProbeWrite("RN-PRES-TRYPOST");
                 ((void(*)(id, SEL, id))objc_msgSend)(layer, sPost, req);
-                
+                ProbeWrite("RN-PRES-SENT");
                 gActiveReq = req;
                 // 1.9.163: 预览通知弹出时视频从头播放 (seek 0, 合法 CMTime)
                 if (gPlayer && gPlayerItem) {
@@ -1575,25 +1571,25 @@ static void PostRealNotification(void) {
                 LDDCloseAfter(req);
                 return;
             }
-            
+            ProbeWrite("RN-PRES-NOMETHOD");
         }
-        
+        ProbeWrite("RN-ALL-FAIL");
     } @catch (id e) { LogReason("RN-EXC", e); }
 }
 
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    
-    
+    ProbeWrite("LDD-BUILD actions-1.9.137-merge");
+    ProbeWrite("CONSTRUCTOR-RAN");
     // 1.9.151: 构造器不再读 prefs (避免 SpringBoard 启动早期触发 CFPrefs 初始化时序问题)
     // 对照组 hook (兼启动延迟器)
     id clsCtrl = objc_getClass("UIView");
     if (clsCtrl) {
         MSHookMessageEx((Class)clsCtrl, sel_registerName("layoutSubviews"), (IMP)CtrlLayoutHook, (IMP *)&origCtrlLayout);
-        
+        ProbeWrite("CTRL-HOOK-INSTALLED");
     } else {
-        
+        ProbeWrite("CTRL-CLASS-NIL");
     }
     gPrefsKeyEnable = @"Enablelddgifbg";
     gPrefsKeyZxh = @"Enablezxhlddgifbg";
@@ -1606,7 +1602,7 @@ static void LDDInit(void) {
     gVideoExtMov = @"mov";
     // 捕获横幅呈现层 (SBNotificationBannerDestination init)
     id clsBND = objc_getClass("SBNotificationBannerDestination");
-    if (clsBND) { MSHookMessageEx((Class)clsBND, sel_registerName("init"), (IMP)HookBNDInit, (IMP *)&origBNDInit);  }
+    if (clsBND) { MSHookMessageEx((Class)clsBND, sel_registerName("init"), (IMP)HookBNDInit, (IMP *)&origBNDInit); ProbeWrite("BND-HOOK"); }
     // Darwin notify: 设置端点"预览通知"即时触发 (灵动通知同款机制)
     static int notifyTok = 0;
     notify_register_dispatch("com.tlzypjy.github/TestNotification", &notifyTok, (void *)&_dispatch_main_q, ^(int tok){
