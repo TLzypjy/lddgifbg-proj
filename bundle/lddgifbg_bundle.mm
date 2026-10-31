@@ -237,6 +237,11 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (id)initWithTarget:(id)t action:(SEL)a;
 - (id)view;
 @end
+// 1.9.185: 越狱源点击复制
+@interface UIPasteboard : NSObject
++ (id)generalPasteboard;
+- (void)setString:(id)s;
+@end
 @interface UIImage : NSObject
 + (id)imageWithContentsOfFile:(NSString *)p;
 + (id)imageWithCGImage:(CGImageRef)cg scale:(double)s orientation:(NSInteger)o;
@@ -376,6 +381,8 @@ extern "C" void UIGraphicsEndImageContext(void);
 @end
 @interface NSTimer : NSObject
 + (id)scheduledTimerWithTimeInterval:(double)t target:(id)target selector:(SEL)s userInfo:(id)info repeats:(BOOL)r;
+- (id)userInfo;
+@end
 - (void)invalidate;
 @end
 @interface CALayer : NSObject
@@ -1000,6 +1007,8 @@ static id LDDListMaterialFolders(void) {
 - (void)tableView:(id)tv didSelectRowAtIndexPath:(id)ip;
 // 1.9.153: 点击数值弹出输入框
 - (void)valTapped:(UITapGestureRecognizer *)g;
+- (void)footerCopyTapped:(UITapGestureRecognizer *)g;
+- (void)footerCopyRestore:(NSTimer *)t;
 @end
 
 
@@ -1080,24 +1089,33 @@ static void LDDPreviewSize(double bw, double *piw, double *pih) {
 }
 - (double)tableView:(id)tv estimatedHeightForRowAtIndexPath:(id)ip { return 60.0; }
 - (double)tableView:(id)tv heightForHeaderInSection:(NSInteger)s { return 0.0; }
-- (double)tableView:(id)tv heightForFooterInSection:(NSInteger)s { return 70.0; }
+- (double)tableView:(id)tv heightForFooterInSection:(NSInteger)s { return 96.0; }
 - (id)tableView:(id)tv viewForHeaderInSection:(NSInteger)s { return nil; }
-// 1.9.184: 底部居中版权 footer (仿"灵动岛动画"插件底部: 2025 © 作者 / 副行)
+// 1.9.185: 底部三行版权 footer (作者/版本号/越狱源), 越狱源点击复制
 - (id)tableView:(id)tv viewForFooterInSection:(NSInteger)s {
     CGRect tb = ((CGRect(*)(id, SEL))objc_msgSend)((id)tv, sel_registerName("bounds"));
-    UIView *fv = [[UIView alloc] initWithFrame:MakeRect(0, 0, tb.w, 70)];
-    UILabel *l1 = [[UILabel alloc] initWithFrame:MakeRect(0, 10, tb.w, 24)];
-    [l1 setText:@"2025 © TL"];
+    UIView *fv = [[UIView alloc] initWithFrame:MakeRect(0, 0, tb.w, 96)];
+    UILabel *l1 = [[UILabel alloc] initWithFrame:MakeRect(0, 8, tb.w, 24)];
+    [l1 setText:@"作者：TL"];
     [l1 setTextAlignment:1];
     [l1 setFont:[UIFont systemFontOfSize:17.0]];
     [l1 setTextColor:[UIColor colorWithWhite:0.35 alpha:1.0]];
     [fv addSubview:l1];
-    UILabel *l2 = [[UILabel alloc] initWithFrame:MakeRect(0, 38, tb.w, 20)];
-    [l2 setText:@"版本 1.9.184"];
+    UILabel *l2 = [[UILabel alloc] initWithFrame:MakeRect(0, 36, tb.w, 20)];
+    [l2 setText:@"版本号：1.0"];
     [l2 setTextAlignment:1];
     [l2 setFont:[UIFont systemFontOfSize:13.0]];
     [l2 setTextColor:[UIColor colorWithWhite:0.5 alpha:1.0]];
     [fv addSubview:l2];
+    UILabel *l3 = [[UILabel alloc] initWithFrame:MakeRect(0, 60, tb.w, 24)];
+    [l3 setText:@"越狱源：https://tlzypjy.github.io/jb-repo/"];
+    [l3 setTextAlignment:1];
+    [l3 setFont:[UIFont systemFontOfSize:12.0]];
+    [l3 setTextColor:[UIColor colorWithRed:0.0 green:0.45 blue:1.0 alpha:1.0]];
+    [l3 setUserInteractionEnabled:YES];
+    UITapGestureRecognizer *tap = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(footerCopyTapped:)];
+    [l3 addGestureRecognizer:tap];
+    [fv addSubview:l3];
     return fv;
 }
 - (id)tableView:(id)tv titleForHeaderInSection:(NSInteger)s { return @""; }
@@ -1400,6 +1418,24 @@ static void LDDPreviewSize(double bw, double *piw, double *pih) {
             char *argv2[] = {(char *)"/var/jb/usr/bin/killall", (char *)"SpringBoard", 0};
             spawn_fn(0, "/var/jb/usr/bin/killall", 0, 0, argv2, 0);
         }
+    }
+}
+// 1.9.185: 点击越狱源 -> 复制链接到剪贴板, 文字短暂反馈"已复制"
+- (void)footerCopyTapped:(UITapGestureRecognizer *)g {
+    UIPasteboard *pb = [UIPasteboard generalPasteboard];
+    [pb setString:@"https://tlzypjy.github.io/jb-repo/"];
+    UILabel *l3 = (UILabel *)[g view];
+    if (l3) {
+        [l3 setText:@"越狱源已复制 ✓"];
+        [l3 setTextColor:[UIColor colorWithRed:0.1 green:0.7 blue:0.2 alpha:1.0]];
+        [NSTimer scheduledTimerWithTimeInterval:1.5 target:self selector:@selector(footerCopyRestore:) userInfo:l3 repeats:NO];
+    }
+}
+- (void)footerCopyRestore:(NSTimer *)t {
+    UILabel *l3 = (UILabel *)[t userInfo];
+    if (l3) {
+        [l3 setText:@"越狱源：https://tlzypjy.github.io/jb-repo/"];
+        [l3 setTextColor:[UIColor colorWithRed:0.0 green:0.45 blue:1.0 alpha:1.0]];
     }
 }
 @end
