@@ -950,18 +950,26 @@ static void LDDIslandLayout(id self) {
     BOOL mainOn = cEnabled;
     BOOL show = NO;
     if (mainOn) {
-        // 1.9.176: 小岛开关语义 —— 仅"启用小岛"开启时显示背景(放歌/直播/通知等所有岛场景), 关闭则一律不显示
+        // 1.9.177: 小岛开关语义(细化) ——
+        //   小岛开: 放歌/直播/通知/小岛 全显示
+        //   小岛关: 仅 通知(高>=52) 与 录屏宽横条(高<52且宽>=250) 常显;
+        //           放歌/直播等紧凑横条(高~37, 宽~167) 一律不显示
         if (cZxh) {
             show = YES;
         } else {
-            // 1.9.176: 录屏状态(UIScreen.isCaptured)常显背景, 不受小岛开关影响
-            id scr = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIScreen"), sel_registerName("mainScreen"));
-            BOOL cap = NO;
-            if (scr) cap = ((BOOL(*)(id, SEL))objc_msgSend)(scr, sel_registerName("isCaptured"));
-            if (cap) {
-                show = YES;
-                static int reclog = 0;
-                if (reclog < 8) { reclog++; ProbeWrite("REC-CAPTURED-ON"); }
+            CGRect b0 = [self bounds];
+            if (b0.h >= 52.0) {
+                show = YES;                       // 通知/展开态: 不受小岛开关控制, 始终显示
+            } else {
+                // 录屏例外: 仅作用于录屏宽横条(345x38), 不影响放歌/直播紧凑横条
+                id scr = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIScreen"), sel_registerName("mainScreen"));
+                BOOL cap = NO;
+                if (scr) cap = ((BOOL(*)(id, SEL))objc_msgSend)(scr, sel_registerName("isCaptured"));
+                if (cap && b0.w >= 250.0) {
+                    show = YES;
+                    static int reclog = 0;
+                    if (reclog < 8) { reclog++; ProbeWrite("REC-CAPTURED-ON"); }
+                }
             }
         }
     }
