@@ -750,12 +750,13 @@ static void LogReason(const char *tag, id e) {
 
 // ---------- 捕获横幅呈现层 (hook SBNotificationBannerDestination init) ----------
 static id gPresentLayer = nil;
-static double gNotifTs = -9999.0;   // 1.9.179: 最近通知横幅呈现时间(CFAbsoluteTimeGetCurrent), 通知活跃窗口内放行收起态
+static double gNotifTs = -9999.0;   // 1.9.179: 最近通知横幅呈现时间(CFAbsoluteTimeGetCurrent)
+static BOOL gNotifActive = NO;      // 1.9.181: 通知横幅活跃标志(init置YES, 自动关闭置NO)
 static id (*origBNDInit)(id, SEL);
 static id HookBNDInit(id self, SEL _c) {
     id r = origBNDInit(self, _c);
     if (!gPresentLayer) { gPresentLayer = r; ProbeWrite("BND-CAPTURED"); }
-    if (r) { gNotifTs = CFAbsoluteTimeGetCurrent(); ProbeWrite("BND-NOTIF-TS"); }
+    if (r) { gNotifTs = CFAbsoluteTimeGetCurrent(); gNotifActive = YES; ProbeWrite("BND-NOTIF-TS"); }
     return r;
 }
 // 运行时兜底: 从 dispatcher destinations / SB ivar 找呈现层
@@ -1000,12 +1001,13 @@ static void LDDIslandLayout(id self) {
                 show = YES;                       // 通知展开/横幅: 不受小岛开关控制, 始终显示
             } else {
                 double nowT = CFAbsoluteTimeGetCurrent();
-                if ((nowT - gNotifTs) < 8.0 && b0.w < 150.0) {
-                    show = YES;                   // 通知收起态(129x38窄条): 通知活跃窗口内常显
-                } else if ((nowT - gNotifTs) < 8.0 && b0.w >= 250.0 && b0.h >= 40.0) {
-                    show = YES;                   // 通知重新弹出动画中间态(403x44): 通知活跃窗口内常显
-                } else if (capAll && b0.w >= 250.0) {
-                    show = YES;                   // 录屏宽横条(345x38): 不受小岛开关控制
+                BOOL nActive = (gNotifActive && (nowT - gNotifTs) < 12.0);   // 通知活跃: 横幅未关闭且12秒硬窗口
+                if (nActive && b0.w < 150.0) {
+                    show = YES;                   // 通知收起态(129x38窄条): 横幅活跃期间常显
+                } else if (nActive && b0.w >= 250.0 && b0.h >= 40.0) {
+                    show = YES;                   // 通知重新弹出动画中间态(403x44等): 横幅活跃期间常显
+                } else if (capAll && ((b0.w >= 170.0 && b0.w < 250.0) || b0.w >= 340.0)) {
+                    show = YES;                   // 录屏横条: TrollOpen 176x37(170-250带) / 控制中心 345x38(>=340带)
                     static int reclog = 0;
                     if (reclog < 8) { reclog++; ProbeWrite("REC-CAPTURED-ON"); }
                 }
@@ -1355,6 +1357,7 @@ static void LDDCloseFirstBanner(id req) {
                 @try {
                     ((void(*)(id, SEL, id))objc_msgSend)(gPresentLayer, sW, req);
                     ProbeWrite("CLOSE-WITHDRAW-OK");
+                    gNotifActive = NO;
                     return;
                 } @catch (id e) { LogReason("CLOSE-WITHDRAW-EXC", e); }
             }
@@ -1367,6 +1370,7 @@ static void LDDCloseFirstBanner(id req) {
                 @try {
                     ((void(*)(id, SEL, BOOL, id, BOOL))objc_msgSend)(gPresentLayer, sD, YES, @"ldd-autoclose", NO);
                     ProbeWrite("CLOSE-DISMISSBANNER-OK");
+                    gNotifActive = NO;
                     return;
                 } @catch (id e) { LogReason("CLOSE-DISMISSBANNER-EXC", e); }
             }
@@ -1379,6 +1383,7 @@ static void LDDCloseFirstBanner(id req) {
                 @try {
                     ((void(*)(id, SEL, BOOL, id, BOOL))objc_msgSend)(gPresentLayer, sO, YES, @"ldd-autoclose", YES);
                     ProbeWrite("CLOSE-DISMISSONLY-OK");
+                    gNotifActive = NO;
                     return;
                 } @catch (id e) { LogReason("CLOSE-DISMISSONLY-EXC", e); }
             }
