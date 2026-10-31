@@ -949,15 +949,26 @@ static void LDDIslandLayout(id self) {
     RefreshPrefsCache();
     BOOL mainOn = cEnabled;
     BOOL show = NO;
+    CGRect jr = [self bounds];      // 判定尺寸(容器优先), 供探针记录
     if (mainOn) {
-        // 1.9.177: 小岛开关语义(细化) ——
+        // 1.9.178: 小岛开关语义(细化) —— 判定改用容器稳定尺寸(superview):
+        //   内容层 [self bounds] 在横条动画/展开时会从37跳到92, 直接用内容层高会把放歌/直播横条误判成通知;
+        //   容器高在动画中稳定(横条37/通知92), 故通知判定/录屏判定均以容器尺寸为准
         //   小岛开: 放歌/直播/通知/小岛 全显示
-        //   小岛关: 仅 通知(高>=52) 与 录屏宽横条(高<52且宽>=250) 常显;
-        //           放歌/直播等紧凑横条(高~37, 宽~167) 一律不显示
+        //   小岛关: 仅 通知(容器高>=52) 与 录屏宽横条(容器高<52且容器宽>=250) 常显;
+        //           放歌/直播等紧凑横条(容器高~37, 宽~167) 一律不显示
         if (cZxh) {
             show = YES;
         } else {
             CGRect b0 = [self bounds];
+            id supv = [self superview];
+            if (supv) {
+                CGRect sb = [supv bounds];
+                if (sb.w >= 40.0 && sb.h >= 10.0 && sb.w <= 460.0 && sb.h <= 150.0) {
+                    b0 = sb;                      // 容器尺寸有效才采用
+                }
+            }
+            jr = b0;
             if (b0.h >= 52.0) {
                 show = YES;                       // 通知/展开态: 不受小岛开关控制, 始终显示
             } else {
@@ -977,7 +988,7 @@ static void LDDIslandLayout(id self) {
     if (slog2 < 20) {
         slog2++;
         char sb[96];
-        snprintf(sb, sizeof(sb), "SHOW-%d h=%.0f", show ? 1 : 0, bb.h);
+        snprintf(sb, sizeof(sb), "SHOW-%d h=%.0f w=%.0f", show ? 1 : 0, jr.h, jr.w);
         ProbeWrite(sb);
     }
     if (!show) {
