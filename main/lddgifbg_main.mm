@@ -1038,8 +1038,22 @@ static void LDDIslandLayout(id self) {
       } }
     // 药丸圆角, 贴合灵动岛形状 (容器层裁切)
     id vlay = [view layer];
-    [vlay setCornerRadius:b.h / 2.0];
-    [vlay setMasksToBounds:YES];
+    // 1.9.173: 近方形容器(如付款面容验证圈)不再裁成正圆 —— 圆角限幅 8px, 并把背景扩展到父容器(弹窗内容层)尝试铺满整个方框
+    // 正常横幅/直播横条(宽>=1.5倍高)保持原药丸圆角与尺寸, 零回归
+    if (b.w < b.h * 1.5) {
+        [vlay setCornerRadius:8.0];
+        [vlay setMasksToBounds:YES];
+        id supv = [self superview];
+        if (supv) {
+            CGRect sb = [supv bounds];
+            if (sb.w >= b.w && sb.h >= b.h && sb.w <= 1200 && sb.h <= 1200) {
+                [view setFrame:MakeRect(0, 0, sb.w, sb.h)];
+            }
+        }
+    } else {
+        [vlay setCornerRadius:b.h / 2.0];
+        [vlay setMasksToBounds:YES];
+    }
 
     // 1.9.139: 内容视图 —— GIF/视频都挂载于此, 偏移 = 平移内容视图, 容器圆角裁切
     UIImageView *cv = (UIImageView *)[view viewWithTag:9998];
@@ -1052,12 +1066,14 @@ static void LDDIslandLayout(id self) {
     gContainerView = view;
     gContentView = cv;
     // AspectFill 渲染尺寸: 素材填满容器不露边, 超出部分由容器裁切
-    double cw = b.w, ch = b.h;
+    // 1.9.173: 以背景视图当前 bounds 为基准(近方形场景已扩展到父容器)
+    CGRect vbb = [view bounds];
+    double cw = vbb.w, ch = vbb.h;
     if (gMediaW > 1 && gMediaH > 1) {
-        double s = (b.w / gMediaW) > (b.h / gMediaH) ? (b.w / gMediaW) : (b.h / gMediaH);
+        double s = (vbb.w / gMediaW) > (vbb.h / gMediaH) ? (vbb.w / gMediaW) : (vbb.h / gMediaH);
         cw = gMediaW * s; ch = gMediaH * s;
     }
-    [cv setFrame:MakeRect((b.w - cw) / 2.0, (b.h - ch) / 2.0, cw, ch)];
+    [cv setFrame:MakeRect((vbb.w - cw) / 2.0, (vbb.h - ch) / 2.0, cw, ch)];
     // 1.9.141: 视频 layer frame 必须跟随内容视图渲染尺寸 (否则视频在 layer 内被二次裁切, 平移看不出效果)
     // 1.9.159: 仅尺寸变化才 setFrame, 避免布局每帧触发 AVPlayerLayer 重布局
     if (gPlayerLayer && [gPlayerLayer superlayer] == [cv layer]) {
@@ -1109,9 +1125,10 @@ static void LDDIslandLayout(id self) {
         LoadMediaWithPathIntoImageView(path, cv);
         // 素材原始尺寸就绪后重算内容视图 AspectFill 尺寸并重应用偏移
         if (gMediaW > 1 && gMediaH > 1) {
-            double s = (b.w / gMediaW) > (b.h / gMediaH) ? (b.w / gMediaW) : (b.h / gMediaH);
+            CGRect vbb2 = [view bounds];
+            double s = (vbb2.w / gMediaW) > (vbb2.h / gMediaH) ? (vbb2.w / gMediaW) : (vbb2.h / gMediaH);
             double cw2 = gMediaW * s, ch2 = gMediaH * s;
-            [cv setFrame:MakeRect((b.w - cw2) / 2.0, (b.h - ch2) / 2.0, cw2, ch2)];
+            [cv setFrame:MakeRect((vbb2.w - cw2) / 2.0, (vbb2.h - ch2) / 2.0, cw2, ch2)];
             // 1.9.141: 同步视频 layer (1.9.159: 尺寸变化才设置)
             if (gPlayerLayer && [gPlayerLayer superlayer] == [cv layer]) {
                 CGRect cvb2 = [cv bounds];
