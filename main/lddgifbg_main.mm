@@ -958,8 +958,9 @@ static void LDDIslandLayout(id self) {
         //   容器高在动画中稳定(横条37/通知92), 故通知判定/录屏判定均以容器尺寸为准
         //   小岛开: 放歌/直播/通知/小岛 全显示
         //   小岛关: ① 通知展开/横幅(容器高>=52) 常显
-        //           ② 通知收起态(容器宽<150 窄条, 且处于通知活跃8秒窗口) 常显 —— 预览通知后收起/展开过渡不丢背景
-        //           ③ 录屏宽横条(容器高<52且容器宽>=250 且正在录屏) 常显
+        //           ② 通知收起态(容器宽<150 窄条, 且处于通知活跃8秒窗口) 常显
+        //           ③ 通知重新弹出动画中间态(容器宽>=250且容器高>=40, 通知活跃窗口内, 如403x44) 常显
+        //           ④ 录屏宽横条(容器高<52且容器宽>=250 且正在录屏) 常显 —— 检测含 isCaptured + ReplayKit
         //           放歌/直播等紧凑横条(容器高~37, 宽~167/335) 一律不显示
         if (cZxh) {
             show = YES;
@@ -973,15 +974,26 @@ static void LDDIslandLayout(id self) {
                 }
             }
             jr = b0;
+            // 录屏检测: UIScreen isCaptured + RPScreenRecorder isRecording/isCapturePending (troll open 菜单栏录屏不触发 isCaptured)
             id scr = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIScreen"), sel_registerName("mainScreen"));
             BOOL cap = NO;
             if (scr) cap = ((BOOL(*)(id, SEL))objc_msgSend)(scr, sel_registerName("isCaptured"));
-            // 探针: 录屏状态命中情况(节流10次), 用于确认用户录屏时 isCaptured 是否生效
+            BOOL rpRec = NO;
+            id rpCls = (id)objc_getClass("RPScreenRecorder");
+            if (rpCls) {
+                id sr = ((id(*)(id, SEL))objc_msgSend)(rpCls, sel_registerName("sharedRecorder"));
+                if (sr) {
+                    rpRec = ((BOOL(*)(id, SEL))objc_msgSend)(sr, sel_registerName("isRecording"));
+                    if (!rpRec) rpRec = ((BOOL(*)(id, SEL))objc_msgSend)(sr, sel_registerName("isCapturePending"));
+                }
+            }
+            BOOL capAll = (cap || rpRec);
+            // 探针: 录屏状态命中情况(节流10次)
             static int caplog = 0;
             if (caplog < 10) {
                 caplog++;
-                char cl[48];
-                snprintf(cl, sizeof(cl), "CAP-DETECT-%d-w%.0f-h%.0f", cap ? 1 : 0, b0.w, b0.h);
+                char cl[64];
+                snprintf(cl, sizeof(cl), "CAP-DETECT-%d-rp%d-w%.0f-h%.0f", cap ? 1 : 0, rpRec ? 1 : 0, b0.w, b0.h);
                 ProbeWrite(cl);
             }
             if (b0.h >= 52.0) {
@@ -990,7 +1002,9 @@ static void LDDIslandLayout(id self) {
                 double nowT = CFAbsoluteTimeGetCurrent();
                 if ((nowT - gNotifTs) < 8.0 && b0.w < 150.0) {
                     show = YES;                   // 通知收起态(129x38窄条): 通知活跃窗口内常显
-                } else if (cap && b0.w >= 250.0) {
+                } else if ((nowT - gNotifTs) < 8.0 && b0.w >= 250.0 && b0.h >= 40.0) {
+                    show = YES;                   // 通知重新弹出动画中间态(403x44): 通知活跃窗口内常显
+                } else if (capAll && b0.w >= 250.0) {
                     show = YES;                   // 录屏宽横条(345x38): 不受小岛开关控制
                     static int reclog = 0;
                     if (reclog < 8) { reclog++; ProbeWrite("REC-CAPTURED-ON"); }
