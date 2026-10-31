@@ -750,10 +750,12 @@ static void LogReason(const char *tag, id e) {
 
 // ---------- 捕获横幅呈现层 (hook SBNotificationBannerDestination init) ----------
 static id gPresentLayer = nil;
+static double gNotifTs = -9999.0;   // 1.9.179: 最近通知横幅呈现时间(CFAbsoluteTimeGetCurrent), 通知活跃窗口内放行收起态
 static id (*origBNDInit)(id, SEL);
 static id HookBNDInit(id self, SEL _c) {
     id r = origBNDInit(self, _c);
     if (!gPresentLayer) { gPresentLayer = r; ProbeWrite("BND-CAPTURED"); }
+    if (r) { gNotifTs = CFAbsoluteTimeGetCurrent(); ProbeWrite("BND-NOTIF-TS"); }
     return r;
 }
 // 运行时兜底: 从 dispatcher destinations / SB ivar 找呈现层
@@ -951,12 +953,14 @@ static void LDDIslandLayout(id self) {
     BOOL show = NO;
     CGRect jr = [self bounds];      // 判定尺寸(容器优先), 供探针记录
     if (mainOn) {
-        // 1.9.178: 小岛开关语义(细化) —— 判定改用容器稳定尺寸(superview):
+        // 1.9.179: 小岛开关语义(细化) —— 判定以容器稳定尺寸为准:
         //   内容层 [self bounds] 在横条动画/展开时会从37跳到92, 直接用内容层高会把放歌/直播横条误判成通知;
         //   容器高在动画中稳定(横条37/通知92), 故通知判定/录屏判定均以容器尺寸为准
         //   小岛开: 放歌/直播/通知/小岛 全显示
-        //   小岛关: 仅 通知(容器高>=52) 与 录屏宽横条(容器高<52且容器宽>=250) 常显;
-        //           放歌/直播等紧凑横条(容器高~37, 宽~167) 一律不显示
+        //   小岛关: ① 通知展开/横幅(容器高>=52) 常显
+        //           ② 通知收起态(容器宽<150 窄条, 且处于通知活跃8秒窗口) 常显 —— 预览通知后收起/展开过渡不丢背景
+        //           ③ 录屏宽横条(容器高<52且容器宽>=250 且正在录屏) 常显
+        //           放歌/直播等紧凑横条(容器高~37, 宽~167/335) 一律不显示
         if (cZxh) {
             show = YES;
         } else {
@@ -969,15 +973,25 @@ static void LDDIslandLayout(id self) {
                 }
             }
             jr = b0;
+            id scr = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIScreen"), sel_registerName("mainScreen"));
+            BOOL cap = NO;
+            if (scr) cap = ((BOOL(*)(id, SEL))objc_msgSend)(scr, sel_registerName("isCaptured"));
+            // 探针: 录屏状态命中情况(节流10次), 用于确认用户录屏时 isCaptured 是否生效
+            static int caplog = 0;
+            if (caplog < 10) {
+                caplog++;
+                char cl[48];
+                snprintf(cl, sizeof(cl), "CAP-DETECT-%d-w%.0f-h%.0f", cap ? 1 : 0, b0.w, b0.h);
+                ProbeWrite(cl);
+            }
             if (b0.h >= 52.0) {
-                show = YES;                       // 通知/展开态: 不受小岛开关控制, 始终显示
+                show = YES;                       // 通知展开/横幅: 不受小岛开关控制, 始终显示
             } else {
-                // 录屏例外: 仅作用于录屏宽横条(345x38), 不影响放歌/直播紧凑横条
-                id scr = ((id(*)(id, SEL))objc_msgSend)((id)objc_getClass("UIScreen"), sel_registerName("mainScreen"));
-                BOOL cap = NO;
-                if (scr) cap = ((BOOL(*)(id, SEL))objc_msgSend)(scr, sel_registerName("isCaptured"));
-                if (cap && b0.w >= 250.0) {
-                    show = YES;
+                double nowT = CFAbsoluteTimeGetCurrent();
+                if ((nowT - gNotifTs) < 8.0 && b0.w < 150.0) {
+                    show = YES;                   // 通知收起态(129x38窄条): 通知活跃窗口内常显
+                } else if (cap && b0.w >= 250.0) {
+                    show = YES;                   // 录屏宽横条(345x38): 不受小岛开关控制
                     static int reclog = 0;
                     if (reclog < 8) { reclog++; ProbeWrite("REC-CAPTURED-ON"); }
                 }
