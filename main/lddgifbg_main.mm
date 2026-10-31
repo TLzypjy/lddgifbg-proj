@@ -952,7 +952,8 @@ static void LDDIslandLayout(id self) {
         CGRect b0 = [self bounds];
         if (cZxh) show = YES;          // 小岛开: 常显
         // 1.9.166: 阈值 65->37 —— 直播等紧凑横条(167x37) 在"小岛关"时也显示背景并铺满
-        else if (b0.h >= 37.0) show = YES;
+        // 1.9.175: 增加宽度>=150 —— 直播横条(167/164宽)保留背景, 小岛收起态(129/125宽)在"小岛关"时不再点亮, 使"启用小岛"开关真正生效
+        else if (b0.h >= 37.0 && b0.w >= 150.0) show = YES;
     }
     static int slog2 = 0;
     if (slog2 < 20) {
