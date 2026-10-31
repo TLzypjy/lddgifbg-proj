@@ -1236,7 +1236,7 @@ static void LDDPreviewSize(double bw, double *piw, double *pih) {
     } else if (row == 10 || row == 11) {
         // 1.9.174: 底部 版本/作者 (仿 cc播放器设置页, 左标题右灰色值)
         NSString *t = (row == 10 ? @"版本" : @"作者");
-        NSString *v = (row == 10 ? @"1.9.181" : @"TL");
+        NSString *v = (row == 10 ? @"1.9.182" : @"TL");
         UILabel *label = [[UILabel alloc] initWithFrame:MakeRect(16, 19, b.w / 2.0, 22)];
         [label setText:t];
         [label setFont:[UIFont systemFontOfSize:16.0]];

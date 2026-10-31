@@ -984,8 +984,11 @@ static void LDDIslandLayout(id self) {
             if (rpCls) {
                 id sr = ((id(*)(id, SEL))objc_msgSend)(rpCls, sel_registerName("sharedRecorder"));
                 if (sr) {
-                    rpRec = ((BOOL(*)(id, SEL))objc_msgSend)(sr, sel_registerName("isRecording"));
-                    if (!rpRec) rpRec = ((BOOL(*)(id, SEL))objc_msgSend)(sr, sel_registerName("isCapturePending"));
+                    SEL sRec = sel_registerName("isRecording");
+                    if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(sr, sel_registerName("respondsToSelector:"), sRec)) {
+                        rpRec = ((BOOL(*)(id, SEL))objc_msgSend)(sr, sRec);
+                    }
+                    // 1.9.182: 不再调用 isCapturePending —— iOS 16 无此 selector, 每帧抛异常中断判定(非录屏时通知背景被清)
                 }
             }
             BOOL capAll = (cap || rpRec);
