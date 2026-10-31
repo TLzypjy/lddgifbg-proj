@@ -1094,7 +1094,8 @@ static void LDDPreviewSize(double bw, double *piw, double *pih) {
 - (id)tableView:(id)tv viewForHeaderInSection:(NSInteger)s { return nil; }
 // 1.9.185: 底部三行版权 footer (作者/版本号/越狱源), 越狱源点击复制
 - (id)tableView:(id)tv viewForFooterInSection:(NSInteger)s {
-    CGRect tb = ((CGRect(*)(id, SEL))objc_msgSend)((id)tv, sel_registerName("bounds"));
+    // 1.2: CGRect 32B 结构, arm64 须走 stret; 标准语法让编译器生成正确调用 (原手写 objc_msgSend 返回值错乱 → 三行不居中)
+    CGRect tb = [(UITableView *)tv bounds];
     UIView *fv = [[UIView alloc] initWithFrame:MakeRect(0, 0, tb.w, 96)];
     UILabel *l1 = [[UILabel alloc] initWithFrame:MakeRect(0, 8, tb.w, 24)];
     [l1 setText:@"作者：TL"];
