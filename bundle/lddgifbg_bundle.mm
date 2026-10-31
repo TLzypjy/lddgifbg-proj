@@ -225,6 +225,9 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (void)setTextAlignment:(NSInteger)a;
 - (void)setAlpha:(double)a;
 - (void)setNumberOfLines:(NSInteger)n;
+- (void)sizeToFit;
+- (CGRect)frame;
+- (void)setFrame:(CGRect)r;
 @end
 @interface UITextField : UIView
 - (void)setPlaceholder:(NSString *)p;
@@ -1109,7 +1112,7 @@ static void LDDPreviewSize(double bw, double *piw, double *pih) {
     [l1 setFrame:MakeRect((sw - f1.w) / 2.0, 8, f1.w, f1.h)];
     [fv addSubview:l1];
     UILabel *l2 = [[UILabel alloc] initWithFrame:MakeRect(0, 36, sw, 20)];
-    NSString *ver = [[NSBundle bundleForClass:[self class]] objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
+    NSString *ver = [[NSBundle bundleForClass:(Class)objc_msgSend((id)self, sel_registerName("class"))] objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
     if (!ver || [ver length] == 0) ver = @"1.0";
     [l2 setText:[NSString stringWithFormat:@"版本号：%@", ver]];
     [l2 setFont:[UIFont systemFontOfSize:13.0]];
