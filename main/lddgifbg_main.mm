@@ -133,7 +133,6 @@ typedef struct CGRect { double ox, oy, w, h; } CGRect;
 static void LogReason(const char *tag, id e);
 static void CheckForcePreviewTick(void);
 static void PostRealNotification(void);
-static void 
 // 1.9.133: 播放速度 (GIF 定时器间隔 / AVPlayer rate 共用)
 static double cSpeed = 1.0;
 static double gLastAppliedSpeed = 1.0;
@@ -375,7 +374,7 @@ static void ApplyPos(void) {
 
 
 // ---------- 注入自检探针: 证明 dylib 已加载 / hook 已触发 ----------
-static void ProbeWrite(const char *line) {
+static void  {
     FILE *f = fopen("/var/mobile/lddgifbg/__plugin_probe__.txt", "a");
     if (f) { fprintf(f, "%s\n", line); fclose(f); }
 }
@@ -718,8 +717,7 @@ static void RefreshPrefsCache(void) {
     cPosX = GetLddGifBgPos(gPrefsKeyPosX, 0.0);
     cPosY = GetLddGifBgPos(gPrefsKeyPosY, 0.0);
     cSpeed = GetLddGifBgSpeed();
-    // 1.9.172: 素材目录扫描移出 0.5s 节流 —— GetSelectedImagePath 内部 contentsOfDirectory 是文件 IO,
-    // 原实现在横条常显时每 0.5s 扫一次目录(探针实测 7125 次), 是 CPU 飙升主因; 改为仅在 SHOW-1 加载路径按 2s 缓存调用
+    // 1.9.172: 素材目录扫描移出 0.5s 节流(原实现每 0.5s 扫目录=CPU元凶), 改为 SHOW-1 路径按 2s 缓存调用
     // 1.9.133: 速度变化即时生效 —— GIF 重启定时器, 视频更新 rate
     if (gLastAppliedSpeed != cSpeed) {
         gLastAppliedSpeed = cSpeed;
@@ -744,8 +742,8 @@ static void LogReason(const char *tag, id e) {
     @try {
         id r = ((id(*)(id, SEL))objc_msgSend)(e, sel_registerName("reason"));
         const char *c = r ? ((const char *(*)(id, SEL))objc_msgSend)(r, sel_registerName("UTF8String")) : 0;
-        char buf[300]; snprintf(buf, sizeof(buf), "%s: %.220s", tag, c ? c : "?"); ProbeWrite(buf);
-    } @catch (id e2) { ProbeWrite(tag); }
+        char buf[300]; snprintf(buf, sizeof(buf), "%s: %.220s", tag, c ? c : "?"); 
+    } @catch (id e2) {  }
 }
 
 // ---------- 捕获横幅呈现层 (hook SBNotificationBannerDestination init) ----------
@@ -990,7 +988,7 @@ static void LDDIslandLayout(id self) {
         return;
     }
 
-    // 1.9.172: 素材路径 2 秒缓存 —— GetSelectedImagePath 内部扫目录(文件 IO), 由原 0.5s 节流每帧级降到 2 秒一次
+    // 1.9.172: 素材路径 2 秒缓存 —— GetSelectedImagePath 内部扫目录(文件IO), 由原 0.5s 节流每帧级降到 2 秒一次
     NSString *path = nil;
     {
         static NSString *gPickC = nil;
@@ -1129,8 +1127,7 @@ static void LDDIslandLayout(id self) {
     id subs = ((id(*)(id, SEL))objc_msgSend)(self, sel_registerName("subviews"));
     id firstSub = subs ? ((id(*)(id, SEL))objc_msgSend)(subs, sel_registerName("firstObject")) : nil;
     if (firstSub != view) [self insertSubview:view atIndex:0];
-    // 1.9.172: 回滚 171 的图标黑底透明化(用户反馈反复异常; 遍历系统子视图有 168 崩溃前科, 稳字优先)
-    // 恢复 1.9.170 置顶方案: 紧凑横条背景置顶铺满(用户已验收铺满), 图标会被背景盖住
+    // 1.9.172: 回滚 171 的图标黑底透明化(动系统子视图有 168 崩溃前科, 稳字优先), 恢复 1.9.170 置顶铺满
     if (b.h < 65.0) {
         id subsT = ((id(*)(id, SEL))objc_msgSend)(self, sel_registerName("subviews"));
         id lastT = subsT ? ((id(*)(id, SEL))objc_msgSend)(subsT, sel_registerName("lastObject")) : nil;
