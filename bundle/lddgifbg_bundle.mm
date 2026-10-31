@@ -189,6 +189,7 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (id)window;
 - (void)setUserInteractionEnabled:(BOOL)e;
 - (void)addGestureRecognizer:(id)g;
+- (void)setAutoresizingMask:(NSUInteger)m;
 @end
 
 @interface UIWindow : UIView
