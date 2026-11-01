@@ -776,6 +776,20 @@ static BOOL LDDIsBannerContext(id v) {
     gBCV = found;
     return found;
 }
+// 1.8: 严格横幅识别 (h>=52 展开态用): 只认通知横幅专属类 (NotificationBanner/BannerDestination/BannerManager/BannerView),
+// 排除 LiveActivity(听歌/直播)/系统容器树上泛化 Notification 类误判 —— 1.7 宽匹配把展开态全放行了
+static BOOL LDDIsNotifBannerStrict(id v) {
+    int depth = 0;
+    id cur = v;
+    while (cur && depth < 8) {
+        const char *cn = class_getName((__bridge void *)object_getClass(cur));
+        if (cn && (strstr(cn, "NotificationBanner") || strstr(cn, "BannerDestination") ||
+                   strstr(cn, "BannerManager") || strstr(cn, "BannerView"))) return YES;
+        cur = ((id(*)(id, SEL))objc_msgSend)(cur, sel_registerName("superview"));
+        depth++;
+    }
+    return NO;
+}
 static id (*origBNDInit)(id, SEL);
 static id HookBNDInit(id self, SEL _c) {
     id r = origBNDInit(self, _c);
@@ -1034,14 +1048,15 @@ static void LDDIslandLayout(id self) {
             double nowT = CFAbsoluteTimeGetCurrent();
             BOOL nActive = (gNotifActive && (nowT - gNotifTs) < 30.0);   // 通知活跃: 横幅未关闭且30秒硬窗口
             if (b0.h >= 52.0) {
-                // 1.7: 展开/横幅: 通知(Banner上下文 或 通知活跃窗口) 常显; 听歌/直播等LiveActivity展开(非Banner且非通知) 小岛关不显示
-                if (LDDIsBannerContext((id)self) || nActive) {
+                // 1.8: 展开/横幅: 严格横幅识别 (NotificationBanner等专属类) 才常显;
+                // 听歌/直播等LiveActivity展开(非横幅类) 小岛关不显示; 不用nActive(通知30s窗口会误放行LiveActivity)
+                if (LDDIsNotifBannerStrict((id)self)) {
                     show = YES;                   // 通知展开/横幅: 不受小岛开关控制, 始终显示
                     static int h52l = 0;
                     if (h52l < 40) { h52l++; ProbeWrite("H52-SHOW-NOTIF"); }
                 } else {
                     static int h52n = 0;
-                    if (h52n < 40) { h52n++; ProbeWrite("H52-SKIP-NONBANNER"); }
+                    if (h52n < 40) { h52n++; char hn[96]; snprintf(hn, sizeof(hn), "H52-SKIP-NONBANNER-w%.0f-h%.0f", b0.w, b0.h); ProbeWrite(hn); }
                 }
             } else {
                 if (nActive && b0.w < 150.0) {
