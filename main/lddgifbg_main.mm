@@ -376,7 +376,32 @@ static void ApplyPos(void) {
 
 
 // ---------- 注入自检探针: 证明 dylib 已加载 / hook 已触发 ----------
+// 1.9.186: 探针文件超过 1.5MB 时截断保留尾部最新 8000 行(10s 检查一次), 不再无限累计
 static void ProbeWrite(const char *line) {
+    static double gProbeChk = 0;
+    double nwP = CFAbsoluteTimeGetCurrent();
+    if (nwP - gProbeChk > 10.0) {
+        gProbeChk = nwP;
+        @try {
+            NSString *pp = @"/var/mobile/lddgifbg/__plugin_probe__.txt";
+            NSDictionary *at = [[NSFileManager defaultManager] attributesOfItemAtPath:pp error:nil];
+            long long sz = [at fileSize];
+            if (sz > 1572864) {
+                NSString *content = [NSString stringWithContentsOfFile:pp encoding:NSUTF8StringEncoding error:nil];
+                if (content && [content length] > 400000) {
+                    NSArray *lines = [content componentsSeparatedByString:@"\n"];
+                    NSUInteger keep = 8000;
+                    if ([lines count] > keep) {
+                        NSArray *tail = [lines subarrayWithRange:NSMakeRange([lines count] - keep, keep)];
+                        NSString *out = [tail componentsJoinedByString:@"\n"];
+                        [out writeToFile:pp atomically:YES encoding:NSUTF8StringEncoding error:nil];
+                        ProbeWrite("PROBE-TRUNCATED");
+                        return;
+                    }
+                }
+            }
+        } @catch (id e) { }
+    }
     FILE *f = fopen("/var/mobile/lddgifbg/__plugin_probe__.txt", "a");
     if (f) { fprintf(f, "%s\n", line); fclose(f); }
 }
@@ -758,35 +783,46 @@ static double gVideoStopTs = 0;
 // 1.5: 通知横幅容器识别 —— 沿 superview 链找类名含 Banner/Notification 的视图
 // 场景: banner destination 复用时 init 不再触发, gNotifActive 未激活, 通知收起窄条靠此立即显示 (解决新通知背景延迟~1s)
 // 1.6: 0.15s 结果缓存 (窄条判定不每帧扫链, 降低 CPU)
-static BOOL LDDIsBannerContext(id v) {
-    static double gBCT = 0;
-    static BOOL gBCV = NO;
+// 1.9.186: 场景分类 —— Live Activity(听歌/直播) 与通知横幅(含泛化 Notification 类)分开识别;
+// 缓存按视图指针绑定(原全局缓存会把听歌/直播的"非通知"判定串给真正的通知窄条, 反之亦然,
+// 造成听歌/直播小岛关时"时有时无背景"、通知背景延迟)
+typedef NS_ENUM(int, LDDSceneKind) {
+    LDDSceneOther = 0,
+    LDDSceneBanner = 1,
+    LDDSceneActivity = 2
+};
+static LDDSceneKind LDDSceneKindOf(id v) {
+    static id gKV = nil;
+    static LDDSceneKind gKR = LDDSceneOther;
+    static double gKT = 0;
     double nw = CFAbsoluteTimeGetCurrent();
-    if (nw - gBCT < 0.15) return gBCV;
-    gBCT = nw;
-    BOOL found = NO;
+    if (v == gKV && (nw - gKT) < 0.15) return gKR;
+    LDDSceneKind k = LDDSceneOther;
     int depth = 0;
     id cur = v;
-    while (cur && depth < 8) {
+    while (cur && depth < 10) {
         const char *cn = class_getName((__bridge void *)object_getClass(cur));
         if (cn) {
-            // 1.9: LiveActivity(听歌/直播) 专属类优先排除 —— 其链上常含 Notification 泛化类导致误判为通知
+            // Live Activity(听歌/直播等) 专属类优先: 其链上常含 Notification 泛化类, 必须最先排除
             if (strstr(cn, "Activity")) {
                 static int alog = 0;
-                if (alog < 8) { alog++; char ab[128]; snprintf(ab, sizeof(ab), "LDD-ACTIVITY-SKIP-%s", cn); ProbeWrite(ab); }
-                found = NO; break;
+                if (alog < 8) { alog++; char ab[128]; snprintf(ab, sizeof(ab), "LDD-ACTIVITY-HIT-%s", cn); ProbeWrite(ab); }
+                k = LDDSceneActivity; break;
             }
             if (strstr(cn, "Banner") || strstr(cn, "Notification") || strstr(cn, "BannerManager")) {
                 static int blog = 0;
                 if (blog < 8) { blog++; char bb[128]; snprintf(bb, sizeof(bb), "LDD-BANNER-HIT-%s", cn); ProbeWrite(bb); }
-                found = YES; break;
+                k = LDDSceneBanner; break;
             }
         }
         cur = ((id(*)(id, SEL))objc_msgSend)(cur, sel_registerName("superview"));
         depth++;
     }
-    gBCV = found;
-    return found;
+    gKV = v; gKR = k; gKT = nw;
+    return k;
+}
+static BOOL LDDIsBannerContext(id v) {
+    return LDDSceneKindOf(v) == LDDSceneBanner;
 }
 static id (*origBNDInit)(id, SEL);
 static id HookBNDInit(id self, SEL _c) {
@@ -1060,6 +1096,10 @@ static void LDDIslandLayout(id self) {
                         static int h52z = 0;
                         if (h52z < 40) { h52z++; char hn[96]; snprintf(hn, sizeof(hn), "H52-SHOW-ISLANDON-w%.0f-h%.0f", b0.w, b0.h); ProbeWrite(hn); }
                     }
+                } else if (LDDSceneKindOf((id)self) == LDDSceneActivity) {
+                    // 1.9.186: 听歌/直播展开条(141x63/149x65/285x52等): 小岛关一律不铺背景
+                    static int hact = 0;
+                    if (hact < 8) { hact++; ProbeWrite("H52-ACTIVITY-SKIP"); }
                 } else if (faceidC) {
                     show = YES;                   // 1.16: 面容识别/全屏场景呈现(ScenePresenterView 407x489): 不受小岛开关控制
                     static int fidl = 0;
@@ -1080,6 +1120,11 @@ static void LDDIslandLayout(id self) {
             } else {
                 if (cZxh) {
                     if (b0.w >= 40.0 && b0.w <= 460.0 && b0.h >= 10.0 && b0.h <= 150.0) show = YES;
+                } else if (LDDSceneKindOf((id)self) == LDDSceneActivity) {
+                    // 1.9.186: 听歌/直播等 Live Activity 紧凑条(125~131x37~39): 小岛关一律不铺背景
+                    // (尺寸与通知收起窄条相近, 原 nActive/通知兜底会误判为通知 → 时有时无背景)
+                    static int actl = 0;
+                    if (actl < 8) { actl++; ProbeWrite("COMPACT-ACTIVITY-SKIP"); }
                 } else if (nActive && b0.w < 150.0) {
                     show = YES;                   // 通知收起态(129x38窄条): 横幅活跃期间常显
                 } else if (nActive && b0.w >= 250.0 && b0.h >= 40.0) {
