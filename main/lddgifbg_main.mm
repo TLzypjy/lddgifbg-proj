@@ -1354,6 +1354,13 @@ static void CtrlLayoutHook(id self, SEL _cmd) {
     // 优化1: 尺寸快速过滤 (绝大多数视图整屏/极小, 直接跳过, 零消息开销之外的成本)
     CGRect bb = ((CGRect(*)(id, SEL))objc_msgSend)(self, sel_registerName("bounds"));
     if (bb.w > 460.0 || bb.h > 150.0 || bb.w < 40.0 || bb.h < 10.0) {
+        // 1.15 探针: 记录认证/面容类容器(任意尺寸) —— 定位面容识别(Face ID)弹出时的容器类名/尺寸
+        const char *fcn = object_getClassName(self);
+        if (fcn && (strstr(fcn,"Auth")||strstr(fcn,"Face")||strstr(fcn,"Bio")||strstr(fcn,"Biometric")
+                    ||strstr(fcn,"Passcode")||strstr(fcn,"Keypad")||strstr(fcn,"Aperture")||strstr(fcn,"Island"))) {
+            static int spLog = 0;
+            if (spLog < 60) { spLog++; char sb[160]; snprintf(sb, sizeof(sb), "FILTER-SPECIAL-CLASS-%s-w%.0f-h%.0f", fcn, bb.w, bb.h); ProbeWrite(sb); }
+        }
         if (origCtrlLayout) origCtrlLayout(self, _cmd);
         return;
     }
@@ -1384,6 +1391,9 @@ static void CtrlLayoutHook(id self, SEL _cmd) {
                     LDDIslandLayout(self);
                 } else if (gSkipN < 64) {
                     gSkipNames[gSkipN++] = cn;
+                    // 1.15 探针: 记录岛尺寸范围(40-460 x 10-150)内但类名不匹配的容器(定位面容识别弹出容器)
+                    static int isLog = 0;
+                    if (isLog < 60) { isLog++; char ib[160]; snprintf(ib, sizeof(ib), "SKIP-ISLANDSIZE-CLASS-%s-w%.0f-h%.0f", cn, bb.w, bb.h); ProbeWrite(ib); }
                 }
             }
         }
