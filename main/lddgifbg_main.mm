@@ -1045,6 +1045,12 @@ static void LDDIslandLayout(id self) {
             BOOL capAll = (gCapC || gCapR);
             double nowT = CFAbsoluteTimeGetCurrent();
             BOOL nActive = (gNotifActive && (nowT - gNotifTs) < 30.0);   // 通知活跃: 横幅未关闭且30秒硬窗口
+            // 1.13: 通知展开(宽>=250, 407x92/422x106)显示期间持续刷新活跃窗口 ——
+            //   实机通知 init→显示间隔长或长驻>30s 时 nActive 过期 → 407 展开 SHOW-0 → 1.12 清理把背景撤掉 → "收到通知没背景"
+            //   听歌展开(141x63)/直播展开(149x65) w<250 不命中刷新, 不受影响
+            if (gNotifActive && b0.w >= 250.0 && b0.h >= 40.0) {
+                gNotifTs = nowT;
+            }
             if (b0.h >= 52.0) {
                 // 1.11: 展开/横幅: 纯类名判定(Banner上下文, Activity排除) 优先;
                 // 通知展开(407x92/422x106, 链上无 Banner 类, 1.10 验证 LDDIsBannerContext=NO) 用通知活跃窗口+宽>=250 兜底;
