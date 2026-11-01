@@ -7,6 +7,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include <time.h>
 #include <math.h>
 #include <unistd.h>
@@ -376,31 +377,48 @@ static void ApplyPos(void) {
 
 
 // ---------- 注入自检探针: 证明 dylib 已加载 / hook 已触发 ----------
-// 1.9.186: 探针文件超过 1.5MB 时截断保留尾部最新 8000 行(10s 检查一次), 不再无限累计
+// 1.9.186: 探针文件超过 1.5MB 时截断保留尾部最新内容(10s 检查一次), 不再无限累计
+// 纯 C 实现(本文件不引 Foundation 头)
 static void ProbeWrite(const char *line) {
     static double gProbeChk = 0;
     double nwP = CFAbsoluteTimeGetCurrent();
     if (nwP - gProbeChk > 10.0) {
         gProbeChk = nwP;
-        @try {
-            NSString *pp = @"/var/mobile/lddgifbg/__plugin_probe__.txt";
-            NSDictionary *at = [[NSFileManager defaultManager] attributesOfItemAtPath:pp error:nil];
-            long long sz = [at fileSize];
-            if (sz > 1572864) {
-                NSString *content = [NSString stringWithContentsOfFile:pp encoding:NSUTF8StringEncoding error:nil];
-                if (content && [content length] > 400000) {
-                    NSArray *lines = [content componentsSeparatedByString:@"\n"];
-                    NSUInteger keep = 8000;
-                    if ([lines count] > keep) {
-                        NSArray *tail = [lines subarrayWithRange:NSMakeRange([lines count] - keep, keep)];
-                        NSString *out = [tail componentsJoinedByString:@"\n"];
-                        [out writeToFile:pp atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        const char *pp = "/var/mobile/lddgifbg/__plugin_probe__.txt";
+        FILE *rf = fopen(pp, "r");
+        if (rf) {
+            fseek(rf, 0, SEEK_END);
+            long end = ftell(rf);
+            long off = (end > 1048576) ? (end - 1048576) : 0;
+            fseek(rf, off, SEEK_SET);
+            if (off > 0) {
+                int c = fgetc(rf);
+                if (c != '\n' && c != EOF) {
+                    while ((c = fgetc(rf)) != '\n' && c != EOF) { }
+                }
+                if (c == EOF) { fclose(rf); rf = NULL; }
+            }
+            if (rf) {
+                long readLen = end - off;
+                if (readLen > 0 && readLen < (1 << 20)) {
+                    char *buf = (char *)malloc((size_t)readLen + 1);
+                    if (buf) {
+                        size_t got = fread(buf, 1, (size_t)readLen, rf);
+                        buf[got] = 0;
+                        fclose(rf);
+                        FILE *wf = fopen(pp, "w");
+                        if (wf) {
+                            fwrite(buf, 1, got, wf);
+                            fclose(wf);
+                        }
+                        free(buf);
                         ProbeWrite("PROBE-TRUNCATED");
                         return;
                     }
                 }
+                fclose(rf);
             }
-        } @catch (id e) { }
+        }
     }
     FILE *f = fopen("/var/mobile/lddgifbg/__plugin_probe__.txt", "a");
     if (f) { fprintf(f, "%s\n", line); fclose(f); }
@@ -786,11 +804,9 @@ static double gVideoStopTs = 0;
 // 1.9.186: 场景分类 —— Live Activity(听歌/直播) 与通知横幅(含泛化 Notification 类)分开识别;
 // 缓存按视图指针绑定(原全局缓存会把听歌/直播的"非通知"判定串给真正的通知窄条, 反之亦然,
 // 造成听歌/直播小岛关时"时有时无背景"、通知背景延迟)
-typedef NS_ENUM(int, LDDSceneKind) {
-    LDDSceneOther = 0,
-    LDDSceneBanner = 1,
-    LDDSceneActivity = 2
-};
+// 注: 本文件不引 Foundation 头, 用 C 枚举
+typedef int LDDSceneKind;
+enum { LDDSceneOther = 0, LDDSceneBanner = 1, LDDSceneActivity = 2 };
 static LDDSceneKind LDDSceneKindOf(id v) {
     static id gKV = nil;
     static LDDSceneKind gKR = LDDSceneOther;
