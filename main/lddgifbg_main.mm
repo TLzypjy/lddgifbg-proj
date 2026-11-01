@@ -1046,9 +1046,9 @@ static void LDDIslandLayout(id self) {
             double nowT = CFAbsoluteTimeGetCurrent();
             BOOL nActive = (gNotifActive && (nowT - gNotifTs) < 30.0);   // 通知活跃: 横幅未关闭且30秒硬窗口
             if (b0.h >= 52.0) {
-                // 1.9: 展开/横幅: 通知(Banner上下文 或 通知活跃窗口) 常显, 不受小岛开关控制;
+                // 1.10: 展开/横幅: 纯类名判定(Banner上下文, Activity排除) 才常显 —— 去掉 nActive 兜底(1.9 通知30s窗口放行了听歌/直播LiveActivity展开);
                 // LiveActivity(听歌/直播)展开 链上含 Activity 类 → LDDIsBannerContext 返回NO → 小岛关不显示
-                if (LDDIsBannerContext((id)self) || nActive) {
+                if (LDDIsBannerContext((id)self)) {
                     show = YES;                   // 通知展开/横幅
                     static int h52l = 0;
                     if (h52l < 40) { h52l++; char hn[96]; snprintf(hn, sizeof(hn), "H52-SHOW-NOTIF-w%.0f-h%.0f", b0.w, b0.h); ProbeWrite(hn); }
