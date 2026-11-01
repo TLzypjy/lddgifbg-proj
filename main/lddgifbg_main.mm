@@ -1031,11 +1031,19 @@ static void LDDIslandLayout(id self) {
                 }
             }
             BOOL capAll = (gCapC || gCapR);
+            double nowT = CFAbsoluteTimeGetCurrent();
+            BOOL nActive = (gNotifActive && (nowT - gNotifTs) < 30.0);   // 通知活跃: 横幅未关闭且30秒硬窗口
             if (b0.h >= 52.0) {
-                show = YES;                       // 通知展开/横幅: 不受小岛开关控制, 始终显示
+                // 1.7: 展开/横幅: 通知(Banner上下文 或 通知活跃窗口) 常显; 听歌/直播等LiveActivity展开(非Banner且非通知) 小岛关不显示
+                if (LDDIsBannerContext((id)self) || nActive) {
+                    show = YES;                   // 通知展开/横幅: 不受小岛开关控制, 始终显示
+                    static int h52l = 0;
+                    if (h52l < 40) { h52l++; ProbeWrite("H52-SHOW-NOTIF"); }
+                } else {
+                    static int h52n = 0;
+                    if (h52n < 40) { h52n++; ProbeWrite("H52-SKIP-NONBANNER"); }
+                }
             } else {
-                double nowT = CFAbsoluteTimeGetCurrent();
-                BOOL nActive = (gNotifActive && (nowT - gNotifTs) < 30.0);   // 通知活跃: 横幅未关闭且30秒硬窗口
                 if (nActive && b0.w < 150.0) {
                     show = YES;                   // 通知收起态(129x38窄条): 横幅活跃期间常显
                 } else if (nActive && b0.w >= 250.0 && b0.h >= 40.0) {
@@ -1151,6 +1159,20 @@ static void LDDIslandLayout(id self) {
 
     CGRect b = [self bounds];
     [view setFrame:MakeRect(0, 0, b.w, b.h)];
+    // 1.7: 直播岛等容器大于内容层时背景扩展到容器 (offset 换算到 self 坐标系, 铺满整个岛)
+    {
+        id supvB = [self superview];
+        if (supvB) {
+            CGRect sbB = [supvB bounds];
+            if (sbB.w >= 40.0 && sbB.h >= 10.0 && sbB.w <= 460.0 && sbB.h <= 150.0 &&
+                (sbB.w > b.w || sbB.h > b.h)) {
+                CGRect sfB = [self frame];
+                [view setFrame:MakeRect(-sfB.ox, -sfB.oy, sbB.w, sbB.h)];
+                static int bgx = 0;
+                if (bgx < 8) { bgx++; ProbeWrite("BG-EXTEND"); }
+            }
+        }
+    }
     // 1.9.142: 广播岛容器真实尺寸 -> 设置页预览 1:1 复刻 (尺寸变化才写, 避免高频写盘)
     // 1.9.151: 仅岛展开时广播 (收起小尺寸会覆盖设置页预览的大药丸)
     { static double iw = -1, ih = -1;
