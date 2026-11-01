@@ -1,4 +1,4 @@
-// 灵动岛GIF背景 —— 重制版设置 Bundle (v3: 全标准 ObjC 语法, 适配 arm64e)
+// 灵动岛背景美化 —— 重制版设置 Bundle (v3: 全标准 ObjC 语法, 适配 arm64e)
 // 架构: 入口壳(PSListController) -> 模态面板(UITableViewController 自绘) -> 素材选择器(模态)
 // 关键: 全部使用 [obj method:] 标准语法, 由编译器生成 arm64e 正确的 objc_msgSend
 #include <stdio.h>
@@ -1034,7 +1034,7 @@ static id LDDListMaterialFolders(void) {
 - (void)viewDidLoad {
     LogB("ROOT-VIEWDIDLOAD");
     @try { [super viewDidLoad]; } @catch (id e) { LogB("ROOT-VD-EXC"); }
-    [self setTitle:@"通知背景美化"];   // 1.9.157: 更名
+    [self setTitle:@"灵动岛背景美化"];   // 1.17: 更名
     // 1.9.144: 素材切换通知 -> 强制刷新预览行
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(matChanged) name:@"LDDMatChanged" object:0];
 }

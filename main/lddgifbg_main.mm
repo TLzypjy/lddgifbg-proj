@@ -1,4 +1,4 @@
-// 灵动岛GIF背景 —— 重制版主插件
+// 灵动岛背景美化 —— 重制版主插件
 // rebuild-trigger-3 (全标准 ObjC 语法, arm64e 安全)
 // hook SBSystemApertureContainerViewContentView layoutSubviews
 // prefs: suite lddgifbg (NSUserDefaults + plist 文件多路径兜底, 含 @P@ RootHide 路径)
@@ -1584,7 +1584,7 @@ static void PostRealNotification(void) {
         id clsContent = (id)objc_getClass("UNMutableNotificationContent");
         id content = clsContent ? ((id(*)(id, SEL))objc_msgSend)((id)clsContent, sel_registerName("new")) : nil;
         if (content) {
-            ((void(*)(id, SEL, id))objc_msgSend)(content, sel_registerName("setTitle:"), @"通知背景美化");
+            ((void(*)(id, SEL, id))objc_msgSend)(content, sel_registerName("setTitle:"), @"灵动岛背景美化");
             ((void(*)(id, SEL, id))objc_msgSend)(content, sel_registerName("setBody:"), @"预览通知：岛展开显示您的背景");
         }
         // 优化12: 不再创建 UNTimeIntervalNotificationTrigger (传 nil)。
@@ -1730,8 +1730,8 @@ static void PostRealNotification(void) {
                                 SEL sNCI = sel_registerName(ncInits[j]);
                                 if (ncInst && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(ncInst, sel_registerName("respondsToSelector:"), sNCI)) {
                                     if (j == 0) ncContent = ((id(*)(id, SEL, id))objc_msgSend)(ncInst, sNCI, unreq);
-                                    else if (j == 1) ncContent = ((id(*)(id, SEL, id, id))objc_msgSend)(ncInst, sNCI, @"通知背景美化", @"预览通知");
-                                    else ncContent = ((id(*)(id, SEL, id, id, id))objc_msgSend)(ncInst, sNCI, @"通知背景美化", @"预览通知", @"岛展开显示您的背景");
+                                    else if (j == 1) ncContent = ((id(*)(id, SEL, id, id))objc_msgSend)(ncInst, sNCI, @"灵动岛背景美化", @"预览通知");
+                                    else ncContent = ((id(*)(id, SEL, id, id, id))objc_msgSend)(ncInst, sNCI, @"灵动岛背景美化", @"预览通知", @"岛展开显示您的背景");
                                 }
                             }
                             if (ncContent) {
