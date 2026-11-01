@@ -752,18 +752,29 @@ static void LogReason(const char *tag, id e) {
 static id gPresentLayer = nil;
 static double gNotifTs = -9999.0;   // 1.9.179: 最近通知横幅呈现时间(CFAbsoluteTimeGetCurrent)
 static BOOL gNotifActive = NO;      // 1.9.181: 通知横幅活跃标志(init置YES, 自动关闭置NO)
+// 1.6: 素材/播放器停止时间 (show 分支做空闲释放: 通知关闭>3s 无新通知时释放解码器, 降低 Jetsam 内存压力)
+static double gStreamStopTs = 0;
+static double gVideoStopTs = 0;
 // 1.5: 通知横幅容器识别 —— 沿 superview 链找类名含 Banner/Notification 的视图
 // 场景: banner destination 复用时 init 不再触发, gNotifActive 未激活, 通知收起窄条靠此立即显示 (解决新通知背景延迟~1s)
+// 1.6: 0.15s 结果缓存 (窄条判定不每帧扫链, 降低 CPU)
 static BOOL LDDIsBannerContext(id v) {
+    static double gBCT = 0;
+    static BOOL gBCV = NO;
+    double nw = CFAbsoluteTimeGetCurrent();
+    if (nw - gBCT < 0.15) return gBCV;
+    gBCT = nw;
+    BOOL found = NO;
     int depth = 0;
     id cur = v;
     while (cur && depth < 8) {
         const char *cn = class_getName((__bridge void *)object_getClass(cur));
-        if (cn && (strstr(cn, "Banner") || strstr(cn, "Notification") || strstr(cn, "BannerManager"))) return YES;
+        if (cn && (strstr(cn, "Banner") || strstr(cn, "Notification") || strstr(cn, "BannerManager"))) { found = YES; break; }
         cur = ((id(*)(id, SEL))objc_msgSend)(cur, sel_registerName("superview"));
         depth++;
     }
-    return NO;
+    gBCV = found;
+    return found;
 }
 static id (*origBNDInit)(id, SEL);
 static id HookBNDInit(id self, SEL _c) {
@@ -1079,11 +1090,28 @@ static void LDDIslandLayout(id self) {
             StopVideo();
             StreamPause();
             RemoveTagged(self, 9998);
+            // 1.6: 记录停止时间, show 分支据此做空闲释放 (通知关闭>3s 无新通知时释放解码器/素材)
+            gStreamStopTs = CFAbsoluteTimeGetCurrent();
+            gVideoStopTs = CFAbsoluteTimeGetCurrent();
         }
         objc_autoreleasePoolPop(pool);
         return;
     }
 
+    // 1.6: 空闲释放 —— 上次停止超过3s 无新通知, 释放常驻解码器/素材 (降低 Jetsam 内存压力)
+    if (gStreamStopTs) {
+        double nwA = CFAbsoluteTimeGetCurrent();
+        if (nwA - gStreamStopTs > 3.0) { StreamStop(); }
+        gStreamStopTs = 0;
+    }
+    if (gVideoStopTs && gPlayer) {
+        double nwB = CFAbsoluteTimeGetCurrent();
+        if (nwB - gVideoStopTs > 3.0) {
+            [[NSNotificationCenter defaultCenter] removeObserver:gObserver name:@"AVPlayerItemDidPlayToEndTimeNotification" object:gPlayerItem];
+            gPlayerItem = nil; gPlayer = nil; gPlayerLayer = nil;
+        }
+        gVideoStopTs = 0;
+    }
     // 1.9.172: 素材路径 2 秒缓存 —— GetSelectedImagePath 内部扫目录(文件IO), 由原 0.5s 节流每帧级降到 2 秒一次
     NSString *path = nil;
     {
