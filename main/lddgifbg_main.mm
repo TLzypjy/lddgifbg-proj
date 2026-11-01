@@ -1064,6 +1064,11 @@ static void LDDIslandLayout(id self) {
                     show = YES;                   // 1.16: 面容识别/全屏场景呈现(ScenePresenterView 407x489): 不受小岛开关控制
                     static int fidl = 0;
                     if (fidl < 40) { fidl++; char fn[96]; snprintf(fn, sizeof(fn), "H52-SHOW-FACEID-w%.0f-h%.0f", b0.w, b0.h); ProbeWrite(fn); }
+                } else if (b0.w >= 100.0 && b0.w <= 250.0 && b0.h >= 100.0 && b0.h <= 250.0
+                           && b0.w > b0.h * 0.5 && b0.h > b0.w * 0.5) {
+                    show = YES;                   // 1.17: 面容识别近方形容器(144x145 Face ID 图标呈现): 不受小岛开关控制
+                    static int fid2 = 0;
+                    if (fid2 < 40) { fid2++; char fn[96]; snprintf(fn, sizeof(fn), "H52-SHOW-FACEID-SQ-w%.0f-h%.0f", b0.w, b0.h); ProbeWrite(fn); }
                 } else if (b0.w >= 380.0 && b0.h >= 40.0) {
                     show = YES;
                     static int h52l = 0;
