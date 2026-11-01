@@ -752,6 +752,19 @@ static void LogReason(const char *tag, id e) {
 static id gPresentLayer = nil;
 static double gNotifTs = -9999.0;   // 1.9.179: 最近通知横幅呈现时间(CFAbsoluteTimeGetCurrent)
 static BOOL gNotifActive = NO;      // 1.9.181: 通知横幅活跃标志(init置YES, 自动关闭置NO)
+// 1.5: 通知横幅容器识别 —— 沿 superview 链找类名含 Banner/Notification 的视图
+// 场景: banner destination 复用时 init 不再触发, gNotifActive 未激活, 通知收起窄条靠此立即显示 (解决新通知背景延迟~1s)
+static BOOL LDDIsBannerContext(id v) {
+    int depth = 0;
+    id cur = v;
+    while (cur && depth < 8) {
+        const char *cn = class_getName((__bridge void *)object_getClass(cur));
+        if (cn && (strstr(cn, "Banner") || strstr(cn, "Notification") || strstr(cn, "BannerManager"))) return YES;
+        cur = ((id(*)(id, SEL))objc_msgSend)(cur, sel_registerName("superview"));
+        depth++;
+    }
+    return NO;
+}
 static id (*origBNDInit)(id, SEL);
 static id HookBNDInit(id self, SEL _c) {
     id r = origBNDInit(self, _c);
@@ -1016,6 +1029,10 @@ static void LDDIslandLayout(id self) {
                     show = YES;                   // 通知收起态(129x38窄条): 横幅活跃期间常显
                 } else if (nActive && b0.w >= 250.0 && b0.h >= 40.0) {
                     show = YES;                   // 通知重新弹出动画中间态(403x44等): 横幅活跃期间常显
+                } else if (b0.w < 150.0 && LDDIsBannerContext((id)self)) {
+                    show = YES;                   // 1.5: 通知横幅容器兜底: 复用destination未激活gNotifActive时, 通知窄条立即显示
+                    static int bnl = 0;
+                    if (bnl < 8) { bnl++; ProbeWrite("BANNER-CTX-NARROW"); }
                 } else if (capAll && b0.w < 150.0) {
                     show = YES;                   // 录屏收起窄条(129x38等): 录屏中不受小岛开关控制
                     static int reclog = 0;
