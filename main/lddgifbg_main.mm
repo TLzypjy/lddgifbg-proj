@@ -769,26 +769,24 @@ static BOOL LDDIsBannerContext(id v) {
     id cur = v;
     while (cur && depth < 8) {
         const char *cn = class_getName((__bridge void *)object_getClass(cur));
-        if (cn && (strstr(cn, "Banner") || strstr(cn, "Notification") || strstr(cn, "BannerManager"))) { found = YES; break; }
+        if (cn) {
+            // 1.9: LiveActivity(听歌/直播) 专属类优先排除 —— 其链上常含 Notification 泛化类导致误判为通知
+            if (strstr(cn, "Activity")) {
+                static int alog = 0;
+                if (alog < 8) { alog++; char ab[128]; snprintf(ab, sizeof(ab), "LDD-ACTIVITY-SKIP-%s", cn); ProbeWrite(ab); }
+                found = NO; break;
+            }
+            if (strstr(cn, "Banner") || strstr(cn, "Notification") || strstr(cn, "BannerManager")) {
+                static int blog = 0;
+                if (blog < 8) { blog++; char bb[128]; snprintf(bb, sizeof(bb), "LDD-BANNER-HIT-%s", cn); ProbeWrite(bb); }
+                found = YES; break;
+            }
+        }
         cur = ((id(*)(id, SEL))objc_msgSend)(cur, sel_registerName("superview"));
         depth++;
     }
     gBCV = found;
     return found;
-}
-// 1.8: 严格横幅识别 (h>=52 展开态用): 只认通知横幅专属类 (NotificationBanner/BannerDestination/BannerManager/BannerView),
-// 排除 LiveActivity(听歌/直播)/系统容器树上泛化 Notification 类误判 —— 1.7 宽匹配把展开态全放行了
-static BOOL LDDIsNotifBannerStrict(id v) {
-    int depth = 0;
-    id cur = v;
-    while (cur && depth < 8) {
-        const char *cn = class_getName((__bridge void *)object_getClass(cur));
-        if (cn && (strstr(cn, "NotificationBanner") || strstr(cn, "BannerDestination") ||
-                   strstr(cn, "BannerManager") || strstr(cn, "BannerView"))) return YES;
-        cur = ((id(*)(id, SEL))objc_msgSend)(cur, sel_registerName("superview"));
-        depth++;
-    }
-    return NO;
 }
 static id (*origBNDInit)(id, SEL);
 static id HookBNDInit(id self, SEL _c) {
@@ -1048,12 +1046,12 @@ static void LDDIslandLayout(id self) {
             double nowT = CFAbsoluteTimeGetCurrent();
             BOOL nActive = (gNotifActive && (nowT - gNotifTs) < 30.0);   // 通知活跃: 横幅未关闭且30秒硬窗口
             if (b0.h >= 52.0) {
-                // 1.8: 展开/横幅: 严格横幅识别 (NotificationBanner等专属类) 才常显;
-                // 听歌/直播等LiveActivity展开(非横幅类) 小岛关不显示; 不用nActive(通知30s窗口会误放行LiveActivity)
-                if (LDDIsNotifBannerStrict((id)self)) {
-                    show = YES;                   // 通知展开/横幅: 不受小岛开关控制, 始终显示
+                // 1.9: 展开/横幅: 通知(Banner上下文 或 通知活跃窗口) 常显, 不受小岛开关控制;
+                // LiveActivity(听歌/直播)展开 链上含 Activity 类 → LDDIsBannerContext 返回NO → 小岛关不显示
+                if (LDDIsBannerContext((id)self) || nActive) {
+                    show = YES;                   // 通知展开/横幅
                     static int h52l = 0;
-                    if (h52l < 40) { h52l++; ProbeWrite("H52-SHOW-NOTIF"); }
+                    if (h52l < 40) { h52l++; char hn[96]; snprintf(hn, sizeof(hn), "H52-SHOW-NOTIF-w%.0f-h%.0f", b0.w, b0.h); ProbeWrite(hn); }
                 } else {
                     static int h52n = 0;
                     if (h52n < 40) { h52n++; char hn[96]; snprintf(hn, sizeof(hn), "H52-SKIP-NONBANNER-w%.0f-h%.0f", b0.w, b0.h); ProbeWrite(hn); }
@@ -1112,7 +1110,14 @@ static void LDDIslandLayout(id self) {
             if (oldV) { [oldV stopAnimating]; [oldV setImage:nil]; [oldV setAnimationImages:nil]; }
             StopVideo();
             StreamPause();
-            RemoveTagged(self, 9998);
+            // 1.9: 背景层可能已挂到容器(superview), 从 self 树找不到 9998 -> 直接移除 gContainerView 防残留(左上角残影)
+            if (gContainerView) {
+                [gContainerView removeFromSuperview];
+                gContainerView = nil;
+                gContentView = nil;
+            } else {
+                RemoveTagged(self, 9998);
+            }
             // 1.6: 记录停止时间, show 分支据此做空闲释放 (通知关闭>3s 无新通知时释放解码器/素材)
             gStreamStopTs = CFAbsoluteTimeGetCurrent();
             gVideoStopTs = CFAbsoluteTimeGetCurrent();
@@ -1162,7 +1167,9 @@ static void LDDIslandLayout(id self) {
     RemoveTagged(self, 9997);
     RemoveTagged(self, 9996);
 
-    UIImageView *view = (UIImageView *)[self viewWithTag:9999];
+    // 1.9: 背景层复用 gContainerView(可能已挂到容器), 找不到才按 tag 查找/重建
+    UIImageView *view = (UIImageView *)gContainerView;
+    if (!view) view = (UIImageView *)[self viewWithTag:9999];
     if (!view) {
         CGRect b = [self bounds];
         view = [[UIImageView alloc] initWithFrame:MakeRect(0, 0, b.w, b.h)];
@@ -1174,17 +1181,24 @@ static void LDDIslandLayout(id self) {
 
     CGRect b = [self bounds];
     [view setFrame:MakeRect(0, 0, b.w, b.h)];
-    // 1.7: 直播岛等容器大于内容层时背景扩展到容器 (offset 换算到 self 坐标系, 铺满整个岛)
+    // 1.9: 容器大于内容层时背景层改挂到容器(superview)坐标系铺满 —— 修复"背景只铺左上角":
+    //   1.7 用 offset 换算(-sfB.ox...)在 self 坐标系扩展, 但背景层是 self 子视图, 被 self 的裁切(masksToBounds)裁回内容层大小, 视觉只剩左上角
     {
         id supvB = [self superview];
         if (supvB) {
             CGRect sbB = [supvB bounds];
             if (sbB.w >= 40.0 && sbB.h >= 10.0 && sbB.w <= 460.0 && sbB.h <= 150.0 &&
                 (sbB.w > b.w || sbB.h > b.h)) {
-                CGRect sfB = [self frame];
-                [view setFrame:MakeRect(-sfB.ox, -sfB.oy, sbB.w, sbB.h)];
+                if (((id(*)(id, SEL))objc_msgSend)(view, sel_registerName("superview")) != supvB) {
+                    [view removeFromSuperview];
+                    [supvB insertSubview:view atIndex:0];
+                }
+                [view setFrame:MakeRect(0, 0, sbB.w, sbB.h)];
                 static int bgx = 0;
                 if (bgx < 8) { bgx++; ProbeWrite("BG-EXTEND"); }
+            } else if (((id(*)(id, SEL))objc_msgSend)(view, sel_registerName("superview")) != (id)self) {
+                [view removeFromSuperview];
+                [self insertSubview:view atIndex:0];
             }
         }
     }
