@@ -1045,17 +1045,20 @@ static void LDDIslandLayout(id self) {
             BOOL capAll = (gCapC || gCapR);
             double nowT = CFAbsoluteTimeGetCurrent();
             BOOL nActive = (gNotifActive && (nowT - gNotifTs) < 30.0);   // 通知活跃: 横幅未关闭且30秒硬窗口
-            // 1.13: 通知展开(宽>=250, 407x92/422x106)显示期间持续刷新活跃窗口 ——
-            //   实机通知 init→显示间隔长或长驻>30s 时 nActive 过期 → 407 展开 SHOW-0 → 1.12 清理把背景撤掉 → "收到通知没背景"
-            //   听歌展开(141x63)/直播展开(149x65) w<250 不命中刷新, 不受影响
+            // 1.14: 用户语义 —— 小岛关(cZxh=NO)=只有通知+录屏铺背景; 小岛开(cZxh=YES)=所有岛都铺
+            //   实机通知复用 destination 不触发 init → gNotifActive 常为 NO → nActive 不可靠(预览新建才激活);
+            //   通知展开 407x92/422x106(宽>=380) 直接放行; 听歌展开141x63/直播展开149x65(宽<380) 小岛关不显示
             if (gNotifActive && b0.w >= 250.0 && b0.h >= 40.0) {
-                gNotifTs = nowT;
+                gNotifTs = nowT;                  // 通知窗口保活(仅预览新建 destination 时生效, 无害)
             }
             if (b0.h >= 52.0) {
-                // 1.11: 展开/横幅: 纯类名判定(Banner上下文, Activity排除) 优先;
-                // 通知展开(407x92/422x106, 链上无 Banner 类, 1.10 验证 LDDIsBannerContext=NO) 用通知活跃窗口+宽>=250 兜底;
-                // 听歌展开(141x63)/直播展开(149x65) w<250 且非Banner上下文 → 小岛关不显示
-                if (LDDIsBannerContext((id)self) || (nActive && b0.w >= 250.0)) {
+                if (cZxh) {
+                    if (b0.w >= 40.0 && b0.w <= 460.0 && b0.h >= 10.0 && b0.h <= 150.0) {
+                        show = YES;
+                        static int h52z = 0;
+                        if (h52z < 40) { h52z++; char hn[96]; snprintf(hn, sizeof(hn), "H52-SHOW-ISLANDON-w%.0f-h%.0f", b0.w, b0.h); ProbeWrite(hn); }
+                    }
+                } else if (b0.w >= 380.0 && b0.h >= 40.0) {
                     show = YES;
                     static int h52l = 0;
                     if (h52l < 40) { h52l++; char hn[96]; snprintf(hn, sizeof(hn), "H52-SHOW-NOTIF-w%.0f-h%.0f", b0.w, b0.h); ProbeWrite(hn); }
@@ -1064,7 +1067,9 @@ static void LDDIslandLayout(id self) {
                     if (h52n < 40) { h52n++; char hn[96]; snprintf(hn, sizeof(hn), "H52-SKIP-NONBANNER-w%.0f-h%.0f", b0.w, b0.h); ProbeWrite(hn); }
                 }
             } else {
-                if (nActive && b0.w < 150.0) {
+                if (cZxh) {
+                    if (b0.w >= 40.0 && b0.w <= 460.0 && b0.h >= 10.0 && b0.h <= 150.0) show = YES;
+                } else if (nActive && b0.w < 150.0) {
                     show = YES;                   // 通知收起态(129x38窄条): 横幅活跃期间常显
                 } else if (nActive && b0.w >= 250.0 && b0.h >= 40.0) {
                     show = YES;                   // 通知重新弹出动画中间态(403x44等): 横幅活跃期间常显
