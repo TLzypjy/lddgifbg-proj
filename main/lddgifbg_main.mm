@@ -1052,12 +1052,18 @@ static void LDDIslandLayout(id self) {
                 gNotifTs = nowT;                  // 通知窗口保活(仅预览新建 destination 时生效, 无害)
             }
             if (b0.h >= 52.0) {
+                const char *clsNow = object_getClassName(self);
+                int faceidC = (clsNow && strstr(clsNow, "ScenePresenterView"));
                 if (cZxh) {
                     if (b0.w >= 40.0 && b0.w <= 460.0 && b0.h >= 10.0 && b0.h <= 150.0) {
                         show = YES;
                         static int h52z = 0;
                         if (h52z < 40) { h52z++; char hn[96]; snprintf(hn, sizeof(hn), "H52-SHOW-ISLANDON-w%.0f-h%.0f", b0.w, b0.h); ProbeWrite(hn); }
                     }
+                } else if (faceidC) {
+                    show = YES;                   // 1.16: 面容识别/全屏场景呈现(ScenePresenterView 407x489): 不受小岛开关控制
+                    static int fidl = 0;
+                    if (fidl < 40) { fidl++; char fn[96]; snprintf(fn, sizeof(fn), "H52-SHOW-FACEID-w%.0f-h%.0f", b0.w, b0.h); ProbeWrite(fn); }
                 } else if (b0.w >= 380.0 && b0.h >= 40.0) {
                     show = YES;
                     static int h52l = 0;
@@ -1353,7 +1359,10 @@ static void CtrlLayoutHook(id self, SEL _cmd) {
     if (!once) { once = 1; ProbeWrite("CTRL-HOOK-FIRED"); }
     // 优化1: 尺寸快速过滤 (绝大多数视图整屏/极小, 直接跳过, 零消息开销之外的成本)
     CGRect bb = ((CGRect(*)(id, SEL))objc_msgSend)(self, sel_registerName("bounds"));
-    if (bb.w > 460.0 || bb.h > 150.0 || bb.w < 40.0 || bb.h < 10.0) {
+    // 1.16: 面容识别/全屏场景呈现容器(ScenePresenterView 407x489) 例外放行快速过滤 —— 不受小岛开关控制
+    const char *fcn0 = object_getClassName(self);
+    int faceidF = (fcn0 && strstr(fcn0, "ScenePresenterView"));
+    if (!faceidF && (bb.w > 460.0 || bb.h > 150.0 || bb.w < 40.0 || bb.h < 10.0)) {
         // 1.15 探针: 记录认证/面容类容器(任意尺寸) —— 定位面容识别(Face ID)弹出时的容器类名/尺寸
         const char *fcn = object_getClassName(self);
         if (fcn && (strstr(fcn,"Auth")||strstr(fcn,"Face")||strstr(fcn,"Bio")||strstr(fcn,"Biometric")
