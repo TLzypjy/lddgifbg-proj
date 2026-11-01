@@ -1107,12 +1107,16 @@ static void LDDIslandLayout(id self) {
             id sl = ((id(*)(id, SEL))objc_msgSend)(gPlayerLayer, sel_registerName("superlayer"));
             if (sl) hasLayer = YES;
         }
-        if (dirty || hasLayer) {
+        // 1.12: 只要 gContainerView 存在就无条件清理 —— 1.9 的 dirty||hasLayer 门在背景挂容器后失效:
+        //   oldV 从 self 树 viewWithTag:9999 找不到(已挂到容器), 静态GIF 又无 playerLayer → dirty/hasLayer 恒 NO → 清理永不触发
+        //   → 通知背景残留挂在容器上, 听歌/直播岛出现(同一容器)时背景图还在 → 用户看到"听歌/直播有背景"
+        if (dirty || hasLayer || gContainerView) {
             if (oldV) { [oldV stopAnimating]; [oldV setImage:nil]; [oldV setAnimationImages:nil]; }
             StopVideo();
             StreamPause();
             // 1.9: 背景层可能已挂到容器(superview), 从 self 树找不到 9998 -> 直接移除 gContainerView 防残留(左上角残影)
             if (gContainerView) {
+                [gContainerView stopAnimating];
                 [gContainerView removeFromSuperview];
                 gContainerView = nil;
                 gContentView = nil;
