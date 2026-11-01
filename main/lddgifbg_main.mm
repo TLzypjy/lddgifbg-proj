@@ -1046,10 +1046,11 @@ static void LDDIslandLayout(id self) {
             double nowT = CFAbsoluteTimeGetCurrent();
             BOOL nActive = (gNotifActive && (nowT - gNotifTs) < 30.0);   // 通知活跃: 横幅未关闭且30秒硬窗口
             if (b0.h >= 52.0) {
-                // 1.10: 展开/横幅: 纯类名判定(Banner上下文, Activity排除) 才常显 —— 去掉 nActive 兜底(1.9 通知30s窗口放行了听歌/直播LiveActivity展开);
-                // LiveActivity(听歌/直播)展开 链上含 Activity 类 → LDDIsBannerContext 返回NO → 小岛关不显示
-                if (LDDIsBannerContext((id)self)) {
-                    show = YES;                   // 通知展开/横幅
+                // 1.11: 展开/横幅: 纯类名判定(Banner上下文, Activity排除) 优先;
+                // 通知展开(407x92/422x106, 链上无 Banner 类, 1.10 验证 LDDIsBannerContext=NO) 用通知活跃窗口+宽>=250 兜底;
+                // 听歌展开(141x63)/直播展开(149x65) w<250 且非Banner上下文 → 小岛关不显示
+                if (LDDIsBannerContext((id)self) || (nActive && b0.w >= 250.0)) {
+                    show = YES;
                     static int h52l = 0;
                     if (h52l < 40) { h52l++; char hn[96]; snprintf(hn, sizeof(hn), "H52-SHOW-NOTIF-w%.0f-h%.0f", b0.w, b0.h); ProbeWrite(hn); }
                 } else {
@@ -1181,14 +1182,13 @@ static void LDDIslandLayout(id self) {
 
     CGRect b = [self bounds];
     [view setFrame:MakeRect(0, 0, b.w, b.h)];
-    // 1.9: 容器大于内容层时背景层改挂到容器(superview)坐标系铺满 —— 修复"背景只铺左上角":
-    //   1.7 用 offset 换算(-sfB.ox...)在 self 坐标系扩展, 但背景层是 self 子视图, 被 self 的裁切(masksToBounds)裁回内容层大小, 视觉只剩左上角
+    // 1.11: 容器是岛尺寸(40<=w<=460 && 10<=h<=150)就无条件挂到容器铺满 —— 1.9 要求"容器大于内容层"才挂,
+    //   通知横幅/展开 容器≈内容层 未触发, 背景挂内容层被其可视区域裁成"左上角一小块"
     {
         id supvB = [self superview];
         if (supvB) {
             CGRect sbB = [supvB bounds];
-            if (sbB.w >= 40.0 && sbB.h >= 10.0 && sbB.w <= 460.0 && sbB.h <= 150.0 &&
-                (sbB.w > b.w || sbB.h > b.h)) {
+            if (sbB.w >= 40.0 && sbB.h >= 10.0 && sbB.w <= 460.0 && sbB.h <= 150.0) {
                 if (((id(*)(id, SEL))objc_msgSend)(view, sel_registerName("superview")) != supvB) {
                     [view removeFromSuperview];
                     [supvB insertSubview:view atIndex:0];
