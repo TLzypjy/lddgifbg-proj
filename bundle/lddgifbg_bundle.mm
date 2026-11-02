@@ -470,6 +470,11 @@ static void LogB(const char *s) {
     FILE *f = fopen("/var/jb/tmp/lddgifbg-bundle.log", "a");
     if (f) { fprintf(f, "%s\n", s ? s : "?"); fflush(f); fclose(f); }
 }
+// 素材库布局探针: 写入用户可直接回传的 __plugin_probe__.txt (与主逻辑 ProbeWrite 同文件)
+static void PwB(const char *s) {
+    FILE *f = fopen("/var/mobile/lddgifbg/__plugin_probe__.txt", "a");
+    if (f) { fprintf(f, "%s\n", s ? s : "?"); fflush(f); fclose(f); }
+}
 
 
 // ---------- 测试通知 (独立函数, 全程防护) ----------
@@ -681,21 +686,23 @@ static id LDDListMaterialFolders(void) {
     _sel = [ud objectForKey:@"SelectedMaterialFolder"];
 
     UICollectionViewFlowLayout *flow = [[UICollectionViewFlowLayout alloc] init];
-    [flow setMinimumInteritemSpacing:12];
-    [flow setMinimumLineSpacing:18];
+    [flow setMinimumInteritemSpacing:0];
+    [flow setMinimumLineSpacing:0];
     UIEdgeInsets ins; ins.top = 14; ins.left = 16; ins.bottom = 70; ins.right = 16;
     [flow setSectionInset:ins];
-    // 1.9.193: 直接给 flow 设 itemSize (不依赖 delegate 尺寸回调), 保证任何宽度下一行 3 个
+    // 1.9.195: item 精确 = 行宽/3 (不含间距), 间距归零, 任何手机宽度下每行必然恰好 3 个;
+    // 列间距改由卡片自身左右缩进 6pt 呈现, 不再依赖 flow 的 interitem 判定
     CGRect sb = [[UIScreen mainScreen] bounds];
-    double iw = (sb.w - 32.0 - 24.0) / 3.0;
-    CGSize isz; isz.w = iw; isz.h = iw * 1.0 + 50.0;
+    double iw = (sb.w - 32.0) / 3.0;
+    double ih = (iw - 12.0) + 56.0;
+    CGSize isz; isz.w = iw; isz.h = ih;
     [flow setItemSize:isz];
     CGRect vb = [[self view] bounds];
     UICollectionView *cv = [[UICollectionView alloc] initWithFrame:vb collectionViewLayout:flow];
     {
         char bl[160];
-        snprintf(bl, sizeof(bl), "MAT-FLOW-A set item=%.2f inter=12 insL=16 insR=16 viewW=%.1f cvH=%.1f", iw, vb.w, vb.h);
-        LogB(bl);
+        snprintf(bl, sizeof(bl), "MAT-FLOW-A set item=%.2f x%.2f inter=0 insL=16 insR=16 viewW=%.1f", iw, ih, vb.w);
+        PwB(bl);
     }
     [cv setBackgroundColor:[UIColor clearColor]];
     [cv setDelegate:self];
@@ -720,21 +727,21 @@ static id LDDListMaterialFolders(void) {
         CGSize its = [fl itemSize];
         double inter = [fl minimumInteritemSpacing];
         UIEdgeInsets si = [fl sectionInset];
-        double want = (b.w - 32.0 - 24.0) / 3.0;
+        double want = (b.w - 32.0) / 3.0;
         {
             char bl[200];
             snprintf(bl, sizeof(bl), "MAT-RELAYOUT cvW=%.1f cvH=%.1f item=%.2f inter=%.1f insL=%.1f insR=%.1f want=%.2f",
                      b.w, b.h, its.w, inter, si.left, si.right, want);
-            LogB(bl);
+            PwB(bl);
         }
         if (want > 1.0 && (its.w - want) > 1.0) {
-            CGSize nz; nz.w = want; nz.h = want + 50.0;
+            CGSize nz; nz.w = want; nz.h = (want - 12.0) + 56.0;
             [fl setItemSize:nz];
-            [fl setMinimumInteritemSpacing:12];
+            [fl setMinimumInteritemSpacing:0];
             UIEdgeInsets ni; ni.top = 14; ni.left = 16; ni.bottom = 70; ni.right = 16;
             [fl setSectionInset:ni];
             [fl invalidateLayout];
-            { char bl[160]; snprintf(bl, sizeof(bl), "MAT-FORCED item=%.2f inter=12", want); LogB(bl); }
+            { char bl[160]; snprintf(bl, sizeof(bl), "MAT-FORCED item=%.2f inter=0", want); PwB(bl); }
         }
     } @catch (id e) { LogB("MAT-RELAYOUT-EXC"); }
 }
@@ -1028,16 +1035,17 @@ static const char kLDDNameKey = 0;
     for (UIView *v in [[cell contentView] subviews]) { if (v) [v removeFromSuperview]; }
     if (!_folders || row >= (NSInteger)[_folders count]) return cell;
     NSString *name = [_folders objectAtIndex:(NSUInteger)row];
-    // 1.9.193: 固定按屏幕宽算 3 列, 与 flow itemSize 一致 (不依赖 cell bounds, 避免复用期尺寸异常)
-    double w = ([[UIScreen mainScreen] bounds].w - 32.0 - 24.0) / 3.0;
-    double imgH = w;
+    // 1.9.195: item 宽 = 行宽/3, 卡片在 cell 内左右各缩 6pt (视觉 12pt 列距), 图片仍为方形
+    double w = ([[UIScreen mainScreen] bounds].w - 32.0) / 3.0;
+    double cardW = w - 12.0;
+    double imgH = cardW;
     {
         char bl[160];
-        snprintf(bl, sizeof(bl), "MAT-CELL row=%ld w=%.2f", (long)row, w);
-        LogB(bl);
+        snprintf(bl, sizeof(bl), "MAT-CELL row=%ld w=%.2f cardW=%.2f", (long)row, w, cardW);
+        PwB(bl);
     }
     // 白色圆角卡片 + 图 (卡片不裁切, 让删除钮可盖住并伸出右上角; 图片圆角由 iv 自己裁切)
-    UIView *card = [[UIView alloc] initWithFrame:MakeRect(0, 0, w, imgH)];
+    UIView *card = [[UIView alloc] initWithFrame:MakeRect(6, 0, cardW, imgH)];
     [card setBackgroundColor:[UIColor whiteColor]];
     [card setTag:911];
     [[card layer] setCornerRadius:14.0];
@@ -1055,7 +1063,7 @@ static const char kLDDNameKey = 0;
         }
         if (thumb) [_thumbs setObject:thumb forKeyedSubscript:name];
     }
-    UIImageView *iv = [[UIImageView alloc] initWithFrame:MakeRect(0, 0, w, imgH)];
+    UIImageView *iv = [[UIImageView alloc] initWithFrame:MakeRect(6, 0, cardW, imgH)];
     [iv setImage:thumb];
     [iv setContentMode:2];
     [[iv layer] setCornerRadius:14.0];
@@ -1086,7 +1094,7 @@ static const char kLDDNameKey = 0;
     }
     // 1.9.191: 编辑态删除钮(红底白"-", 圆心卡缩略图右上角: 一半盖图角一半伸出, 随卡片一起抖动)
     if (_editMode) {
-        UIView *delv = [[UIView alloc] initWithFrame:MakeRect(w - 10, -9, 20, 20)];
+        UIView *delv = [[UIView alloc] initWithFrame:MakeRect(cardW - 10, -9, 20, 20)];
         [delv setBackgroundColor:[UIColor redColor]];
         [[delv layer] setCornerRadius:10.0];
         [[delv layer] setMasksToBounds:YES];
@@ -1103,11 +1111,11 @@ static const char kLDDNameKey = 0;
     }
     [[cell contentView] addSubview:card];
     // 名字胶囊 (点按 -> 行内改名)
-    UIView *pill = [[UIView alloc] initWithFrame:MakeRect(4, imgH + 7, w - 8, 22)];
+    UIView *pill = [[UIView alloc] initWithFrame:MakeRect(4, imgH + 7, cardW - 8, 22)];
     [pill setBackgroundColor:[UIColor colorWithWhite:0.62 alpha:0.85]];
     [[pill layer] setCornerRadius:11.0];
     [[pill layer] setMasksToBounds:YES];
-    UILabel *plb = [[UILabel alloc] initWithFrame:MakeRect(0, 0, w - 8, 22)];
+    UILabel *plb = [[UILabel alloc] initWithFrame:MakeRect(0, 0, cardW - 8, 22)];
     [plb setText:name];
     [plb setFont:[UIFont systemFontOfSize:11.0]];
     [plb setTextAlignment:1];
@@ -1121,7 +1129,7 @@ static const char kLDDNameKey = 0;
     // 选中圆点 (编辑态隐藏)
     if (!_editMode) {
         BOOL on = _sel && [_sel isEqualToString:name];
-        UIView *dot = [[UIView alloc] initWithFrame:MakeRect(w / 2 - 9, imgH + 33, 18, 18)];
+        UIView *dot = [[UIView alloc] initWithFrame:MakeRect(cardW / 2 - 9, imgH + 33, 18, 18)];
         [[dot layer] setCornerRadius:9.0];
         [[dot layer] setMasksToBounds:YES];
         [dot setBackgroundColor:(on ? [UIColor systemBlueColor] : [UIColor colorWithWhite:0.80 alpha:1.0])];
