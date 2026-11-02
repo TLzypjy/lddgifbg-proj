@@ -716,8 +716,10 @@ static id LDDListMaterialFolders(void) {
     [[self view] addSubview:cv];
     _cv = cv;
     // 1.9.201: 键盘弹出 -> 把正在改名的 cell 滚到可视区 (底两行改名不再被键盘盖住)
+    // 1.9.203: 探针改写 PwB (用户回传的 __plugin_probe__.txt), 不再写 bundle.log; 加 DidShow 双保险
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(kbdWillShow:) name:@"UIKeyboardWillShowNotification" object:0];
-    LogB("KBD-OBS-ADDED");
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(kbdDidShow:) name:@"UIKeyboardDidShowNotification" object:0];
+    PwB("KBD-OBS-ADDED");
     NSString *cnt = [NSString stringWithFormat:@"素材库 (%lu)", (unsigned long)[_folders count]];
     [self setTitle:cnt];
 }
@@ -849,13 +851,22 @@ static const char kLDDNameKey = 0;
 }
 // 1.9.201: 键盘弹出 -> 正在改名的 cell 垂直居中滚入可视区, 底两行不再被键盘盖住
 - (void)kbdWillShow:(id)n {
-    if (!_activeIp) { LogB("KBD-NO-IP"); return; }
+    if (!_activeIp) { PwB("KBD-NO-IP"); return; }
     @try {
         // 4 = UICollectionViewScrollPositionCenteredVertically (存根工程无枚举 -> 数字)
         ((void(*)(id, SEL, id, int, BOOL))objc_msgSend)((UICollectionView *)_cv,
             sel_registerName("scrollToItemAtIndexPath:atScrollPosition:animated:"), _activeIp, 4, YES);
-        LogB("KBD-SCROLL-OK");
-    } @catch (id e) { LogB("KBD-SCROLL-EXC"); }
+        PwB("KBD-SCROLL-OK");
+    } @catch (id e) { PwB("KBD-SCROLL-EXC"); }
+}
+// 1.9.203: 键盘完全弹出后再滚一次 (WillShow 时键盘尚未弹起, 单次滚动可能不到位)
+- (void)kbdDidShow:(id)n {
+    if (!_activeIp) return;
+    @try {
+        ((void(*)(id, SEL, id, int, BOOL))objc_msgSend)((UICollectionView *)_cv,
+            sel_registerName("scrollToItemAtIndexPath:atScrollPosition:animated:"), _activeIp, 4, YES);
+        PwB("KBD-DIDSHOW-OK");
+    } @catch (id e) { PwB("KBD-DIDSHOW-EXC"); }
 }
 - (BOOL)textFieldShouldReturn:(UITextField *)tf {
     [tf resignFirstResponder];

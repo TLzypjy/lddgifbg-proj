@@ -330,9 +330,10 @@ static BOOL IsLddGifBgEnabled(void) {
     id v = LoadPrefsValue(gPrefsKeyEnable);
     return v ? [v boolValue] : YES;
 }
+// 1.9.203: 小岛开关默认关 (用户语义: 未设置时只给通知岛铺, 听歌/直播不铺); 已手动开启过小岛的用户读到 YES 不受影响
 static BOOL IsZxhLddGifBgEnabled(void) {
     id v = LoadPrefsValue(gPrefsKeyZxh);
-    return v ? [v boolValue] : YES;
+    return v ? [v boolValue] : NO;
 }
 static double GetLddGifBgPos(NSString *key, double fallback) {
     id v = LoadPrefsValue(key);
@@ -1979,7 +1980,7 @@ static void PostRealNotification(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.139-merge");
+    ProbeWrite("LDD-BUILD actions-1.9.140-merge");
     ProbeWrite("CONSTRUCTOR-RAN");
     // 1.9.151: 构造器不再读 prefs (避免 SpringBoard 启动早期触发 CFPrefs 初始化时序问题)
     // 对照组 hook (兼启动延迟器)
