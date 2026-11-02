@@ -622,7 +622,6 @@ static id ThumbForPath(NSString *path) {
 - (NSInteger)collectionView:(id)cv numberOfItemsInSection:(NSInteger)s;
 - (id)collectionView:(id)cv cellForItemAtIndexPath:(id)ip;
 - (void)collectionView:(id)cv didSelectItemAtIndexPath:(id)ip;
-- (CGSize)collectionView:(id)cv layout:(id)layout sizeForItemAtIndexPath:(id)ip;
 - (void)closeTapped;
 @end
 // 1.9.131: 素材列表只返回"素材文件夹"(目录), 排除 __ 前缀内部文件(探针/消费标记)
