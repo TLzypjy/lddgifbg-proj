@@ -716,7 +716,7 @@ static id LDDListMaterialFolders(void) {
     [[self view] addSubview:cv];
     _cv = cv;
     // 1.9.201: 键盘弹出 -> 把正在改名的 cell 滚到可视区 (底两行改名不再被键盘盖住)
-    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(kbdWillShow:) name:UIKeyboardWillShowNotification object:0];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(kbdWillShow:) name:@"UIKeyboardWillShowNotification" object:0];
     NSString *cnt = [NSString stringWithFormat:@"素材库 (%lu)", (unsigned long)[_folders count]];
     [self setTitle:cnt];
 }
@@ -826,7 +826,8 @@ static const char kLDDNameKey = 0;
     id lab = [pill viewWithTag:922]; // 名字文字 label
     CGRect lf = [pill frame];
     if (lab) [lab setHidden:YES];
-    _activeIp = [(UICollectionView *)_cv indexPathForCell:cell]; // 1.9.201: 记住位置, 键盘弹出时滚动
+    // 1.9.201: 记住位置, 键盘弹出时滚动 (存根工程无 UICollectionView 接口 -> objc_msgSend)
+    _activeIp = ((id(*)(id, SEL, id))objc_msgSend)((UICollectionView *)_cv, sel_registerName("indexPathForCell:"), cell);
     UITextField *tf = [[UITextField alloc] initWithFrame:lf];
     [tf setText:name];
     [tf setFont:[UIFont systemFontOfSize:11.0]];
@@ -849,7 +850,9 @@ static const char kLDDNameKey = 0;
 - (void)kbdWillShow:(id)n {
     if (!_activeIp) return;
     @try {
-        [(UICollectionView *)_cv scrollToItemAtIndexPath:_activeIp atScrollPosition:4 animated:YES]; // 4 = CenteredVertically
+        // 4 = UICollectionViewScrollPositionCenteredVertically (存根工程无枚举 -> 数字)
+        ((void(*)(id, SEL, id, int, BOOL))objc_msgSend)((UICollectionView *)_cv,
+            sel_registerName("scrollToItemAtIndexPath:atScrollPosition:animated:"), _activeIp, 4, YES);
     } @catch (id e) { LogB("KBD-SCROLL-EXC"); }
 }
 - (BOOL)textFieldShouldReturn:(UITextField *)tf {
