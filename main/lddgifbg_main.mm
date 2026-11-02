@@ -1245,6 +1245,20 @@ static void LDDIslandLayout(id self) {
                  cZxh ? 1 : 0, mainOn ? 1 : 0, dbgNA ? 1 : 0, dbgCap ? 1 : 0, jr.w, jr.h, show ? 1 : 0);
         ProbeWrite(db);
     }
+    // 1.24+: 铺背景瞬间现场快照(限流30) —— 直接记录"被铺的到底是什么视图":
+    // 类名/容器尺寸/通知窗口剩余时间, 与 MAT-DECIDE 对账即可定位听歌场景残留铺背景的来源
+    if (show) {
+        static int trl = 0;
+        if (trl < 30) {
+            trl++;
+            const char *cn0 = object_getClassName(self);
+            double ageMs = (CFAbsoluteTimeGetCurrent() - gNotifTs) * 1000.0;
+            char tb[224];
+            snprintf(tb, sizeof(tb), "SHOW-TRACE cls=%s w=%.0f h=%.0f zxh=%d nA=%d cap=%d notifAge=%.0fms scene=%d",
+                     cn0 ? cn0 : "?", jr.w, jr.h, cZxh ? 1 : 0, dbgNA ? 1 : 0, dbgCap ? 1 : 0, ageMs, (int)LDDSceneKindOf((id)self));
+            ProbeWrite(tb);
+        }
+    }
     if (!show) {
         // 1.9.166: 节流 —— 仅"仍有内容/视频层挂着"才清理一次, 避免直播横条(167x37)每帧重复空清理拖卡
         // 1.9.184: 清理用缓存视图 (避免每帧 viewWithTag 递归遍历子视图树); 缓存失效(不在视图树)才回退递归查找

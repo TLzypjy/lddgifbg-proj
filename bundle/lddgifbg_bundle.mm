@@ -635,6 +635,7 @@ static id ThumbForPath(NSString *path) {
 - (void)collectionView:(id)cv didSelectItemAtIndexPath:(id)ip;
 - (void)closeTapped;
 - (void)viewDidLayoutSubviews;
+- (void)kbdWillShow:(id)n;
 @end
 // 1.9.131: 素材列表只返回"素材文件夹"(目录), 排除 __ 前缀内部文件(探针/消费标记)
 static id LDDListMaterialFolders(void) {
@@ -665,6 +666,7 @@ static id LDDListMaterialFolders(void) {
     NSString *_activeName;
     id _activeCell;
     id _activeLabel; // 1.9.192: 行内改名中被隐藏的名字 label, 结束时恢复显示
+    id _activeIp;    // 1.9.201: 正在改名的 cell 的 indexpath, 键盘弹出时滚动到可视区
 }
 - (void)viewDidLoad {
     [super viewDidLoad];
@@ -713,6 +715,8 @@ static id LDDListMaterialFolders(void) {
     [cv addGestureRecognizer:lp];
     [[self view] addSubview:cv];
     _cv = cv;
+    // 1.9.201: 键盘弹出 -> 把正在改名的 cell 滚到可视区 (底两行改名不再被键盘盖住)
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(kbdWillShow:) name:UIKeyboardWillShowNotification object:0];
     NSString *cnt = [NSString stringWithFormat:@"素材库 (%lu)", (unsigned long)[_folders count]];
     [self setTitle:cnt];
 }
@@ -822,6 +826,7 @@ static const char kLDDNameKey = 0;
     id lab = [pill viewWithTag:922]; // 名字文字 label
     CGRect lf = [pill frame];
     if (lab) [lab setHidden:YES];
+    _activeIp = [(UICollectionView *)_cv indexPathForCell:cell]; // 1.9.201: 记住位置, 键盘弹出时滚动
     UITextField *tf = [[UITextField alloc] initWithFrame:lf];
     [tf setText:name];
     [tf setFont:[UIFont systemFontOfSize:11.0]];
@@ -840,6 +845,13 @@ static const char kLDDNameKey = 0;
     _activeLabel = lab;
     [tf becomeFirstResponder];
 }
+// 1.9.201: 键盘弹出 -> 正在改名的 cell 垂直居中滚入可视区, 底两行不再被键盘盖住
+- (void)kbdWillShow:(id)n {
+    if (!_activeIp) return;
+    @try {
+        [(UICollectionView *)_cv scrollToItemAtIndexPath:_activeIp atScrollPosition:4 animated:YES]; // 4 = CenteredVertically
+    } @catch (id e) { LogB("KBD-SCROLL-EXC"); }
+}
 - (BOOL)textFieldShouldReturn:(UITextField *)tf {
     [tf resignFirstResponder];
     return YES;
@@ -852,6 +864,7 @@ static const char kLDDNameKey = 0;
     _activeField = nil;
     _activeName = nil;
     _activeCell = nil;
+    _activeIp = nil;
     if (_activeLabel) { [_activeLabel setHidden:NO]; _activeLabel = nil; }
     if (old && nn && [nn length] > 0) [self doRename:old to:nn];
 }
@@ -1110,8 +1123,8 @@ static const char kLDDNameKey = 0;
         objc_setAssociatedObject(dg, &kLDDDelKey, name, 1); // OBJC_ASSOCIATION_RETAIN_NONATOMIC
     }
     [[cell contentView] addSubview:card];
-    // 名字胶囊 (点按 -> 行内改名)
-    UIView *pill = [[UIView alloc] initWithFrame:MakeRect(4, imgH + 7, cardW - 8, 22)];
+    // 名字胶囊 (点按 -> 行内改名); 1.9.201: x=10 与卡片(x=6,宽cardW)水平居中对齐 —— 用户反馈胶囊偏左
+    UIView *pill = [[UIView alloc] initWithFrame:MakeRect(10, imgH + 7, cardW - 8, 22)];
     [pill setBackgroundColor:[UIColor colorWithWhite:0.62 alpha:0.85]];
     [[pill layer] setCornerRadius:11.0];
     [[pill layer] setMasksToBounds:YES];
@@ -1129,7 +1142,7 @@ static const char kLDDNameKey = 0;
     // 选中圆点 (编辑态隐藏)
     if (!_editMode) {
         BOOL on = _sel && [_sel isEqualToString:name];
-        UIView *dot = [[UIView alloc] initWithFrame:MakeRect(cardW / 2 - 9, imgH + 33, 18, 18)];
+        UIView *dot = [[UIView alloc] initWithFrame:MakeRect(6 + cardW / 2 - 9, imgH + 33, 18, 18)];
         [[dot layer] setCornerRadius:9.0];
         [[dot layer] setMasksToBounds:YES];
         [dot setBackgroundColor:(on ? [UIColor systemBlueColor] : [UIColor colorWithWhite:0.80 alpha:1.0])];
