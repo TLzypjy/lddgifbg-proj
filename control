@@ -1,9 +1,1 @@
-Package: com.tlzypjy.github
-Name: 灵动岛背景美化
-Author: TL
-Description: 灵动岛背景美化：把通知横幅背景替换为你自己的 GIF/视频/图片素材，支持播放速度与位置偏移自定义，素材放 /var/mobile/lddgifbg/ 下子文件夹。无依赖，兼容无根与隐根。
-Maintainer: TL
-Section: Tweaks
-Architecture: iphoneos-arm64
-Version: 1.26
-Icon: https://axs66.github.io/repo/icon/lddgifbg.png
+UGFja2FnZTogY29tLnRsenlwankuZ2l0aHViCk5hbWU6IOeBteWKqOWym+iDjOaZr+e+juWMlgpBdXRob3I6IFRMCkRlc2NyaXB0aW9uOiDngbXliqjlspvog4zmma/nvo7ljJbvvJrmiorpgJrnn6XmqKrluYXog4zmma/mm7/mjaLkuLrkvaDoh6rlt7HnmoQgR0lGL+inhumikS/lm77niYfntKDmnZDvvIzmlK/mjIHmkq3mlL7pgJ/luqbkuI7kvY3nva7lgY/np7voh6rlrprkuYnvvIzntKDmnZDmlL4gL3Zhci9tb2JpbGUvbGRkZ2lmYmcvIOS4i+WtkOaWh+S7tuWkueOAguaXoOS+nei1lu+8jOWFvOWuueaXoOagueS4jumakOagueOAggpNYWludGFpbmVyOiBUTApTZWN0aW9uOiBUd2Vha3MKQXJjaGl0ZWN0dXJlOiBpcGhvbmVvcy1hcm02NApWZXJzaW9uOiAxLjI3Ckljb246IGh0dHBzOi8vYXhzNjYuZ2l0aHViLmlvL3JlcG8vaWNvbi9sZGRnaWZiZy5wbmcK
