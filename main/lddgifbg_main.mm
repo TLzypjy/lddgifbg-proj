@@ -807,8 +807,10 @@ static double gVideoStopTs = 0;
 // 注: 本文件不引 Foundation 头, 用 C 枚举
 typedef int LDDSceneKind;
 enum { LDDSceneOther = 0, LDDSceneBanner = 1, LDDSceneActivity = 2 };
+// 1.9.187: 只用于"小岛关时窄条是否通知"的低频判定; 缓存指针用 unsafe_unretained(不 retain 视图,
+// 避免布局期间把被系统释放的视图锁住造成泄漏/悬垂), 深度 6 层足够命中泛化类
 static LDDSceneKind LDDSceneKindOf(id v) {
-    static id gKV = nil;
+    static __unsafe_unretained id gKV = nil;
     static LDDSceneKind gKR = LDDSceneOther;
     static double gKT = 0;
     double nw = CFAbsoluteTimeGetCurrent();
@@ -816,7 +818,7 @@ static LDDSceneKind LDDSceneKindOf(id v) {
     LDDSceneKind k = LDDSceneOther;
     int depth = 0;
     id cur = v;
-    while (cur && depth < 10) {
+    while (cur && depth < 6) {
         const char *cn = class_getName((__bridge void *)object_getClass(cur));
         if (cn) {
             // Live Activity(听歌/直播等) 专属类优先: 其链上常含 Notification 泛化类, 必须最先排除
@@ -1112,10 +1114,6 @@ static void LDDIslandLayout(id self) {
                         static int h52z = 0;
                         if (h52z < 40) { h52z++; char hn[96]; snprintf(hn, sizeof(hn), "H52-SHOW-ISLANDON-w%.0f-h%.0f", b0.w, b0.h); ProbeWrite(hn); }
                     }
-                } else if (LDDSceneKindOf((id)self) == LDDSceneActivity) {
-                    // 1.9.186: 听歌/直播展开条(141x63/149x65/285x52等): 小岛关一律不铺背景
-                    static int hact = 0;
-                    if (hact < 8) { hact++; ProbeWrite("H52-ACTIVITY-SKIP"); }
                 } else if (faceidC) {
                     show = YES;                   // 1.16: 面容识别/全屏场景呈现(ScenePresenterView 407x489): 不受小岛开关控制
                     static int fidl = 0;
@@ -1136,13 +1134,16 @@ static void LDDIslandLayout(id self) {
             } else {
                 if (cZxh) {
                     if (b0.w >= 40.0 && b0.w <= 460.0 && b0.h >= 10.0 && b0.h <= 150.0) show = YES;
-                } else if (LDDSceneKindOf((id)self) == LDDSceneActivity) {
-                    // 1.9.186: 听歌/直播等 Live Activity 紧凑条(125~131x37~39): 小岛关一律不铺背景
-                    // (尺寸与通知收起窄条相近, 原 nActive/通知兜底会误判为通知 → 时有时无背景)
-                    static int actl = 0;
-                    if (actl < 8) { actl++; ProbeWrite("COMPACT-ACTIVITY-SKIP"); }
                 } else if (nActive && b0.w < 150.0) {
-                    show = YES;                   // 通知收起态(129x38窄条): 横幅活跃期间常显
+                    // 通知收起态(129x38窄条): 横幅活跃期间常显;
+                    // 听歌/直播紧凑条(125~131x37~39)尺寸相同, 1.9.187: 仅在此分支内做 Live Activity 排除
+                    // (扫描面收敛到"通知活跃窗口", 不再每个容器每帧扫链, 避免布局路径野指针)
+                    if (LDDSceneKindOf((id)self) != LDDSceneActivity) {
+                        show = YES;
+                    } else {
+                        static int actl = 0;
+                        if (actl < 8) { actl++; ProbeWrite("COMPACT-ACTIVITY-SKIP"); }
+                    }
                 } else if (nActive && b0.w >= 250.0 && b0.h >= 40.0) {
                     show = YES;                   // 通知重新弹出动画中间态(403x44等): 横幅活跃期间常显
                 } else if (b0.w < 150.0 && LDDIsBannerContext((id)self)) {
