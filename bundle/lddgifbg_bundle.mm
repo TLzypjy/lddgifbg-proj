@@ -717,6 +717,7 @@ static id LDDListMaterialFolders(void) {
     _cv = cv;
     // 1.9.201: 键盘弹出 -> 把正在改名的 cell 滚到可视区 (底两行改名不再被键盘盖住)
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(kbdWillShow:) name:@"UIKeyboardWillShowNotification" object:0];
+    LogB("KBD-OBS-ADDED");
     NSString *cnt = [NSString stringWithFormat:@"素材库 (%lu)", (unsigned long)[_folders count]];
     [self setTitle:cnt];
 }
@@ -848,11 +849,12 @@ static const char kLDDNameKey = 0;
 }
 // 1.9.201: 键盘弹出 -> 正在改名的 cell 垂直居中滚入可视区, 底两行不再被键盘盖住
 - (void)kbdWillShow:(id)n {
-    if (!_activeIp) return;
+    if (!_activeIp) { LogB("KBD-NO-IP"); return; }
     @try {
         // 4 = UICollectionViewScrollPositionCenteredVertically (存根工程无枚举 -> 数字)
         ((void(*)(id, SEL, id, int, BOOL))objc_msgSend)((UICollectionView *)_cv,
             sel_registerName("scrollToItemAtIndexPath:atScrollPosition:animated:"), _activeIp, 4, YES);
+        LogB("KBD-SCROLL-OK");
     } @catch (id e) { LogB("KBD-SCROLL-EXC"); }
 }
 - (BOOL)textFieldShouldReturn:(UITextField *)tf {

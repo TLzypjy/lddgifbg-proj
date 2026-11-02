@@ -849,20 +849,28 @@ static LDDSceneKind LDDSceneKindOf(id v) {
         depth++;
     }
     // 第二遍: 只认明确 Banner 类 (真实通知横幅链特征), 不因裸 Notification 泛化误判
+    // 1.9.202: Banner 扫描限深度 3 (self -> superview -> superview.superview)。
+    // 实机 1.9.200/1.9.201 探针证实: 听歌/直播紧凑条链 = contentView->UIView->SBSystemApertureContainerView
+    //   ->SBFTouchPassThroughView... -> SBSystemApertureWindow, 前 3 层无任何 Banner 类;
+    // 但通知横幅出现时其 destination/BannerManager 挂在共享容器(第 3 层及以上)的兄弟/上级,
+    // 旧全链(深度8)扫描会把"听歌条与通知同处一个岛容器"误判为 Banner —— 听歌时来过通知,
+    // 通知窗口(2s)内听歌条被铺背景(用户复现: 听歌时来通知就把听歌岛铺上背景)。
+    // 限深度 3 后, 听歌条前 3 层无 Banner 类 -> Other 不铺; 通知收起窄条若其链前 3 层含
+    //   NotificationBanner 仍判 Banner 正常铺。命中时带深度记录, 供对账误伤。
     if (k != LDDSceneActivity) {
         depth = 0;
         cur = v;
-        while (cur && depth < 8) {
+        while (cur && depth < 3) {
             const char *cn = class_getName((__bridge void *)object_getClass(cur));
             if (cn) {
                 if (strstr(cn, "BannerManager") || strstr(cn, "BannerDestination") || strstr(cn, "NotificationBanner")) {
                     static int blog = 0;
-                    if (blog < 200) { blog++; char bb[128]; snprintf(bb, sizeof(bb), "LDD-BANNER-HIT-%s", cn); ProbeWrite(bb); }
+                    if (blog < 200) { blog++; char bb[128]; snprintf(bb, sizeof(bb), "LDD-BANNER-HIT-%s-d%d", cn, depth); ProbeWrite(bb); }
                     k = LDDSceneBanner; break;
                 }
                 static int notl = 0;
                 if (notl < 200 && strstr(cn, "Notification")) {
-                    notl++; char nb[128]; snprintf(nb, sizeof(nb), "LDD-NOTIF-GENERIC-%s", cn); ProbeWrite(nb);
+                    notl++; char nb[128]; snprintf(nb, sizeof(nb), "LDD-NOTIF-GENERIC-%s-d%d", cn, depth); ProbeWrite(nb);
                 }
             }
             cur = ((id(*)(id, SEL))objc_msgSend)(cur, sel_registerName("superview"));
@@ -1247,15 +1255,18 @@ static void LDDIslandLayout(id self) {
     }
     // 1.24+: 铺背景瞬间现场快照(限流30) —— 直接记录"被铺的到底是什么视图":
     // 类名/容器尺寸/通知窗口剩余时间, 与 MAT-DECIDE 对账即可定位听歌场景残留铺背景的来源
+    // 1.9.202: 窄条(听歌/直播紧凑条 w<160)与宽条分开限流 —— 旧版 30 条额度全被通知宽条
+    // (285x52/407x92 高频)吃掉, 听歌窄条 show=1 的现场永远抓不到; 各 30 条额度独立互不挤占
     if (show) {
-        static int trl = 0;
-        if (trl < 30) {
-            trl++;
+        static int trl = 0, trn = 0;
+        BOOL narrowTrace = (jr.w < 160.0);
+        if ((narrowTrace && trn < 30) || (!narrowTrace && trl < 30)) {
+            if (narrowTrace) trn++; else trl++;
             const char *cn0 = object_getClassName(self);
             double ageMs = (CFAbsoluteTimeGetCurrent() - gNotifTs) * 1000.0;
             char tb[224];
-            snprintf(tb, sizeof(tb), "SHOW-TRACE cls=%s w=%.0f h=%.0f zxh=%d nA=%d cap=%d notifAge=%.0fms scene=%d",
-                     cn0 ? cn0 : "?", jr.w, jr.h, cZxh ? 1 : 0, dbgNA ? 1 : 0, dbgCap ? 1 : 0, ageMs, (int)LDDSceneKindOf((id)self));
+            snprintf(tb, sizeof(tb), "SHOW-TRACE%s cls=%s w=%.0f h=%.0f zxh=%d nA=%d cap=%d notifAge=%.0fms scene=%d",
+                     narrowTrace ? "-N" : "", cn0 ? cn0 : "?", jr.w, jr.h, cZxh ? 1 : 0, dbgNA ? 1 : 0, dbgCap ? 1 : 0, ageMs, (int)LDDSceneKindOf((id)self));
             ProbeWrite(tb);
         }
     }
@@ -1968,7 +1979,7 @@ static void PostRealNotification(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.138-merge");
+    ProbeWrite("LDD-BUILD actions-1.9.139-merge");
     ProbeWrite("CONSTRUCTOR-RAN");
     // 1.9.151: 构造器不再读 prefs (避免 SpringBoard 启动早期触发 CFPrefs 初始化时序问题)
     // 对照组 hook (兼启动延迟器)
