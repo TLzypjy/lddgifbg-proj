@@ -745,15 +745,15 @@ static id LDDListMaterialFolders(void) {
     }
 }
 // 删除钮: 手势绑定素材名
-static const void *kLDDDelKey = &kLDDDelKey;
+static const char kLDDDelKey;
 - (void)delBtnTapped:(UITapGestureRecognizer *)g {
-    NSString *name = objc_getAssociatedObject(g, kLDDDelKey);
+    NSString *name = objc_getAssociatedObject(g, &kLDDDelKey);
     if (name) [self confirmDelete:name];
 }
 // 点名字 -> 行内改名
-static const void *kLDDNameKey = &kLDDNameKey;
+static const char kLDDNameKey;
 - (void)nameTapped:(UITapGestureRecognizer *)g {
-    NSString *name = objc_getAssociatedObject(g, kLDDNameKey);
+    NSString *name = objc_getAssociatedObject(g, &kLDDNameKey);
     if (!name) return;
     id label = [g view];             // pill
     id contentV = [label superview]; // contentView
@@ -1051,7 +1051,7 @@ static const void *kLDDNameKey = &kLDDNameKey;
         [card addSubview:delv];
         UITapGestureRecognizer *dg = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(delBtnTapped:)];
         [delv addGestureRecognizer:dg];
-        objc_setAssociatedObject(dg, kLDDDelKey, name, 1); // OBJC_ASSOCIATION_RETAIN_NONATOMIC
+        objc_setAssociatedObject(dg, &kLDDDelKey, name, 1); // OBJC_ASSOCIATION_RETAIN_NONATOMIC
     }
     [[cell contentView] addSubview:card];
     // 名字胶囊 (点按 -> 行内改名)
@@ -1069,7 +1069,7 @@ static const void *kLDDNameKey = &kLDDNameKey;
     [[cell contentView] addSubview:pill];
     UITapGestureRecognizer *ng = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(nameTapped:)];
     [pill addGestureRecognizer:ng];
-    objc_setAssociatedObject(ng, kLDDNameKey, name, 1);
+    objc_setAssociatedObject(ng, &kLDDNameKey, name, 1);
     // 选中圆点 (编辑态隐藏)
     if (!_editMode) {
         BOOL on = _sel && [_sel isEqualToString:name];
