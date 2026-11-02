@@ -79,6 +79,9 @@ static id CLSSTR(const char *n) { return (id)objc_getClass(n); }
 - (void)removeObject:(id)o;
 - (void)removeAllObjects;
 @end
+@interface NSValue : NSObject
+- (CGRect)CGRectValue;
+@end
 @interface NSDictionary : NSObject
 + (id)dictionary;
 + (id)dictionaryWithContentsOfFile:(NSString *)p;
@@ -668,6 +671,7 @@ static id LDDListMaterialFolders(void) {
     id _activeField;
     NSString *_activeName;
     id _activeCell;
+    double _preKbdOY;   // 1.9.206: beginRename 前的 contentOffset.y, 改名结束恢复滚动
     id _activeLabel; // 1.9.192: 行内改名中被隐藏的名字 label, 结束时恢复显示
     id _activeIp;    // 1.9.201: 正在改名的 cell 的 indexpath, 键盘弹出时滚动到可视区
 }
@@ -834,6 +838,8 @@ static const char kLDDNameKey = 0;
     if (lab) [lab setHidden:YES];
     // 1.9.201: 记住位置, 键盘弹出时滚动 (存根工程无 UICollectionView 接口 -> objc_msgSend)
     _activeIp = ((id(*)(id, SEL, id))objc_msgSend)((UICollectionView *)_cv, sel_registerName("indexPathForCell:"), cell);
+    // 1.9.206: 记录滚动前位置, 改名结束恢复(用户: 改完名字预览图不会自己滚下来)
+    _preKbdOY = [(UICollectionView *)_cv contentOffset].y;
     UITextField *tf = [[UITextField alloc] initWithFrame:lf];
     [tf setText:name];
     [tf setFont:[UIFont systemFontOfSize:11.0]];
@@ -861,16 +867,26 @@ static const char kLDDNameKey = 0;
     @try {
         UICollectionView *cv = (UICollectionView *)_cv;
         if (_activeCell) {
-            // id -> UIView 显式 cast 调 frame(编译期方法解析), 避免 id 隐式调用 warning
+            // 1.9.206: 键盘高度从通知 userInfo 拿 UIKeyboardFrameEndUserInfoKey (NSValue -> CGRectValue)
+            double kbH = 0;
+            id ui = [n userInfo];
+            if (ui) {
+                id kbv = [ui objectForKey:@"UIKeyboardFrameEndUserInfoKey"];
+                if (kbv && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(kbv, sel_registerName("respondsToSelector:"), sel_registerName("CGRectValue"))) {
+                    CGRect kf = [(NSValue *)kbv CGRectValue];
+                    kbH = kf.h;
+                }
+            }
             CGRect fr = [(UIView *)_activeCell frame];
-            UIEdgeInsets ei = [cv contentInset];
-            // 存根 CGRect 字段是 ox/oy/w/h (无 origin), 类型 double (无 CGFloat)
-            double offY = fr.oy - ei.top;
+            CGRect cvb = [cv bounds];
+            // 目标: cell 顶部对齐键盘顶(可视高 - 键盘高), 最后一行不再滚到最顶留大片空白
+            // (1.9.205 实测: 最后一行 y544 滚到顶, 键盘上方空一大片; 改后仅滚到紧贴键盘)
+            double offY = (kbH > 0) ? (fr.oy - (cvb.h - kbH)) : (fr.oy - [(UICollectionView *)_cv contentInset].top);
             if (offY < 0) offY = 0;
             CGPoint pt = [cv contentOffset];
             pt.y = offY;
             [cv setContentOffset:pt animated:YES];
-            char kb[96]; snprintf(kb, sizeof(kb), "KBD-OFFSET-y%.0f", fr.oy);
+            char kb[128]; snprintf(kb, sizeof(kb), "KBD-OFFSET-y%.0f-kb%.0f", fr.oy, kbH);
             PwB(kb);
         } else {
             PwB("KBD-NO-CELL");
@@ -878,15 +894,24 @@ static const char kLDDNameKey = 0;
         PwB("KBD-SCROLL-OK");
     } @catch (id e) { PwB("KBD-SCROLL-EXC"); }
 }
-// 1.9.205: 键盘完全弹出后再滚一次 (WillShow 时键盘尚未弹起, 单次滚动可能不到位), 同样顶对齐
+// 1.9.206: 键盘完全弹出后再滚一次 (WillShow 时键盘尚未弹起, 单次滚动可能不到位), 同样紧贴键盘
 - (void)kbdDidShow:(id)n {
     if (!_activeIp) return;
     @try {
         UICollectionView *cv = (UICollectionView *)_cv;
         if (_activeCell) {
+            double kbH = 0;
+            id ui = [n userInfo];
+            if (ui) {
+                id kbv = [ui objectForKey:@"UIKeyboardFrameEndUserInfoKey"];
+                if (kbv && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(kbv, sel_registerName("respondsToSelector:"), sel_registerName("CGRectValue"))) {
+                    CGRect kf = [(NSValue *)kbv CGRectValue];
+                    kbH = kf.h;
+                }
+            }
             CGRect fr = [(UIView *)_activeCell frame];
-            UIEdgeInsets ei = [cv contentInset];
-            double offY = fr.oy - ei.top;
+            CGRect cvb = [cv bounds];
+            double offY = (kbH > 0) ? (fr.oy - (cvb.h - kbH)) : (fr.oy - [(UICollectionView *)_cv contentInset].top);
             if (offY < 0) offY = 0;
             CGPoint pt = [cv contentOffset];
             pt.y = offY;
@@ -906,6 +931,16 @@ static const char kLDDNameKey = 0;
     NSString *old = _activeName;
     NSString *nn = [tf text];
     [tf removeFromSuperview];
+    // 1.9.206: 改名结束恢复滚动位置(用户: 改完名字预览图不会自己滚下来, 一直停在上边)
+    @try {
+        UICollectionView *cv = (UICollectionView *)_cv;
+        CGPoint rp = [cv contentOffset];
+        rp.y = _preKbdOY;
+        if (rp.y < 0) rp.y = 0;
+        [cv setContentOffset:rp animated:YES];
+        char kb[128]; snprintf(kb, sizeof(kb), "KBD-RESTORE-y%.0f", rp.y);
+        PwB(kb);
+    } @catch (id e) { }
     _activeField = nil;
     _activeName = nil;
     _activeCell = nil;

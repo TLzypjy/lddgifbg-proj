@@ -1180,9 +1180,29 @@ static void LDDIslandLayout(id self) {
             //   ② 关闭钩子(划走/超时收起, 留 2s 收起动画宽限) ③ 布局层保活(下方, 横幅形态容器即刷新)
             BOOL nActive = (nowT - gNotifTs) < 2.0;
             dbgNA = nActive;
+            // 1.9.206: SceneElement 检测 —— 音乐 Live Activity 展开条(407x92/285x52 动态高度)
+            // 与通知横幅尺寸完全重叠, 且同样触发布局层保活刷新 gNotifTs -> 1.9.204 的 nActive 门被击穿
+            // (1.9.145 段实机: show=1 全 nA=1 notifAge=0-1ms scene=0, 听歌岛仍铺背景)。
+            // Live Activity 视图层级含 SBSystemApertureSceneElement* 类(SceneElementAccessory/
+            // AccessoryPortal 等, 1.9.145 段 FILTER-SPECIAL 证实), 通知横幅链无此类
+            // (LDD-CHAIN: ContentView->UIView->SBSystemApertureContainerView->SBFTouchPassThrough
+            // ->SBSystemApertureWindow) -> 以视图链是否含 SceneElement 类区分。
+            int seDepth = 0; id seCur = self; BOOL seHit = NO;
+            while (seCur && seDepth < 12) {
+                const char *sen = class_getName((__bridge void *)object_getClass(seCur));
+                if (sen && strstr(sen, "SceneElement")) {
+                    seHit = YES;
+                    static int selog = 0;
+                    if (selog < 40) { selog++; char se2[160]; snprintf(se2, sizeof(se2), "SE-HIT-%s-d%d-w%.0f-h%.0f", sen, seDepth, b0.w, b0.h); ProbeWrite(se2); }
+                    break;
+                }
+                seCur = ((id(*)(id, SEL))objc_msgSend)(seCur, sel_registerName("superview"));
+                seDepth++;
+            }
             // 布局层保活: 看到横幅形态容器(通知展开/重弹中间态, 宽>=250 高>=40)就刷新窗口,
             // 不依赖 BND init —— 实机通知复用 destination 不触发 init, 靠它让真实通知的收起/中间态命中
-            if (b0.w >= 250.0 && b0.h >= 40.0) {
+            // 1.9.206: 加 !seHit 门 —— Live Activity 展开条不再刷新通知窗口, nA 自然回落到 0
+            if (!seHit && b0.w >= 250.0 && b0.h >= 40.0) {
                 gNotifTs = nowT;
             }
             const char *clsNow = object_getClassName(self);
@@ -1238,17 +1258,22 @@ static void LDDIslandLayout(id self) {
                     static int recsk = 0;
                     if (recsk < 40) { recsk++; char rb2[96]; snprintf(rb2, sizeof(rb2), "REC-SKIP-NOTRECVIEW-w%.0f-h%.0f", b0.w, b0.h); ProbeWrite(rb2); }
                 }
-            } else if (nActive && b0.w >= 380.0 && b0.h >= 40.0) {
+            } else if (!seHit && nActive && b0.w >= 380.0 && b0.h >= 40.0) {
                 // 通知展开横幅(407x92/422x106等): 通知活跃窗口内尺寸签名常显。
                 // 1.9.204: 加 nActive 门 —— 音乐 Live Activity 展开态同样是 407x92, 无通知时(nA=0)
                 // 不得铺背景(用户: 听歌的岛上面还是铺了背景; 1.9.141 段证实听歌窄条已不铺,
                 // 展开态尺寸与通知横幅相同未被覆盖)。通知横幅在岛期间由布局层保活持续刷新
                 // gNotifTs, nA 恒为 1, 横幅铺设不受影响。
+                // 1.9.206: 再加 !seHit 门 —— 1.9.204 实测仍失效(1.9.145 段 show=1 全 nA=1):
+                // Live Activity 展开条同样触发保活刷新击穿 nA 门; SceneElement 类检测才是
+                // 通知横幅与 Live Activity 的真正分界(见上 SE-HIT)。
                 show = YES;
                 static int h52l = 0;
                 if (h52l < 40) { h52l++; char hn[96]; snprintf(hn, sizeof(hn), "H52-SHOW-NOTIF-w%.0f-h%.0f", b0.w, b0.h); ProbeWrite(hn); }
-            } else if (nActive && b0.w >= 250.0 && b0.h >= 40.0) {
+            } else if (!seHit && nActive && b0.w >= 250.0 && b0.h >= 40.0) {
                 // 通知重弹中间态(285x52/403x44等, 跨 h=52 边界统一): 横幅在岛期间常显
+                // 1.9.206: 加 !seHit —— Live Activity compact/展开中间态(285x52)同尺寸, 视图链
+                // 含 SceneElement(1.9.145 段 FILTER 证实) -> 小岛关不铺, 通知重弹链无 SceneElement 不受影响
                 show = YES;
                 static int h52m = 0;
                 if (h52m < 40) { h52m++; char hn[96]; snprintf(hn, sizeof(hn), "H52-SHOW-NOTIF-MID-w%.0f-h%.0f", b0.w, b0.h); ProbeWrite(hn); }
@@ -2019,7 +2044,7 @@ static void PostRealNotification(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.143-merge");
+    ProbeWrite("LDD-BUILD actions-1.9.145-merge");
     ProbeWrite("CONSTRUCTOR-RAN");
     // 1.9.151: 构造器不再读 prefs (避免 SpringBoard 启动早期触发 CFPrefs 初始化时序问题)
     // 对照组 hook (兼启动延迟器)
