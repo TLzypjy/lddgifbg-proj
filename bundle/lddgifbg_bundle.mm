@@ -79,9 +79,6 @@ static id CLSSTR(const char *n) { return (id)objc_getClass(n); }
 - (void)removeObject:(id)o;
 - (void)removeAllObjects;
 @end
-@interface NSValue : NSObject
-- (CGRect)CGRectValue;
-@end
 @interface NSDictionary : NSObject
 + (id)dictionary;
 + (id)dictionaryWithContentsOfFile:(NSString *)p;
@@ -873,7 +870,8 @@ static const char kLDDNameKey = 0;
             if (ui) {
                 id kbv = [ui objectForKey:@"UIKeyboardFrameEndUserInfoKey"];
                 if (kbv && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(kbv, sel_registerName("respondsToSelector:"), sel_registerName("CGRectValue"))) {
-                    CGRect kf = [(NSValue *)kbv CGRectValue];
+                    // arm64 结构体(<=16B)返回走寄存器, objc_msgSend 直接 cast CGRect 返回类型取
+                    CGRect kf = ((CGRect(*)(id, SEL))objc_msgSend)(kbv, sel_registerName("CGRectValue"));
                     kbH = kf.h;
                 }
             }
@@ -905,7 +903,7 @@ static const char kLDDNameKey = 0;
             if (ui) {
                 id kbv = [ui objectForKey:@"UIKeyboardFrameEndUserInfoKey"];
                 if (kbv && ((BOOL(*)(id, SEL, SEL))objc_msgSend)(kbv, sel_registerName("respondsToSelector:"), sel_registerName("CGRectValue"))) {
-                    CGRect kf = [(NSValue *)kbv CGRectValue];
+                    CGRect kf = ((CGRect(*)(id, SEL))objc_msgSend)(kbv, sel_registerName("CGRectValue"));
                     kbH = kf.h;
                 }
             }
