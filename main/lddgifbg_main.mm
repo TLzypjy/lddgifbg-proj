@@ -1199,10 +1199,45 @@ static void LDDIslandLayout(id self) {
                 static int fid2 = 0;
                 if (fid2 < 40) { fid2++; char fn[96]; snprintf(fn, sizeof(fn), "H52-SHOW-FACEID-SQ-w%.0f-h%.0f", b0.w, b0.h); ProbeWrite(fn); }
             } else if (capAll) {
-                // 录屏岛(收起窄条129x38 / 横条176x37 / 控制中心宽条345x38): 录屏中不受小岛开关控制
-                show = YES;
-                static int reclog3 = 0;
-                if (reclog3 < 40) { reclog3++; char rb[96]; snprintf(rb, sizeof(rb), "REC-CAPTURED-ON-w%.0f-h%.0f", b0.w, b0.h); ProbeWrite(rb); }
+                // 1.9.203: 录屏分支收紧 —— 旧版"录屏中所有岛都铺", 用户听歌+录屏时听歌条
+                // (129x38/176x37, 尺寸与录屏条相同)也被铺背景(用户: 听歌还是有背景)。
+                // 改: 仅视图链上出现明确录屏/捕获类才视为录屏岛铺背景;
+                // 听歌/直播条链(_SBSystemApertureContainerViewContentView->UIView->SBSystemApertureContainerView)
+                // 无录屏类 -> 录屏中也保持不铺, 符合"小岛关: 只通知/录屏/面容岛铺"语义。
+                int recDepth = 0; id recCur = self; BOOL recHit = NO;
+                while (recCur && recDepth < 8) {
+                    const char *rcn = class_getName((__bridge void *)object_getClass(recCur));
+                    if (rcn && (strstr(rcn, "Recording") || strstr(rcn, "Capture") || strstr(rcn, "ScreenCapture")
+                                || strstr(rcn, "Mirror") || strstr(rcn, "LiveRender") || strstr(rcn, "Record"))) {
+                        recHit = YES;
+                        static int recl = 0;
+                        if (recl < 40) { recl++; char rr[160]; snprintf(rr, sizeof(rr), "REC-HIT-%s-d%d-w%.0f-h%.0f", rcn, recDepth, b0.w, b0.h); ProbeWrite(rr); }
+                        break;
+                    }
+                    recCur = ((id(*)(id, SEL))objc_msgSend)(recCur, sel_registerName("superview"));
+                    recDepth++;
+                }
+                static int rechain = 0;
+                if (rechain < 40) {
+                    rechain++;
+                    id cc2 = self; int cd2 = 0; char rc2[320]; int rp2 = 0;
+                    rp2 += snprintf(rc2 + rp2, sizeof(rc2) - rp2, "REC-CHAIN");
+                    while (cc2 && cd2 < 8 && rp2 < 300) {
+                        const char *cnx = class_getName((__bridge void *)object_getClass(cc2));
+                        rp2 += snprintf(rc2 + rp2, sizeof(rc2) - rp2, "-%d:%s", cd2, cnx ? cnx : "?");
+                        cc2 = ((id(*)(id, SEL))objc_msgSend)(cc2, sel_registerName("superview"));
+                        cd2++;
+                    }
+                    ProbeWrite(rc2);
+                }
+                if (recHit) {
+                    show = YES;
+                    static int reclog3 = 0;
+                    if (reclog3 < 40) { reclog3++; char rb[96]; snprintf(rb, sizeof(rb), "REC-CAPTURED-ON-w%.0f-h%.0f", b0.w, b0.h); ProbeWrite(rb); }
+                } else {
+                    static int recsk = 0;
+                    if (recsk < 40) { recsk++; char rb2[96]; snprintf(rb2, sizeof(rb2), "REC-SKIP-NOTRECVIEW-w%.0f-h%.0f", b0.w, b0.h); ProbeWrite(rb2); }
+                }
             } else if (b0.w >= 380.0 && b0.h >= 40.0) {
                 // 通知展开横幅(407x92/422x106等): 尺寸签名, 不依赖通知窗口
                 show = YES;
@@ -1980,7 +2015,7 @@ static void PostRealNotification(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.140-merge");
+    ProbeWrite("LDD-BUILD actions-1.9.141-merge");
     ProbeWrite("CONSTRUCTOR-RAN");
     // 1.9.151: 构造器不再读 prefs (避免 SpringBoard 启动早期触发 CFPrefs 初始化时序问题)
     // 对照组 hook (兼启动延迟器)

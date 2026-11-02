@@ -849,22 +849,23 @@ static const char kLDDNameKey = 0;
     _activeLabel = lab;
     [tf becomeFirstResponder];
 }
-// 1.9.201: 键盘弹出 -> 正在改名的 cell 垂直居中滚入可视区, 底两行不再被键盘盖住
+// 1.9.203: 键盘弹出 -> 正在改名的 cell 滚到集合视图顶部(Top 对齐), 完全露出不再被键盘盖住。
+// 旧版 CenteredVertically 在键盘上方可视区过小时 cell 下半仍被键盘挡住(用户: 最底下没滚到最上面)。
 - (void)kbdWillShow:(id)n {
     if (!_activeIp) { PwB("KBD-NO-IP"); return; }
     @try {
-        // 4 = UICollectionViewScrollPositionCenteredVertically (存根工程无枚举 -> 数字)
+        // 1 = UICollectionViewScrollPositionTop (存根工程无枚举 -> 数字)
         ((void(*)(id, SEL, id, int, BOOL))objc_msgSend)((UICollectionView *)_cv,
-            sel_registerName("scrollToItemAtIndexPath:atScrollPosition:animated:"), _activeIp, 4, YES);
+            sel_registerName("scrollToItemAtIndexPath:atScrollPosition:animated:"), _activeIp, 1, YES);
         PwB("KBD-SCROLL-OK");
     } @catch (id e) { PwB("KBD-SCROLL-EXC"); }
 }
-// 1.9.203: 键盘完全弹出后再滚一次 (WillShow 时键盘尚未弹起, 单次滚动可能不到位)
+// 1.9.203: 键盘完全弹出后再滚一次 (WillShow 时键盘尚未弹起, 单次滚动可能不到位), 同样 Top 对齐
 - (void)kbdDidShow:(id)n {
     if (!_activeIp) return;
     @try {
         ((void(*)(id, SEL, id, int, BOOL))objc_msgSend)((UICollectionView *)_cv,
-            sel_registerName("scrollToItemAtIndexPath:atScrollPosition:animated:"), _activeIp, 4, YES);
+            sel_registerName("scrollToItemAtIndexPath:atScrollPosition:animated:"), _activeIp, 1, YES);
         PwB("KBD-DIDSHOW-OK");
     } @catch (id e) { PwB("KBD-DIDSHOW-EXC"); }
 }
