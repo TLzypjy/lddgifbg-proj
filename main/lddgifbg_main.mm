@@ -809,6 +809,10 @@ typedef int LDDSceneKind;
 enum { LDDSceneOther = 0, LDDSceneBanner = 1, LDDSceneActivity = 2 };
 // 1.9.187: 只用于"小岛关时窄条是否通知"的低频判定; 缓存指针用 unsafe_unretained(不 retain 视图,
 // 避免布局期间把被系统释放的视图锁住造成泄漏/悬垂), 深度 6 层足够命中泛化类
+// 1.9.196: 两遍扫描 —— Live Activity(听歌/直播) 链上常含 Notification 泛化类,
+// 若单遍首个命中即判 Banner 会把听歌条误判成通知(小岛关时"时有时无背景");
+// 故先全链找 Activity(优先排除), 再只认明确的 Banner 类(BannerManager/BannerDestination/NotificationBanner),
+// 裸 "Notification" 泛化不再单独判为横幅
 static LDDSceneKind LDDSceneKindOf(id v) {
     static __unsafe_unretained id gKV = nil;
     static LDDSceneKind gKR = LDDSceneOther;
@@ -816,25 +820,39 @@ static LDDSceneKind LDDSceneKindOf(id v) {
     double nw = CFAbsoluteTimeGetCurrent();
     if (v == gKV && (nw - gKT) < 0.15) return gKR;
     LDDSceneKind k = LDDSceneOther;
+    // 第一遍: 全链找 Activity (听歌/直播/Live Activity 专属类), 优先级最高
     int depth = 0;
     id cur = v;
-    while (cur && depth < 6) {
+    while (cur && depth < 8) {
         const char *cn = class_getName((__bridge void *)object_getClass(cur));
-        if (cn) {
-            // Live Activity(听歌/直播等) 专属类优先: 其链上常含 Notification 泛化类, 必须最先排除
-            if (strstr(cn, "Activity")) {
-                static int alog = 0;
-                if (alog < 8) { alog++; char ab[128]; snprintf(ab, sizeof(ab), "LDD-ACTIVITY-HIT-%s", cn); ProbeWrite(ab); }
-                k = LDDSceneActivity; break;
-            }
-            if (strstr(cn, "Banner") || strstr(cn, "Notification") || strstr(cn, "BannerManager")) {
-                static int blog = 0;
-                if (blog < 8) { blog++; char bb[128]; snprintf(bb, sizeof(bb), "LDD-BANNER-HIT-%s", cn); ProbeWrite(bb); }
-                k = LDDSceneBanner; break;
-            }
+        if (cn && strstr(cn, "Activity")) {
+            static int alog = 0;
+            if (alog < 200) { alog++; char ab[128]; snprintf(ab, sizeof(ab), "LDD-ACTIVITY-HIT-%s", cn); ProbeWrite(ab); }
+            k = LDDSceneActivity; break;
         }
         cur = ((id(*)(id, SEL))objc_msgSend)(cur, sel_registerName("superview"));
         depth++;
+    }
+    // 第二遍: 只认明确 Banner 类 (真实通知横幅链特征), 不因裸 Notification 泛化误判
+    if (k != LDDSceneActivity) {
+        depth = 0;
+        cur = v;
+        while (cur && depth < 8) {
+            const char *cn = class_getName((__bridge void *)object_getClass(cur));
+            if (cn) {
+                if (strstr(cn, "BannerManager") || strstr(cn, "BannerDestination") || strstr(cn, "NotificationBanner")) {
+                    static int blog = 0;
+                    if (blog < 200) { blog++; char bb[128]; snprintf(bb, sizeof(bb), "LDD-BANNER-HIT-%s", cn); ProbeWrite(bb); }
+                    k = LDDSceneBanner; break;
+                }
+                static int notl = 0;
+                if (notl < 200 && strstr(cn, "Notification")) {
+                    notl++; char nb[128]; snprintf(nb, sizeof(nb), "LDD-NOTIF-GENERIC-%s", cn); ProbeWrite(nb);
+                }
+            }
+            cur = ((id(*)(id, SEL))objc_msgSend)(cur, sel_registerName("superview"));
+            depth++;
+        }
     }
     gKV = v; gKR = k; gKT = nw;
     return k;
@@ -1043,6 +1061,8 @@ static void LDDIslandLayout(id self) {
     BOOL mainOn = cEnabled;
     BOOL show = NO;
     CGRect jr = [self bounds];      // 判定尺寸(容器优先), 供探针记录
+    BOOL dbgNA = NO;                // 1.9.196: 探针用 —— 提升到函数作用域, 记录通知活跃窗口
+    BOOL dbgCap = NO;               // 1.9.196: 探针用 —— 记录录屏判定
     if (mainOn) {
         // 1.9.179: 小岛开关语义(细化) —— 判定以容器稳定尺寸为准:
         //   内容层 [self bounds] 在横条动画/展开时会从37跳到92, 直接用内容层高会把放歌/直播横条误判成通知;
@@ -1097,8 +1117,10 @@ static void LDDIslandLayout(id self) {
                 }
             }
             BOOL capAll = (gCapC || gCapR);
+            dbgCap = capAll;
             double nowT = CFAbsoluteTimeGetCurrent();
             BOOL nActive = (gNotifActive && (nowT - gNotifTs) < 30.0);   // 通知活跃: 横幅未关闭且30秒硬窗口
+            dbgNA = nActive;
             // 1.14: 用户语义 —— 小岛关(cZxh=NO)=只有通知+录屏铺背景; 小岛开(cZxh=YES)=所有岛都铺
             //   实机通知复用 destination 不触发 init → gNotifActive 常为 NO → nActive 不可靠(预览新建才激活);
             //   通知展开 407x92/422x106(宽>=380) 直接放行; 听歌展开141x63/直播展开149x65(宽<380) 小岛关不显示
@@ -1168,6 +1190,14 @@ static void LDDIslandLayout(id self) {
         char sb[96];
         snprintf(sb, sizeof(sb), "SHOW-%d h=%.0f w=%.0f", show ? 1 : 0, jr.h, jr.w);
         ProbeWrite(sb);
+    }
+    // 1.9.196: 全量判定探针(不限流) —— 直接暴露小岛开关实际读取值/通知活跃/录屏/判定结果
+    // 用于定位"听歌时小岛关却时显时不显": zxh=实际读到的启用小岛开关, en=总开关, nA=通知活跃窗口
+    {
+        char db[192];
+        snprintf(db, sizeof(db), "MAT-DECIDE zxh=%d en=%d nA=%d cap=%d w=%.0f h=%.0f show=%d",
+                 cZxh ? 1 : 0, mainOn ? 1 : 0, dbgNA ? 1 : 0, dbgCap ? 1 : 0, jr.w, jr.h, show ? 1 : 0);
+        ProbeWrite(db);
     }
     if (!show) {
         // 1.9.166: 节流 —— 仅"仍有内容/视频层挂着"才清理一次, 避免直播横条(167x37)每帧重复空清理拖卡

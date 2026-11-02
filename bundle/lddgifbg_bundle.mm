@@ -1063,7 +1063,7 @@ static const char kLDDNameKey = 0;
         }
         if (thumb) [_thumbs setObject:thumb forKeyedSubscript:name];
     }
-    UIImageView *iv = [[UIImageView alloc] initWithFrame:MakeRect(6, 0, cardW, imgH)];
+    UIImageView *iv = [[UIImageView alloc] initWithFrame:MakeRect(0, 0, cardW, imgH)];
     [iv setImage:thumb];
     [iv setContentMode:2];
     [[iv layer] setCornerRadius:14.0];
