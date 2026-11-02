@@ -214,6 +214,7 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (CGPoint)locationInView:(id)v;
 @end
 @interface UILongPressGestureRecognizer : UIGestureRecognizer
+- (void)setMinimumPressDuration:(double)d;
 @end
 @interface UIControl : UIView
 - (void)addTarget:(id)t action:(SEL)a forControlEvents:(NSUInteger)e;
@@ -235,6 +236,17 @@ static CGRect MakeRect(double x, double y, double w, double h) { CGRect r = {x, 
 - (id)text;
 - (void)setText:(NSString *)t;
 - (void)setKeyboardType:(NSInteger)k;
+// 1.9.191: 素材网格行内改名
+- (void)setFont:(id)f;
+- (void)setBorderStyle:(NSInteger)s;
+- (void)setReturnKeyType:(NSInteger)t;
+- (void)setDelegate:(id)d;
+- (void)setClearButtonMode:(NSInteger)m;
+- (void)setAutocapitalizationType:(NSInteger)t;
+- (void)setAutocorrectionType:(NSInteger)t;
+- (void)setTextAlignment:(NSInteger)a;
+- (void)becomeFirstResponder;
+- (void)resignFirstResponder;
 @end
 // 1.9.153: 点击数值自定义输入
 @interface UITapGestureRecognizer : NSObject
@@ -351,6 +363,9 @@ extern "C" void UIGraphicsEndImageContext(void);
 - (id)dequeueReusableCellWithReuseIdentifier:(NSString *)ri forIndexPath:(id)ip;
 - (void)reloadData;
 - (id)indexPathForItemAtPoint:(CGPoint)p;
+// 1.9.191: 素材网格编辑态抖动/行内改名
+- (id)visibleCells;
+- (id)cellForItemAtIndexPath:(id)ip;
 @end
 @interface UIImagePickerController : UIViewController
 - (void)setSourceType:(NSInteger)t;
@@ -395,6 +410,13 @@ extern "C" void UIGraphicsEndImageContext(void);
 - (void)setShadowOpacity:(float)o;
 - (void)setShadowRadius:(double)r;
 - (void)setShadowOffset:(CGSize)s;
+// 1.9.191: 素材网格编辑态抖动
+- (void)addAnimation:(id)a forKey:(NSString *)k;
+- (void)removeAnimationForKey:(NSString *)k;
+@end
+// 1.9.191: 素材网格编辑态抖动动画 (属性走 KVC setValue:forKey:)
+@interface CABasicAnimation : NSObject
++ (id)animationWithKeyPath:(NSString *)key;
 @end
 @interface PSListController : UIViewController
 - (id)loadSpecifiersFromPlistName:(NSString *)n target:(id)t;
@@ -627,8 +649,10 @@ static id LDDListMaterialFolders(void) {
     id _pendImg;
     id _pendURL;
     BOOL _pendVideo;
-    BOOL _delMode;
-    id _marked;
+    BOOL _editMode;
+    id _activeField;
+    NSString *_activeName;
+    id _activeCell;
 }
 - (void)viewDidLoad {
     [super viewDidLoad];
@@ -636,9 +660,7 @@ static id LDDListMaterialFolders(void) {
     UIBarButtonItem *close = [[UIBarButtonItem alloc] initWithTitle:@"关闭" style:0 target:self action:@selector(closeTapped)];
     [[self navigationItem] setLeftBarButtonItem:close];
     UIBarButtonItem *imp = [[UIBarButtonItem alloc] initWithTitle:@"导入" style:0 target:self action:@selector(importTapped)];
-    UIBarButtonItem *del = [[UIBarButtonItem alloc] initWithTitle:@"删除" style:0 target:self action:@selector(deleteTapped)];
-    [[self navigationItem] setRightBarButtonItems:[NSArray arrayWithObjects:imp, del, nil]];
-    _marked = [NSMutableArray array];
+    [[self navigationItem] setRightBarButtonItems:[NSArray arrayWithObjects:imp, nil]];
     [[self view] setBackgroundColor:[UIColor colorWithWhite:0.94 alpha:1.0]];
 
     NSFileManager *fm = [NSFileManager defaultManager];
@@ -652,9 +674,9 @@ static id LDDListMaterialFolders(void) {
     _sel = [ud objectForKey:@"SelectedMaterialFolder"];
 
     UICollectionViewFlowLayout *flow = [[UICollectionViewFlowLayout alloc] init];
-    [flow setMinimumInteritemSpacing:10];
-    [flow setMinimumLineSpacing:22];
-    UIEdgeInsets ins; ins.top = 14; ins.left = 14; ins.bottom = 70; ins.right = 14;
+    [flow setMinimumInteritemSpacing:12];
+    [flow setMinimumLineSpacing:18];
+    UIEdgeInsets ins; ins.top = 14; ins.left = 16; ins.bottom = 70; ins.right = 16;
     [flow setSectionInset:ins];
     CGRect vb = [[self view] bounds];
     UICollectionView *cv = [[UICollectionView alloc] initWithFrame:vb collectionViewLayout:flow];
@@ -663,6 +685,7 @@ static id LDDListMaterialFolders(void) {
     [cv setDataSource:self];
     [cv registerClass:[UICollectionViewCell class] forCellWithReuseIdentifier:@"m"];
     UILongPressGestureRecognizer *lp = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(longPressTapped:)];
+    [lp setMinimumPressDuration:0.4];
     [cv addGestureRecognizer:lp];
     [[self view] addSubview:cv];
     _cv = cv;
@@ -672,7 +695,7 @@ static id LDDListMaterialFolders(void) {
 - (void)closeTapped {
     [self dismissViewControllerAnimated:YES completion:0];
 }
-// 1.9.164: 长按缩略图 -> 改名字 / 删除素材
+// 1.9.191: 长按缩略图 -> 进入编辑态(全网格抖动 + 红-删除钮), 点名字 -> 行内改名 (同 cc 播放器素材库交互)
 - (void)longPressTapped:(id)lp {
     if ((long)[lp state] != 1) return; // UIGestureRecognizerStateBegan
     id v = [lp view];
@@ -681,35 +704,102 @@ static id LDDListMaterialFolders(void) {
     if (!ip) return;
     NSInteger row = [ip row];
     if (!_folders || row >= (NSInteger)[_folders count]) return;
-    NSString *name = [_folders objectAtIndex:(NSUInteger)row];
-    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:name message:nil preferredStyle:0];
-    UIAlertAction *ren = [UIAlertAction actionWithTitle:@"改名字" style:0 handler:^(UIAlertAction *a){
-        [self renameTapped:name];
-    }];
-    UIAlertAction *del = [UIAlertAction actionWithTitle:@"删除素材" style:2 handler:^(UIAlertAction *a){
-        [self confirmDelete:name];
-    }];
-    UIAlertAction *cc = [UIAlertAction actionWithTitle:@"取消" style:1 handler:0];
-    [sheet addAction:ren];
-    [sheet addAction:del];
-    [sheet addAction:cc];
-    [self presentViewController:sheet animated:YES completion:0];
+    [self enterEditing];
 }
-- (void)renameTapped:(NSString *)name {
-    UIAlertController *al = [UIAlertController alertControllerWithTitle:@"改名字" message:@"输入新名字" preferredStyle:1];
-    [al addTextFieldWithConfigurationHandler:^(UITextField *tf){
-        [tf setText:name];
-    }];
-    UIAlertAction *ok = [UIAlertAction actionWithTitle:@"确定" style:0 handler:^(UIAlertAction *a){
-        id tfs = [al textFields];
-        UITextField *tf = [tfs objectAtIndex:0];
-        NSString *nn = [tf text];
-        [self doRename:name to:nn];
-    }];
-    UIAlertAction *cc = [UIAlertAction actionWithTitle:@"取消" style:1 handler:0];
-    [al addAction:ok];
-    [al addAction:cc];
-    [self presentViewController:al animated:YES completion:0];
+- (void)enterEditing {
+    if (_editMode) return;
+    _editMode = YES;
+    [self setTitle:@"长按完成退出"];
+    UIBarButtonItem *done = [[UIBarButtonItem alloc] initWithTitle:@"完成" style:0 target:self action:@selector(exitEditing)];
+    [[self navigationItem] setRightBarButtonItems:[NSArray arrayWithObjects:done, nil]];
+    [(UICollectionView *)_cv reloadData];
+    [self startJiggling];
+}
+- (void)exitEditing {
+    if (!_editMode) return;
+    [self stopJiggling];
+    _editMode = NO;
+    UIBarButtonItem *imp = [[UIBarButtonItem alloc] initWithTitle:@"导入" style:0 target:self action:@selector(importTapped)];
+    [[self navigationItem] setRightBarButtonItems:[NSArray arrayWithObjects:imp, nil]];
+    [self setTitle:[NSString stringWithFormat:@"素材库 (%lu)", (unsigned long)[_folders count]]];
+    [(UICollectionView *)_cv reloadData];
+}
+// 抖动只加在缩略图卡片(tag 911)上, 删除钮是卡片子视图 -> 随卡片一起抖
+- (void)startJiggling {
+    for (id c in [(UICollectionView *)_cv visibleCells]) {
+        id card = [c viewWithTag:911];
+        if (!card) continue;
+        id anim = [CABasicAnimation animationWithKeyPath:@"transform.rotation"];
+        [anim setValue:[NSNumber numberWithDouble:-0.03] forKey:@"fromValue"];
+        [anim setValue:[NSNumber numberWithDouble:0.03] forKey:@"toValue"];
+        [anim setValue:[NSNumber numberWithDouble:0.12] forKey:@"duration"];
+        [anim setValue:[NSNumber numberWithBool:YES] forKey:@"autoreverses"];
+        [anim setValue:[NSNumber numberWithDouble:100000] forKey:@"repeatCount"];
+        [[card layer] addAnimation:anim forKey:@"lddJiggle"];
+    }
+}
+- (void)stopJiggling {
+    for (id c in [(UICollectionView *)_cv visibleCells]) {
+        id card = [c viewWithTag:911];
+        if (card) [[card layer] removeAnimationForKey:@"lddJiggle"];
+    }
+}
+// 删除钮: 手势绑定素材名
+static const void *kLDDDelKey = &kLDDDelKey;
+- (void)delBtnTapped:(UITapGestureRecognizer *)g {
+    NSString *name = objc_getAssociatedObject(g, kLDDDelKey);
+    if (name) [self confirmDelete:name];
+}
+// 点名字 -> 行内改名
+static const void *kLDDNameKey = &kLDDNameKey;
+- (void)nameTapped:(UITapGestureRecognizer *)g {
+    NSString *name = objc_getAssociatedObject(g, kLDDNameKey);
+    if (!name) return;
+    id label = [g view];             // pill
+    id contentV = [label superview]; // contentView
+    id cell = [contentV superview];  // cell
+    if (!cell) return;
+    [self beginRename:name inCell:cell atLabel:label];
+}
+- (void)beginRename:(NSString *)name inCell:(id)cell atLabel:(id)label {
+    if (_activeField) [_activeField resignFirstResponder]; // 先结束上一次未完成的编辑
+    CGRect lf = [label frame];
+    UITextField *tf = [[UITextField alloc] initWithFrame:lf];
+    [tf setText:name];
+    [tf setFont:[UIFont systemFontOfSize:11.0]];
+    [tf setTextAlignment:1];
+    [tf setBorderStyle:3];     // UITextBorderStyleRoundedRect
+    [tf setReturnKeyType:9];   // UIReturnKeyDone
+    [tf setClearButtonMode:2]; // UITextFieldViewModeWhileEditing
+    [tf setAutocapitalizationType:0];
+    [tf setAutocorrectionType:1];
+    [tf setDelegate:self];
+    [tf setTag:955];
+    [label setHidden:YES];
+    [[cell contentView] addSubview:tf];
+    _activeField = tf;
+    _activeName = name;
+    _activeCell = cell;
+    [tf becomeFirstResponder];
+}
+- (BOOL)textFieldShouldReturn:(UITextField *)tf {
+    [tf resignFirstResponder];
+    return YES;
+}
+- (void)textFieldDidEndEditing:(UITextField *)tf {
+    if (tf != _activeField) return;
+    NSString *old = _activeName;
+    NSString *nn = [tf text];
+    [tf removeFromSuperview];
+    _activeField = nil;
+    _activeName = nil;
+    id cell = _activeCell;
+    _activeCell = nil;
+    if (cell) {
+        id lab = [[cell contentView] viewWithTag:922];
+        if (lab) [lab setHidden:NO];
+    }
+    if (old && nn) [self doRename:old to:nn];
 }
 - (void)doRename:(NSString *)old to:(NSString *)newName {
     if (!newName || [newName length] == 0) return;
@@ -722,12 +812,14 @@ static id LDDListMaterialFolders(void) {
         [_thumbs removeObjectForKey:old];
         [_anims removeObjectForKey:old];
         [(UICollectionView *)_cv reloadData];
+        if (_editMode) [self startJiggling]; // 改名后保持编辑态抖动
         [self setTitle:[NSString stringWithFormat:@"素材库 (%lu)", (unsigned long)[_folders count]]];
         if (_sel && [_sel isEqualToString:old]) {
             _sel = newName;
             NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
             [ud setObject:newName forKey:@"SelectedMaterialFolder"];
         }
+        [[NSNotificationCenter defaultCenter] postNotificationName:@"LDDMatChanged" object:0];
     } else {
         [self showTip:@"改名失败"];
     }
@@ -742,6 +834,7 @@ static id LDDListMaterialFolders(void) {
             [_thumbs removeObjectForKey:name];
             [_anims removeObjectForKey:name];
             [(UICollectionView *)_cv reloadData];
+            if (_editMode) [self startJiggling]; // 删除后保持编辑态抖动
             [self setTitle:[NSString stringWithFormat:@"素材库 (%lu)", (unsigned long)[_folders count]]];
             if (_sel && [_sel isEqualToString:name]) {
                 _sel = nil;
@@ -819,40 +912,6 @@ static id LDDListMaterialFolders(void) {
     if (((BOOL(*)(id, SEL, SEL))objc_msgSend)(host, rs, sp))
         ((void(*)(id, SEL))objc_msgSend)(host, sp);
 }
-- (void)deleteTapped {
-    if (!_delMode) {
-        _delMode = YES;
-        [_marked removeAllObjects];
-        [self setTitle:@"删除模式: 点选素材"];
-        [(UICollectionView *)_cv reloadData];
-        return;
-    }
-    // 已在删除模式: 有标记则确认删除, 无则退出
-    if ([_marked count] == 0) {
-        _delMode = NO;
-        [self setTitle:[NSString stringWithFormat:@"素材库 (%lu)", (unsigned long)[_folders count]]];
-        [(UICollectionView *)_cv reloadData];
-        return;
-    }
-    UIAlertController *cf = [UIAlertController alertControllerWithTitle:@"确认删除"
-        message:[NSString stringWithFormat:@"删除 %lu 个素材?", (unsigned long)[_marked count]] preferredStyle:1];
-    UIAlertAction *yes = [UIAlertAction actionWithTitle:@"删除" style:2 handler:^(UIAlertAction *a){
-        NSFileManager *fm = [NSFileManager defaultManager];
-        for (NSString *nm in _marked) {
-            [fm removeItemAtPath:[@"/var/mobile/lddgifbg" stringByAppendingPathComponent:nm] error:0];
-        }
-        [_marked removeAllObjects];
-        _delMode = NO;
-        _folders = LDDListMaterialFolders();
-        [self setTitle:[NSString stringWithFormat:@"素材库 (%lu)", (unsigned long)[_folders count]]];
-        [(UICollectionView *)_cv reloadData];
-    }];
-    UIAlertAction *no = [UIAlertAction actionWithTitle:@"取消" style:1 handler:^(UIAlertAction *a){
-    }];
-    [cf addAction:yes];
-    [cf addAction:no];
-    [self presentViewController:cf animated:YES completion:0];
-}
 - (void)showNaming {
     [self askNameAndSave:_pendImg url:_pendURL isVideo:_pendVideo];
 }
@@ -918,8 +977,8 @@ static id LDDListMaterialFolders(void) {
 }
 - (CGSize)collectionView:(id)cv layout:(id)layout sizeForItemAtIndexPath:(id)ip {
     CGRect sb = [[UIScreen mainScreen] bounds];
-    double w = (sb.w - 28.0 - 20.0) / 3.0;
-    CGSize sz; sz.w = w; sz.h = w * 1.0 + 62.0;
+    double w = (sb.w - 32.0 - 24.0) / 3.0;   // 左右 16 + 列距 12x2
+    CGSize sz; sz.w = w; sz.h = w * 1.0 + 50.0;
     return sz;
 }
 - (id)collectionView:(id)cv cellForItemAtIndexPath:(id)ip {
@@ -933,17 +992,19 @@ static id LDDListMaterialFolders(void) {
     // 白色圆角卡片 + 图
     UIView *card = [[UIView alloc] initWithFrame:MakeRect(0, 0, cb.w, imgH)];
     [card setBackgroundColor:[UIColor whiteColor]];
+    [card setTag:911];
     [[card layer] setCornerRadius:14.0];
     [[card layer] setMasksToBounds:YES];
     UIImage *thumb = [_thumbs objectForKeyedSubscript:name];
     NSString *typeTag = @"图片";
+    BOOL hasVideo = NO;
     {
         NSString *full = [@"/var/mobile/lddgifbg" stringByAppendingPathComponent:name];
         NSArray *files = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:full error:nil];
         for (NSString *f in files) {
             NSString *ext = [[f pathExtension] lowercaseString];
             if ([ext isEqualToString:@"gif"]) { typeTag = @"GIF"; if (!thumb) thumb = ThumbForPath([full stringByAppendingPathComponent:f]); break; }
-            if ([ext isEqualToString:@"mp4"] || [ext isEqualToString:@"mov"]) { typeTag = @"视频"; if (!thumb) thumb = ThumbForPath([full stringByAppendingPathComponent:f]); break; }
+            if ([ext isEqualToString:@"mp4"] || [ext isEqualToString:@"mov"]) { typeTag = @"视频"; hasVideo = YES; if (!thumb) thumb = ThumbForPath([full stringByAppendingPathComponent:f]); }
             if ([ext isEqualToString:@"png"] || [ext isEqualToString:@"jpg"] || [ext isEqualToString:@"jpeg"]) { typeTag = @"图片"; if (!thumb) thumb = ThumbForPath([full stringByAppendingPathComponent:f]); }
         }
         if (thumb) [_thumbs setObject:thumb forKeyedSubscript:name];
@@ -961,38 +1022,70 @@ static id LDDListMaterialFolders(void) {
     [[badge layer] setCornerRadius:8.0];
     [[badge layer] setMasksToBounds:YES];
     [card addSubview:badge];
+    // 1.9.191: 视频素材左下角播放标志(区分视频/图片)
+    if (hasVideo) {
+        UIView *vb = [[UIView alloc] initWithFrame:MakeRect(6, imgH - 30, 24, 24)];
+        [vb setBackgroundColor:[UIColor colorWithWhite:0.0 alpha:0.45]];
+        [[vb layer] setCornerRadius:12.0];
+        [[vb layer] setMasksToBounds:YES];
+        UILabel *pl = [[UILabel alloc] initWithFrame:MakeRect(0, -1, 24, 24)];
+        [pl setText:@"▶"];
+        [pl setFont:[UIFont systemFontOfSize:11.0]];
+        [pl setTextAlignment:1];
+        [pl setTextColor:[UIColor whiteColor]];
+        [vb addSubview:pl];
+        [card addSubview:vb];
+    }
+    // 1.9.191: 编辑态删除钮(红底白"-", 盖住缩略图右上角一小角, 随卡片一起抖动)
+    if (_editMode) {
+        UIView *delv = [[UIView alloc] initWithFrame:MakeRect(cb.w - 13, -7, 20, 20)];
+        [delv setBackgroundColor:[UIColor redColor]];
+        [[delv layer] setCornerRadius:10.0];
+        [[delv layer] setMasksToBounds:YES];
+        UILabel *mn = [[UILabel alloc] initWithFrame:MakeRect(0, 0, 20, 20)];
+        [mn setText:@"-"];
+        [mn setFont:[UIFont systemFontOfSize:17.0]];
+        [mn setTextAlignment:1];
+        [mn setTextColor:[UIColor whiteColor]];
+        [delv addSubview:mn];
+        [card addSubview:delv];
+        UITapGestureRecognizer *dg = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(delBtnTapped:)];
+        [delv addGestureRecognizer:dg];
+        objc_setAssociatedObject(dg, kLDDDelKey, name, 1); // OBJC_ASSOCIATION_RETAIN_NONATOMIC
+    }
     [[cell contentView] addSubview:card];
-    // 名字胶囊
-    UILabel *pill = [[UILabel alloc] initWithFrame:MakeRect(4, imgH + 8, cb.w - 8, 24)];
-    [pill setText:name];
-    [pill setFont:[UIFont systemFontOfSize:11.0]];
-    [pill setTextAlignment:1];
+    // 名字胶囊 (点按 -> 行内改名)
+    UIView *pill = [[UIView alloc] initWithFrame:MakeRect(4, imgH + 7, cb.w - 8, 22)];
     [pill setBackgroundColor:[UIColor colorWithWhite:0.62 alpha:0.85]];
-    [pill setTextColor:[UIColor whiteColor]];
-    [[pill layer] setCornerRadius:12.0];
+    [[pill layer] setCornerRadius:11.0];
     [[pill layer] setMasksToBounds:YES];
+    UILabel *plb = [[UILabel alloc] initWithFrame:MakeRect(0, 0, cb.w - 8, 22)];
+    [plb setText:name];
+    [plb setFont:[UIFont systemFontOfSize:11.0]];
+    [plb setTextAlignment:1];
+    [plb setTextColor:[UIColor whiteColor]];
+    [plb setTag:922];
+    [pill addSubview:plb];
     [[cell contentView] addSubview:pill];
-    // 选中圆点
-    BOOL on = _sel && [_sel isEqualToString:name];
-    BOOL mk = [_marked containsObject:name];
-    UIView *dot = [[UIView alloc] initWithFrame:MakeRect(cb.w / 2 - 11, imgH + 38, 22, 22)];
-    [[dot layer] setCornerRadius:11.0];
-    [[dot layer] setMasksToBounds:YES];
-    [dot setBackgroundColor:(_delMode ? (mk ? [UIColor redColor] : [UIColor colorWithWhite:0.85 alpha:1.0])
-                                       : (on ? [UIColor systemBlueColor] : [UIColor colorWithWhite:0.80 alpha:1.0]))];
-    [[cell contentView] addSubview:dot];
+    UITapGestureRecognizer *ng = [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(nameTapped:)];
+    [pill addGestureRecognizer:ng];
+    objc_setAssociatedObject(ng, kLDDNameKey, name, 1);
+    // 选中圆点 (编辑态隐藏)
+    if (!_editMode) {
+        BOOL on = _sel && [_sel isEqualToString:name];
+        UIView *dot = [[UIView alloc] initWithFrame:MakeRect(cb.w / 2 - 9, imgH + 33, 18, 18)];
+        [[dot layer] setCornerRadius:9.0];
+        [[dot layer] setMasksToBounds:YES];
+        [dot setBackgroundColor:(on ? [UIColor systemBlueColor] : [UIColor colorWithWhite:0.80 alpha:1.0])];
+        [[cell contentView] addSubview:dot];
+    }
     return cell;
 }
 - (void)collectionView:(id)cv didSelectItemAtIndexPath:(id)ip {
+    if (_editMode) return; // 编辑态点选不生效(删除走删除钮, 退出走"完成")
     NSInteger row = [ip row];
     if (!_folders || row >= (NSInteger)[_folders count]) return;
     NSString *name = [_folders objectAtIndex:(NSUInteger)row];
-    if (_delMode) {
-        if ([_marked containsObject:name]) [_marked removeObject:name];
-        else [_marked addObject:name];
-        [(UICollectionView *)cv reloadData];
-        return;
-    }
     _sel = name;
     NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
     [ud setObject:name forKey:@"SelectedMaterialFolder"];
