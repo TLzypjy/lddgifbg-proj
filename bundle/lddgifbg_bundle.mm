@@ -864,12 +864,13 @@ static const char kLDDNameKey = 0;
             // id -> UIView 显式 cast 调 frame(编译期方法解析), 避免 id 隐式调用 warning
             CGRect fr = [(UIView *)_activeCell frame];
             UIEdgeInsets ei = [cv contentInset];
-            CGFloat offY = fr.origin.y - ei.top;
+            // 存根 CGRect 字段是 ox/oy/w/h (无 origin), 类型 double (无 CGFloat)
+            double offY = fr.oy - ei.top;
             if (offY < 0) offY = 0;
             CGPoint pt = [cv contentOffset];
             pt.y = offY;
             [cv setContentOffset:pt animated:YES];
-            char kb[96]; snprintf(kb, sizeof(kb), "KBD-OFFSET-y%.0f", fr.origin.y);
+            char kb[96]; snprintf(kb, sizeof(kb), "KBD-OFFSET-y%.0f", fr.oy);
             PwB(kb);
         } else {
             PwB("KBD-NO-CELL");
@@ -885,7 +886,7 @@ static const char kLDDNameKey = 0;
         if (_activeCell) {
             CGRect fr = [(UIView *)_activeCell frame];
             UIEdgeInsets ei = [cv contentInset];
-            CGFloat offY = fr.origin.y - ei.top;
+            double offY = fr.oy - ei.top;
             if (offY < 0) offY = 0;
             CGPoint pt = [cv contentOffset];
             pt.y = offY;
