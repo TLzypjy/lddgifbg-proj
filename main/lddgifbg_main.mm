@@ -867,6 +867,31 @@ static id HookBNDInit(id self, SEL _c) {
     if (r) { gNotifTs = CFAbsoluteTimeGetCurrent(); gNotifActive = YES; ProbeWrite("BND-NOTIF-TS"); }
     return r;
 }
+// 1.9.199: 横幅关闭钩子 —— 真实通知被划走/超时收起时立即结束通知窗口,
+// 旧 30s 硬窗口把"通知来过"当成"通知还在", 让听歌/直播窄条在小岛关时误铺背景(时有时无)。
+// 三个关闭入口都是 LDDCloseFirstBanner 探针枚举确认存在于呈现层(destination)的方法;
+// 关闭后刷新 gNotifTs 留 2s 收起动画宽限, 供"通知收起窄条"短暂显示。
+static void (*origBNDWithdraw)(id, SEL, id);
+static void HookBNDWithdraw(id self, SEL _c, id req) {
+    if (origBNDWithdraw) origBNDWithdraw(self, _c, req);
+    gNotifActive = NO;
+    gNotifTs = CFAbsoluteTimeGetCurrent();
+    ProbeWrite("BND-WITHDRAW-CLEAR");
+}
+static void (*origBNDDismiss)(id, SEL, BOOL, id, BOOL);
+static void HookBNDDismiss(id self, SEL _c, BOOL a, id r, BOOL f) {
+    if (origBNDDismiss) origBNDDismiss(self, _c, a, r, f);
+    gNotifActive = NO;
+    gNotifTs = CFAbsoluteTimeGetCurrent();
+    ProbeWrite("BND-DISMISS-CLEAR");
+}
+static void (*origBNDDismissOnly)(id, SEL, BOOL, id, BOOL);
+static void HookBNDDismissOnly(id self, SEL _c, BOOL a, id r, BOOL f) {
+    if (origBNDDismissOnly) origBNDDismissOnly(self, _c, a, r, f);
+    gNotifActive = NO;
+    gNotifTs = CFAbsoluteTimeGetCurrent();
+    ProbeWrite("BND-DISMISSONLY-CLEAR");
+}
 // 运行时兜底: 从 dispatcher destinations / SB ivar 找呈现层
 static void FindLayerConsider(id o, SEL sISL, SEL sPost, id *bestISL, id *bestPost) {
     if (!o) return;
@@ -1046,7 +1071,11 @@ static void LDDIslandLayout(id self) {
     id win = [selfv window];
     if (!win) { objc_autoreleasePoolPop(pool); return; }
     CGRect bb = [selfv bounds];
-    if (bb.w > 460.0 || bb.h > 150.0 || bb.w < 40.0 || bb.h < 10.0) {
+    // 1.9.199: 面容识别全屏场景呈现(ScenePresenterView 407x489)豁免尺寸过滤 —— 不受小岛开关控制,
+    // 与 CtrlLayoutHook 的 faceidF 快速过滤保持一致 (旧代码在此被 h>150 拦截, 全屏面容识别铺不到背景)
+    const char *fcnSelf = object_getClassName(self);
+    int faceidF2 = (fcnSelf && strstr(fcnSelf, "ScenePresenterView"));
+    if (!faceidF2 && (bb.w > 460.0 || bb.h > 150.0 || bb.w < 40.0 || bb.h < 10.0)) {
         objc_autoreleasePoolPop(pool); return;
     }
     static int aclog = 0;
@@ -1074,8 +1103,10 @@ static void LDDIslandLayout(id self) {
         //           ④ 录屏宽横条(容器高<52且容器宽>=250 且正在录屏) 常显 —— 检测含 isCaptured + ReplayKit
         //           放歌/直播等紧凑横条(容器高~37, 宽~167/335) 一律不显示
         if (cZxh) {
+            // 小岛开: 所有岛(放歌/直播/通知/小岛/面容/录屏)都铺背景
             show = YES;
         } else {
+            // 小岛关(用户语义): 只有 通知岛/录屏岛/面容岛 铺背景, 听歌/直播等其他岛一律不铺
             CGRect b0 = [self bounds];
             id supv = [self superview];
             if (supv) {
@@ -1119,68 +1150,65 @@ static void LDDIslandLayout(id self) {
             BOOL capAll = (gCapC || gCapR);
             dbgCap = capAll;
             double nowT = CFAbsoluteTimeGetCurrent();
-            BOOL nActive = (gNotifActive && (nowT - gNotifTs) < 30.0);   // 通知活跃: 横幅未关闭且30秒硬窗口
+            // 1.9.199: 通知窗口收紧 —— 旧 30s 硬窗口把"通知来过"当成"通知还在",
+            // 导致小岛关时听歌/直播窄条在通知后 30s 内误铺背景(时有时无)。
+            //   nActive = 横幅在岛/刚离岛 2 秒内, 由三处刷新: ① BND init(新 destination)
+            //   ② 关闭钩子(划走/超时收起, 留 2s 收起动画宽限) ③ 布局层保活(下方, 横幅形态容器即刷新)
+            BOOL nActive = (nowT - gNotifTs) < 2.0;
             dbgNA = nActive;
-            // 1.14: 用户语义 —— 小岛关(cZxh=NO)=只有通知+录屏铺背景; 小岛开(cZxh=YES)=所有岛都铺
-            //   实机通知复用 destination 不触发 init → gNotifActive 常为 NO → nActive 不可靠(预览新建才激活);
-            //   通知展开 407x92/422x106(宽>=380) 直接放行; 听歌展开141x63/直播展开149x65(宽<380) 小岛关不显示
-            if (gNotifActive && b0.w >= 250.0 && b0.h >= 40.0) {
-                gNotifTs = nowT;                  // 通知窗口保活(仅预览新建 destination 时生效, 无害)
+            // 布局层保活: 看到横幅形态容器(通知展开/重弹中间态, 宽>=250 高>=40)就刷新窗口,
+            // 不依赖 BND init —— 实机通知复用 destination 不触发 init, 靠它让真实通知的收起/中间态命中
+            if (b0.w >= 250.0 && b0.h >= 40.0) {
+                gNotifTs = nowT;
             }
-            if (b0.h >= 52.0) {
-                const char *clsNow = object_getClassName(self);
-                int faceidC = (clsNow && strstr(clsNow, "ScenePresenterView"));
-                if (cZxh) {
-                    if (b0.w >= 40.0 && b0.w <= 460.0 && b0.h >= 10.0 && b0.h <= 150.0) {
-                        show = YES;
-                        static int h52z = 0;
-                        if (h52z < 40) { h52z++; char hn[96]; snprintf(hn, sizeof(hn), "H52-SHOW-ISLANDON-w%.0f-h%.0f", b0.w, b0.h); ProbeWrite(hn); }
-                    }
-                } else if (faceidC) {
-                    show = YES;                   // 1.16: 面容识别/全屏场景呈现(ScenePresenterView 407x489): 不受小岛开关控制
-                    static int fidl = 0;
-                    if (fidl < 40) { fidl++; char fn[96]; snprintf(fn, sizeof(fn), "H52-SHOW-FACEID-w%.0f-h%.0f", b0.w, b0.h); ProbeWrite(fn); }
-                } else if (b0.w >= 100.0 && b0.w <= 250.0 && b0.h >= 100.0 && b0.h <= 250.0
-                           && b0.w > b0.h * 0.5 && b0.h > b0.w * 0.5) {
-                    show = YES;                   // 1.17: 面容识别近方形容器(144x145 Face ID 图标呈现): 不受小岛开关控制
-                    static int fid2 = 0;
-                    if (fid2 < 40) { fid2++; char fn[96]; snprintf(fn, sizeof(fn), "H52-SHOW-FACEID-SQ-w%.0f-h%.0f", b0.w, b0.h); ProbeWrite(fn); }
-                } else if (b0.w >= 380.0 && b0.h >= 40.0) {
+            const char *clsNow = object_getClassName(self);
+            int faceidC = (clsNow && strstr(clsNow, "ScenePresenterView"));
+            if (faceidC) {
+                // 面容识别/全屏场景呈现(ScenePresenterView 407x489): 不受小岛开关控制
+                show = YES;
+                static int fidl = 0;
+                if (fidl < 40) { fidl++; char fn[96]; snprintf(fn, sizeof(fn), "H52-SHOW-FACEID-w%.0f-h%.0f", b0.w, b0.h); ProbeWrite(fn); }
+            } else if (b0.w >= 100.0 && b0.w <= 250.0 && b0.h >= 100.0 && b0.h <= 250.0
+                       && b0.w > b0.h * 0.5 && b0.h > b0.w * 0.5) {
+                // 面容识别近方形容器(144x145 Face ID 图标呈现): 不受小岛开关控制
+                show = YES;
+                static int fid2 = 0;
+                if (fid2 < 40) { fid2++; char fn[96]; snprintf(fn, sizeof(fn), "H52-SHOW-FACEID-SQ-w%.0f-h%.0f", b0.w, b0.h); ProbeWrite(fn); }
+            } else if (capAll) {
+                // 录屏岛(收起窄条129x38 / 横条176x37 / 控制中心宽条345x38): 录屏中不受小岛开关控制
+                show = YES;
+                static int reclog3 = 0;
+                if (reclog3 < 40) { reclog3++; char rb[96]; snprintf(rb, sizeof(rb), "REC-CAPTURED-ON-w%.0f-h%.0f", b0.w, b0.h); ProbeWrite(rb); }
+            } else if (b0.w >= 380.0 && b0.h >= 40.0) {
+                // 通知展开横幅(407x92/422x106等): 尺寸签名, 不依赖通知窗口
+                show = YES;
+                static int h52l = 0;
+                if (h52l < 40) { h52l++; char hn[96]; snprintf(hn, sizeof(hn), "H52-SHOW-NOTIF-w%.0f-h%.0f", b0.w, b0.h); ProbeWrite(hn); }
+            } else if (nActive && b0.w >= 250.0 && b0.h >= 40.0) {
+                // 通知重弹中间态(285x52/403x44等, 跨 h=52 边界统一): 横幅在岛期间常显
+                show = YES;
+                static int h52m = 0;
+                if (h52m < 40) { h52m++; char hn[96]; snprintf(hn, sizeof(hn), "H52-SHOW-NOTIF-MID-w%.0f-h%.0f", b0.w, b0.h); ProbeWrite(hn); }
+            } else if (nActive && b0.w < 150.0) {
+                // 通知收起窄条(129x38): 仅横幅在岛/刚离岛 2 秒内显示;
+                // 听歌/直播紧凑条(125~134x37~39)尺寸相同, 靠 LDDSceneKindOf 的 Activity 链排除 (iOS16 类名有效)
+                if (LDDSceneKindOf((id)self) != LDDSceneActivity) {
                     show = YES;
-                    static int h52l = 0;
-                    if (h52l < 40) { h52l++; char hn[96]; snprintf(hn, sizeof(hn), "H52-SHOW-NOTIF-w%.0f-h%.0f", b0.w, b0.h); ProbeWrite(hn); }
-                } else {
-                    static int h52n = 0;
-                    if (h52n < 40) { h52n++; char hn[96]; snprintf(hn, sizeof(hn), "H52-SKIP-NONBANNER-w%.0f-h%.0f", b0.w, b0.h); ProbeWrite(hn); }
-                }
-            } else {
-                if (cZxh) {
-                    if (b0.w >= 40.0 && b0.w <= 460.0 && b0.h >= 10.0 && b0.h <= 150.0) show = YES;
-                } else if (nActive && b0.w < 150.0) {
-                    // 通知收起态(129x38窄条): 横幅活跃期间常显;
-                    // 听歌/直播紧凑条(125~131x37~39)尺寸相同, 1.9.187: 仅在此分支内做 Live Activity 排除
-                    // (扫描面收敛到"通知活跃窗口", 不再每个容器每帧扫链, 避免布局路径野指针)
-                    if (LDDSceneKindOf((id)self) != LDDSceneActivity) {
-                        show = YES;
-                    } else {
-                        static int actl = 0;
-                        if (actl < 8) { actl++; ProbeWrite("COMPACT-ACTIVITY-SKIP"); }
-                    }
-                } else if (nActive && b0.w >= 250.0 && b0.h >= 40.0) {
-                    show = YES;                   // 通知重新弹出动画中间态(403x44等): 横幅活跃期间常显
-                } else if (b0.w < 150.0 && LDDIsBannerContext((id)self)) {
-                    show = YES;                   // 1.5: 通知横幅容器兜底: 复用destination未激活gNotifActive时, 通知窄条立即显示
                     static int bnl = 0;
                     if (bnl < 8) { bnl++; ProbeWrite("BANNER-CTX-NARROW"); }
-                } else if (capAll && b0.w < 150.0) {
-                    show = YES;                   // 录屏收起窄条(129x38等): 录屏中不受小岛开关控制
-                    static int reclog = 0;
-                    if (reclog < 8) { reclog++; char rb[96]; snprintf(rb, sizeof(rb), "REC-CAPTURED-ON-w%.0f-h%.0f", b0.w, b0.h); ProbeWrite(rb); }
-                } else if (capAll && ((b0.w >= 170.0 && b0.w < 250.0) || b0.w >= 340.0)) {
-                    show = YES;                   // 录屏横条: TrollOpen 176x37(170-250带) / 控制中心 345x38(>=340带)
-                    static int reclog2 = 0;
-                    if (reclog2 < 8) { reclog2++; char rb[96]; snprintf(rb, sizeof(rb), "REC-CAPTURED-ON-w%.0f-h%.0f", b0.w, b0.h); ProbeWrite(rb); }
+                } else {
+                    static int actl = 0;
+                    if (actl < 8) { actl++; ProbeWrite("COMPACT-ACTIVITY-SKIP"); }
                 }
+            } else if (b0.w < 150.0 && LDDIsBannerContext((id)self)) {
+                // 通知横幅容器兜底: 场景链含明确 Banner 类时, 窄条立即显示
+                show = YES;
+                static int bnl2 = 0;
+                if (bnl2 < 8) { bnl2++; ProbeWrite("BANNER-CTX-NARROW2"); }
+            } else {
+                // 听歌展开141x63 / 直播展开149x65 / 其他岛: 小岛关一律不铺
+                static int h52n = 0;
+                if (h52n < 40) { h52n++; char hn[96]; snprintf(hn, sizeof(hn), "H52-SKIP-NONBANNER-w%.0f-h%.0f", b0.w, b0.h); ProbeWrite(hn); }
             }
         }
     }
@@ -1908,7 +1936,7 @@ static void PostRealNotification(void) {
 
 __attribute__((constructor))
 static void LDDInit(void) {
-    ProbeWrite("LDD-BUILD actions-1.9.137-merge");
+    ProbeWrite("LDD-BUILD actions-1.9.138-merge");
     ProbeWrite("CONSTRUCTOR-RAN");
     // 1.9.151: 构造器不再读 prefs (避免 SpringBoard 启动早期触发 CFPrefs 初始化时序问题)
     // 对照组 hook (兼启动延迟器)
@@ -1931,6 +1959,19 @@ static void LDDInit(void) {
     // 捕获横幅呈现层 (SBNotificationBannerDestination init)
     id clsBND = objc_getClass("SBNotificationBannerDestination");
     if (clsBND) { MSHookMessageEx((Class)clsBND, sel_registerName("init"), (IMP)HookBNDInit, (IMP *)&origBNDInit); ProbeWrite("BND-HOOK"); }
+    // 1.9.199: 关闭入口钩子 —— 划走/超时收起即结束通知窗口 (方法存在才挂, 不存在的版本跳过)
+    if (clsBND) {
+        SEL sW = sel_registerName("withdrawNotificationRequest:");
+        if (class_getInstanceMethod((Class)clsBND, sW))
+            MSHookMessageEx((Class)clsBND, sW, (IMP)HookBNDWithdraw, (IMP *)&origBNDWithdraw);
+        SEL sD = sel_registerName("_dismissPresentedBannerAnimated:reason:forceIfSticky:");
+        if (class_getInstanceMethod((Class)clsBND, sD))
+            MSHookMessageEx((Class)clsBND, sD, (IMP)HookBNDDismiss, (IMP *)&origBNDDismiss);
+        SEL sO = sel_registerName("_dismissPresentedBannerOnly:reason:animated:");
+        if (class_getInstanceMethod((Class)clsBND, sO))
+            MSHookMessageEx((Class)clsBND, sO, (IMP)HookBNDDismissOnly, (IMP *)&origBNDDismissOnly);
+        ProbeWrite("BND-CLOSE-HOOKS-OK");
+    }
     // Darwin notify: 设置端点"预览通知"即时触发 (灵动通知同款机制)
     static int notifyTok = 0;
     notify_register_dispatch("com.tlzypjy.github/TestNotification", &notifyTok, (void *)&_dispatch_main_q, ^(int tok){
