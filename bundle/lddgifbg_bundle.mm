@@ -745,13 +745,13 @@ static id LDDListMaterialFolders(void) {
     }
 }
 // 删除钮: 手势绑定素材名
-static const char kLDDDelKey;
+static const char kLDDDelKey = 0;
 - (void)delBtnTapped:(UITapGestureRecognizer *)g {
     NSString *name = objc_getAssociatedObject(g, &kLDDDelKey);
     if (name) [self confirmDelete:name];
 }
 // 点名字 -> 行内改名
-static const char kLDDNameKey;
+static const char kLDDNameKey = 0;
 - (void)nameTapped:(UITapGestureRecognizer *)g {
     NSString *name = objc_getAssociatedObject(g, &kLDDNameKey);
     if (!name) return;
