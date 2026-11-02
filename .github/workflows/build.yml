@@ -5,7 +5,8 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: build
+  # 诊断分支独立排队，不取消 main 的编译任务。
+  group: build-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

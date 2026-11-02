@@ -11,6 +11,7 @@
 #include <time.h>
 #include <math.h>
 #include <unistd.h>
+#include <stdint.h>
 
 typedef struct objc_class *Class;
 typedef struct objc_object { Class isa; } *id;
@@ -1071,6 +1072,100 @@ static void ShowBlock(id self, int colorIsRed) {
     }
 }
 
+// LDD 1.28 diagnostic: enable only when the marker file exists.
+// Capture class names and bounds only, never notification text, media names or account data.
+// A new marker value starts a new bounded session without needing to restart SpringBoard.
+static char gLDDDiagTag[65] = "";
+static double gLDDDiagNextRead = 0.0, gLDDDiagNextDump = 0.0;
+static unsigned gLDDDiagDumps = 0;
+static BOOL LDDDiagEnabled(double now) {
+    if (now >= gLDDDiagNextRead) {
+        gLDDDiagNextRead = now + 0.5;
+        char tag[65] = "";
+        FILE *f = fopen("/var/mobile/lddgifbg/__island_debug__", "r");
+        if (f) {
+            if (!fgets(tag, sizeof(tag), f)) tag[0] = '\0';
+            fclose(f);
+            tag[strcspn(tag, "\r\n")] = '\0';
+            for (size_t k = 0; tag[k]; ++k) {
+                char c = tag[k];
+                if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                      (c >= '0' && c <= '9') || c == '_' || c == '-')) tag[k] = '_';
+            }
+            if (!tag[0]) snprintf(tag, sizeof(tag), "capture");
+        }
+        if (strcmp(tag, gLDDDiagTag)) {
+            snprintf(gLDDDiagTag, sizeof(gLDDDiagTag), "%s", tag);
+            gLDDDiagDumps = 0;
+            gLDDDiagNextDump = 0;
+        }
+    }
+    return gLDDDiagTag[0] != '\0';
+}
+// Also capture scene-specific view classes, including Face ID and recording views
+// outside the aperture content subtree. Only active while the marker exists.
+static void LDDDiagCandidate(id view, const char *name, CGRect bounds) {
+    if (!name || !(strstr(name, "Biometric") || strstr(name, "Face") ||
+                   strstr(name, "Passcode") || strstr(name, "ScreenCapture") ||
+                   strstr(name, "Recording") || strstr(name, "SceneElement"))) return;
+    double now = CFAbsoluteTimeGetCurrent();
+    if (!LDDDiagEnabled(now)) return;
+    static char lastTag[65] = "";
+    static const char *seen[48];
+    static int seenCount = 0;
+    if (strcmp(lastTag, gLDDDiagTag)) {
+        snprintf(lastTag, sizeof(lastTag), "%s", gLDDDiagTag);
+        seenCount = 0;
+    }
+    for (int i = 0; i < seenCount; ++i) if (seen[i] == name) return;
+    if (seenCount >= 48) return;
+    seen[seenCount++] = name;
+    char line[256];
+    snprintf(line, sizeof(line), "LDD128-CAND tag=%s class=%.120s width=%.0f height=%.0f",
+             gLDDDiagTag, name, bounds.w, bounds.h);
+    ProbeWrite(line);
+}
+static void LDDDiagTree(id node, int depth, int *remaining) {
+    if (!node || node == gContainerView || node == gContentView || depth > 5 || *remaining <= 0) return;
+    --*remaining;
+    CGRect b = [node bounds];
+    const char *name = object_getClassName(node);
+    char line[220];
+    snprintf(line, sizeof(line), "LDD128-TREE depth=%d class=%.120s width=%.0f height=%.0f",
+             depth, name ? name : "?", b.w, b.h);
+    ProbeWrite(line);
+    if (depth == 5) return;
+    id children = ((id(*)(id, SEL))objc_msgSend)(node, sel_registerName("subviews"));
+    NSUInteger count = children ? ((NSUInteger(*)(id, SEL))objc_msgSend)(children, sel_registerName("count")) : 0;
+    if (count > 16) count = 16;
+    for (NSUInteger k = 0; k < count && *remaining > 0; ++k) {
+        id child = ((id(*)(id, SEL, NSUInteger))objc_msgSend)(children, sel_registerName("objectAtIndex:"), k);
+        LDDDiagTree(child, depth + 1, remaining);
+    }
+}
+static void LDDDiagSnapshot(id view, CGRect decisionBounds, BOOL show, BOOL capture, BOOL recentNotif) {
+    double now = CFAbsoluteTimeGetCurrent();
+    if (!LDDDiagEnabled(now) || now < gLDDDiagNextDump || gLDDDiagDumps >= 12) return;
+    ++gLDDDiagDumps;
+    gLDDDiagNextDump = now + 0.5;
+    char line[256];
+    snprintf(line, sizeof(line), "LDD128-SNAPSHOT tag=%s n=%u t=%.3f master=%d small=%d capture=%d recent=%d show=%d width=%.0f height=%.0f",
+             gLDDDiagTag, gLDDDiagDumps, now, cEnabled ? 1 : 0, cZxh ? 1 : 0,
+             capture ? 1 : 0, recentNotif ? 1 : 0, show ? 1 : 0, decisionBounds.w, decisionBounds.h);
+    ProbeWrite(line);
+    id cur = view, root = view;
+    for (int d = 0; cur && d < 8; ++d) {
+        const char *name = object_getClassName(cur);
+        snprintf(line, sizeof(line), "LDD128-ANCESTOR depth=%d class=%.140s", d, name ? name : "?");
+        ProbeWrite(line);
+        if (d == 2) root = cur;
+        cur = ((id(*)(id, SEL))objc_msgSend)(cur, sel_registerName("superview"));
+    }
+    int remaining = 48;
+    LDDDiagTree(root, 0, &remaining);
+    ProbeWrite("LDD128-SNAPSHOT-END");
+}
+
 // ---------- layoutSubviews hook ----------
 static void LDDIslandLayout(id self) {
     static int first = 0;
@@ -1303,6 +1398,7 @@ static void LDDIslandLayout(id self) {
             }
         }
     }
+    LDDDiagSnapshot(self, jr, show, dbgCap, dbgNA);
     static int slog2 = 0;
     if (slog2 < 40) {
         slog2++;
@@ -1594,6 +1690,7 @@ static void CtrlLayoutHook(id self, SEL _cmd) {
     CGRect bb = ((CGRect(*)(id, SEL))objc_msgSend)(self, sel_registerName("bounds"));
     // 1.16: 面容识别/全屏场景呈现容器(ScenePresenterView 407x489) 例外放行快速过滤 —— 不受小岛开关控制
     const char *fcn0 = object_getClassName(self);
+    LDDDiagCandidate(self, fcn0, bb);
     int faceidF = (fcn0 && strstr(fcn0, "ScenePresenterView"));
     if (!faceidF && (bb.w > 460.0 || bb.h > 150.0 || bb.w < 40.0 || bb.h < 10.0)) {
         // 1.15 探针: 记录认证/面容类容器(任意尺寸) —— 定位面容识别(Face ID)弹出时的容器类名/尺寸
@@ -2045,6 +2142,7 @@ static void PostRealNotification(void) {
 __attribute__((constructor))
 static void LDDInit(void) {
     ProbeWrite("LDD-BUILD actions-1.9.145-merge");
+    ProbeWrite("LDD-DIAG-1.28-20261103");
     ProbeWrite("CONSTRUCTOR-RAN");
     // 1.9.151: 构造器不再读 prefs (避免 SpringBoard 启动早期触发 CFPrefs 初始化时序问题)
     // 对照组 hook (兼启动延迟器)

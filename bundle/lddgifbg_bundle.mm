@@ -1397,7 +1397,8 @@ static void LDDPreviewSize(double bw, double *piw, double *pih) {
         [sw setTag:(row == 0 ? 1001 : 1002)];
         NSUserDefaults *ud = [[NSUserDefaults alloc] initWithSuiteName:@"lddgifbg"];
         id v = [ud objectForKey:(row == 0 ? @"Enablelddgifbg" : @"Enablezxhlddgifbg")];
-        BOOL on = v ? [v boolValue] : YES;
+        // 与 SpringBoard 的默认值一致：总开关默认开，小岛开关默认关。
+        BOOL on = v ? [v boolValue] : (row == 0 ? YES : NO);
         [sw setOn:on animated:NO];
         [sw addTarget:self action:@selector(switchToggled:) forControlEvents:1 << 12];
         [[cell contentView] addSubview:sw];
