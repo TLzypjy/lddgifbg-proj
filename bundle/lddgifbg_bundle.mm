@@ -321,6 +321,7 @@ extern "C" void UIGraphicsEndImageContext(void);
 - (void)setRightBarButtonItems:(id)items;
 - (void)setTitle:(NSString *)t;
 - (void)viewDidLoad;
+- (void)viewDidLayoutSubviews;
 - (void)viewDidAppear:(BOOL)a;
 - (void)presentViewController:(id)vc animated:(BOOL)a completion:(id)c;
 - (void)dismissViewControllerAnimated:(BOOL)a completion:(id)c;
@@ -733,7 +734,7 @@ static id LDDListMaterialFolders(void) {
             UIEdgeInsets ni; ni.top = 14; ni.left = 16; ni.bottom = 70; ni.right = 16;
             [fl setSectionInset:ni];
             [fl invalidateLayout];
-            LogB("MAT-FORCED item=%.2f inter=12", want);
+            { char bl[160]; snprintf(bl, sizeof(bl), "MAT-FORCED item=%.2f inter=12", want); LogB(bl); }
         }
     } @catch (id e) { LogB("MAT-RELAYOUT-EXC"); }
 }
