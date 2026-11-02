@@ -819,6 +819,21 @@ static LDDSceneKind LDDSceneKindOf(id v) {
     static double gKT = 0;
     double nw = CFAbsoluteTimeGetCurrent();
     if (v == gKV && (nw - gKT) < 0.15) return gKR;
+    // 1.9.200: 全链类名探针(限流) —— 实机确认听歌/直播条链上到底有什么类,
+    // 为后续恢复"通知收起窄条背景"的精确区分做准备
+    static int chainlog = 0;
+    if (chainlog < 10) {
+        chainlog++;
+        id cc = v; int cd = 0;
+        while (cc && cd < 8) {
+            const char *cn2 = class_getName((__bridge void *)object_getClass(cc));
+            char cl[160];
+            snprintf(cl, sizeof(cl), "LDD-CHAIN-%d-%s", cd, cn2 ? cn2 : "?");
+            ProbeWrite(cl);
+            cc = ((id(*)(id, SEL))objc_msgSend)(cc, sel_registerName("superview"));
+            cd++;
+        }
+    }
     LDDSceneKind k = LDDSceneOther;
     // 第一遍: 全链找 Activity (听歌/直播/Live Activity 专属类), 优先级最高
     int depth = 0;
@@ -1191,8 +1206,11 @@ static void LDDIslandLayout(id self) {
                 if (h52m < 40) { h52m++; char hn[96]; snprintf(hn, sizeof(hn), "H52-SHOW-NOTIF-MID-w%.0f-h%.0f", b0.w, b0.h); ProbeWrite(hn); }
             } else if (nActive && b0.w < 150.0) {
                 // 通知收起窄条(129x38): 仅横幅在岛/刚离岛 2 秒内显示;
-                // 听歌/直播紧凑条(125~134x37~39)尺寸相同, 靠 LDDSceneKindOf 的 Activity 链排除 (iOS16 类名有效)
-                if (LDDSceneKindOf((id)self) != LDDSceneActivity) {
+                // 听歌/直播紧凑条(125~134x37~39)尺寸相同 —— 1.9.200 实机探针(1.23)证实:
+                //   Live Activity(听歌/直播)视图链上无 Activity/Banner 类名(相关探针全 0), 判 Other;
+                //   旧逻辑"非 Activity 即显示"把听歌条在通知窗口内误铺背景(用户: 来通知后听歌岛被铺背景)。
+                //   改为仅明确 Banner 类才显示 —— 听歌/直播条在通知窗口内也稳定不铺, 通知展开态(407x92)走尺寸分支不受影响。
+                if (LDDSceneKindOf((id)self) == LDDSceneBanner) {
                     show = YES;
                     static int bnl = 0;
                     if (bnl < 8) { bnl++; ProbeWrite("BANNER-CTX-NARROW"); }
