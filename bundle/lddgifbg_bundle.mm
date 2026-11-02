@@ -653,6 +653,7 @@ static id LDDListMaterialFolders(void) {
     id _activeField;
     NSString *_activeName;
     id _activeCell;
+    id _activeLabel; // 1.9.192: 行内改名中被隐藏的名字 label, 结束时恢复显示
 }
 - (void)viewDidLoad {
     [super viewDidLoad];
@@ -717,6 +718,7 @@ static id LDDListMaterialFolders(void) {
 }
 - (void)exitEditing {
     if (!_editMode) return;
+    if (_activeField) [_activeField resignFirstResponder]; // 保存未完成的改名
     [self stopJiggling];
     _editMode = NO;
     UIBarButtonItem *imp = [[UIBarButtonItem alloc] initWithTitle:@"导入" style:0 target:self action:@selector(importTapped)];
@@ -724,18 +726,20 @@ static id LDDListMaterialFolders(void) {
     [self setTitle:[NSString stringWithFormat:@"素材库 (%lu)", (unsigned long)[_folders count]]];
     [(UICollectionView *)_cv reloadData];
 }
-// 抖动只加在缩略图卡片(tag 911)上, 删除钮是卡片子视图 -> 随卡片一起抖
+// 抖动动画: 挂在缩略图卡片(tag 911) layer 上, 删除钮是卡片子视图 -> 随卡片一起抖
+- (void)jiggleCard:(id)card {
+    id anim = [CABasicAnimation animationWithKeyPath:@"transform.rotation"];
+    [anim setValue:[NSNumber numberWithDouble:-0.03] forKey:@"fromValue"];
+    [anim setValue:[NSNumber numberWithDouble:0.03] forKey:@"toValue"];
+    [anim setValue:[NSNumber numberWithDouble:0.12] forKey:@"duration"];
+    [anim setValue:[NSNumber numberWithBool:YES] forKey:@"autoreverses"];
+    [anim setValue:[NSNumber numberWithDouble:100000] forKey:@"repeatCount"];
+    [[card layer] addAnimation:anim forKey:@"lddJiggle"];
+}
 - (void)startJiggling {
     for (id c in [(UICollectionView *)_cv visibleCells]) {
         id card = [c viewWithTag:911];
-        if (!card) continue;
-        id anim = [CABasicAnimation animationWithKeyPath:@"transform.rotation"];
-        [anim setValue:[NSNumber numberWithDouble:-0.03] forKey:@"fromValue"];
-        [anim setValue:[NSNumber numberWithDouble:0.03] forKey:@"toValue"];
-        [anim setValue:[NSNumber numberWithDouble:0.12] forKey:@"duration"];
-        [anim setValue:[NSNumber numberWithBool:YES] forKey:@"autoreverses"];
-        [anim setValue:[NSNumber numberWithDouble:100000] forKey:@"repeatCount"];
-        [[card layer] addAnimation:anim forKey:@"lddJiggle"];
+        if (card) [self jiggleCard:card];
     }
 }
 - (void)stopJiggling {
@@ -755,15 +759,17 @@ static const char kLDDNameKey = 0;
 - (void)nameTapped:(UITapGestureRecognizer *)g {
     NSString *name = objc_getAssociatedObject(g, &kLDDNameKey);
     if (!name) return;
-    id label = [g view];             // pill
-    id contentV = [label superview]; // contentView
+    id pill = [g view];              // pill (名字胶囊)
+    id contentV = [pill superview];  // contentView
     id cell = [contentV superview];  // cell
     if (!cell) return;
-    [self beginRename:name inCell:cell atLabel:label];
+    [self beginRename:name inCell:cell atPill:pill];
 }
-- (void)beginRename:(NSString *)name inCell:(id)cell atLabel:(id)label {
+- (void)beginRename:(NSString *)name inCell:(id)cell atPill:(id)pill {
     if (_activeField) [_activeField resignFirstResponder]; // 先结束上一次未完成的编辑
-    CGRect lf = [label frame];
+    id lab = [pill viewWithTag:922]; // 名字文字 label
+    CGRect lf = [pill frame];
+    if (lab) [lab setHidden:YES];
     UITextField *tf = [[UITextField alloc] initWithFrame:lf];
     [tf setText:name];
     [tf setFont:[UIFont systemFontOfSize:11.0]];
@@ -775,11 +781,11 @@ static const char kLDDNameKey = 0;
     [tf setAutocorrectionType:1];
     [tf setDelegate:self];
     [tf setTag:955];
-    [label setHidden:YES];
     [[cell contentView] addSubview:tf];
     _activeField = tf;
     _activeName = name;
     _activeCell = cell;
+    _activeLabel = lab;
     [tf becomeFirstResponder];
 }
 - (BOOL)textFieldShouldReturn:(UITextField *)tf {
@@ -793,13 +799,9 @@ static const char kLDDNameKey = 0;
     [tf removeFromSuperview];
     _activeField = nil;
     _activeName = nil;
-    id cell = _activeCell;
     _activeCell = nil;
-    if (cell) {
-        id lab = [[cell contentView] viewWithTag:922];
-        if (lab) [lab setHidden:NO];
-    }
-    if (old && nn) [self doRename:old to:nn];
+    if (_activeLabel) { [_activeLabel setHidden:NO]; _activeLabel = nil; }
+    if (old && nn && [nn length] > 0) [self doRename:old to:nn];
 }
 - (void)doRename:(NSString *)old to:(NSString *)newName {
     if (!newName || [newName length] == 0) return;
@@ -976,8 +978,8 @@ static const char kLDDNameKey = 0;
     return _folders ? (NSInteger)[_folders count] : 0;
 }
 - (CGSize)collectionView:(id)cv layout:(id)layout sizeForItemAtIndexPath:(id)ip {
-    CGRect sb = [[UIScreen mainScreen] bounds];
-    double w = (sb.w - 32.0 - 24.0) / 3.0;   // 左右 16 + 列距 12x2
+    CGRect cb = [(UICollectionView *)cv bounds]; // 用网格自身宽度, 弹窗场景也固定 3 列
+    double w = (cb.w - 32.0 - 24.0) / 3.0;      // 左右 16 + 列距 12x2
     CGSize sz; sz.w = w; sz.h = w * 1.0 + 50.0;
     return sz;
 }
@@ -989,12 +991,11 @@ static const char kLDDNameKey = 0;
     NSString *name = [_folders objectAtIndex:(NSUInteger)row];
     CGRect cb = [[cell contentView] bounds];
     double imgH = cb.w * 1.0;
-    // 白色圆角卡片 + 图
+    // 白色圆角卡片 + 图 (卡片不裁切, 让删除钮可盖住并伸出右上角; 图片圆角由 iv 自己裁切)
     UIView *card = [[UIView alloc] initWithFrame:MakeRect(0, 0, cb.w, imgH)];
     [card setBackgroundColor:[UIColor whiteColor]];
     [card setTag:911];
     [[card layer] setCornerRadius:14.0];
-    [[card layer] setMasksToBounds:YES];
     UIImage *thumb = [_thumbs objectForKeyedSubscript:name];
     NSString *typeTag = @"图片";
     BOOL hasVideo = NO;
@@ -1012,6 +1013,8 @@ static const char kLDDNameKey = 0;
     UIImageView *iv = [[UIImageView alloc] initWithFrame:MakeRect(0, 0, cb.w, imgH)];
     [iv setImage:thumb];
     [iv setContentMode:2];
+    [[iv layer] setCornerRadius:14.0];
+    [[iv layer] setMasksToBounds:YES];
     [card addSubview:iv];
     UILabel *badge = [[UILabel alloc] initWithFrame:MakeRect(6, 6, 34, 16)];
     [badge setText:typeTag];
@@ -1036,9 +1039,9 @@ static const char kLDDNameKey = 0;
         [vb addSubview:pl];
         [card addSubview:vb];
     }
-    // 1.9.191: 编辑态删除钮(红底白"-", 盖住缩略图右上角一小角, 随卡片一起抖动)
+    // 1.9.191: 编辑态删除钮(红底白"-", 圆心卡缩略图右上角: 一半盖图角一半伸出, 随卡片一起抖动)
     if (_editMode) {
-        UIView *delv = [[UIView alloc] initWithFrame:MakeRect(cb.w - 13, -7, 20, 20)];
+        UIView *delv = [[UIView alloc] initWithFrame:MakeRect(cb.w - 10, -9, 20, 20)];
         [delv setBackgroundColor:[UIColor redColor]];
         [[delv layer] setCornerRadius:10.0];
         [[delv layer] setMasksToBounds:YES];
@@ -1079,6 +1082,8 @@ static const char kLDDNameKey = 0;
         [dot setBackgroundColor:(on ? [UIColor systemBlueColor] : [UIColor colorWithWhite:0.80 alpha:1.0])];
         [[cell contentView] addSubview:dot];
     }
+    // 1.9.192: 编辑态直接给卡片加抖动(创建即抖, 不依赖 reloadData 后 visibleCells 时机)
+    if (_editMode) [self jiggleCard:card];
     return cell;
 }
 - (void)collectionView:(id)cv didSelectItemAtIndexPath:(id)ip {
