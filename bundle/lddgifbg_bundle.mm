@@ -350,12 +350,17 @@ extern "C" void UIGraphicsEndImageContext(void);
 @interface UICollectionViewFlowLayout : NSObject
 - (id)init;
 - (void)setMinimumInteritemSpacing:(double)s;
+- (double)minimumInteritemSpacing;
 - (void)setMinimumLineSpacing:(double)s;
 - (void)setItemSize:(CGSize)s;
+- (CGSize)itemSize;
 - (void)setSectionInset:(UIEdgeInsets)i;
+- (UIEdgeInsets)sectionInset;
+- (void)invalidateLayout;
 @end
 @interface UICollectionView : UIView
 - (id)initWithFrame:(CGRect)f collectionViewLayout:(id)layout;
+- (id)collectionViewLayout;
 - (void)setBackgroundColor:(id)c;
 - (void)setDelegate:(id)d;
 - (void)setDataSource:(id)d;
@@ -623,6 +628,7 @@ static id ThumbForPath(NSString *path) {
 - (id)collectionView:(id)cv cellForItemAtIndexPath:(id)ip;
 - (void)collectionView:(id)cv didSelectItemAtIndexPath:(id)ip;
 - (void)closeTapped;
+- (void)viewDidLayoutSubviews;
 @end
 // 1.9.131: 素材列表只返回"素材文件夹"(目录), 排除 __ 前缀内部文件(探针/消费标记)
 static id LDDListMaterialFolders(void) {
@@ -685,6 +691,11 @@ static id LDDListMaterialFolders(void) {
     [flow setItemSize:isz];
     CGRect vb = [[self view] bounds];
     UICollectionView *cv = [[UICollectionView alloc] initWithFrame:vb collectionViewLayout:flow];
+    {
+        char bl[160];
+        snprintf(bl, sizeof(bl), "MAT-FLOW-A set item=%.2f inter=12 insL=16 insR=16 viewW=%.1f cvH=%.1f", iw, vb.w, vb.h);
+        LogB(bl);
+    }
     [cv setBackgroundColor:[UIColor clearColor]];
     [cv setDelegate:self];
     [cv setDataSource:self];
@@ -696,6 +707,35 @@ static id LDDListMaterialFolders(void) {
     _cv = cv;
     NSString *cnt = [NSString stringWithFormat:@"素材库 (%lu)", (unsigned long)[_folders count]];
     [self setTitle:cnt];
+}
+// 1.9.194: 布局完成后核对/强制 3 列 (探针日志 + 兜底修正)
+- (void)viewDidLayoutSubviews {
+    @try {
+        [super viewDidLayoutSubviews];
+        if (!_cv) return;
+        UICollectionView *c = (UICollectionView *)_cv;
+        CGRect b = [c bounds];
+        UICollectionViewFlowLayout *fl = (UICollectionViewFlowLayout *)[c collectionViewLayout];
+        CGSize its = [fl itemSize];
+        double inter = [fl minimumInteritemSpacing];
+        UIEdgeInsets si = [fl sectionInset];
+        double want = (b.w - 32.0 - 24.0) / 3.0;
+        {
+            char bl[200];
+            snprintf(bl, sizeof(bl), "MAT-RELAYOUT cvW=%.1f cvH=%.1f item=%.2f inter=%.1f insL=%.1f insR=%.1f want=%.2f",
+                     b.w, b.h, its.w, inter, si.left, si.right, want);
+            LogB(bl);
+        }
+        if (want > 1.0 && (its.w - want) > 1.0) {
+            CGSize nz; nz.w = want; nz.h = want + 50.0;
+            [fl setItemSize:nz];
+            [fl setMinimumInteritemSpacing:12];
+            UIEdgeInsets ni; ni.top = 14; ni.left = 16; ni.bottom = 70; ni.right = 16;
+            [fl setSectionInset:ni];
+            [fl invalidateLayout];
+            LogB("MAT-FORCED item=%.2f inter=12", want);
+        }
+    } @catch (id e) { LogB("MAT-RELAYOUT-EXC"); }
 }
 - (void)closeTapped {
     [self dismissViewControllerAnimated:YES completion:0];
@@ -990,6 +1030,11 @@ static const char kLDDNameKey = 0;
     // 1.9.193: 固定按屏幕宽算 3 列, 与 flow itemSize 一致 (不依赖 cell bounds, 避免复用期尺寸异常)
     double w = ([[UIScreen mainScreen] bounds].w - 32.0 - 24.0) / 3.0;
     double imgH = w;
+    {
+        char bl[160];
+        snprintf(bl, sizeof(bl), "MAT-CELL row=%ld w=%.2f", (long)row, w);
+        LogB(bl);
+    }
     // 白色圆角卡片 + 图 (卡片不裁切, 让删除钮可盖住并伸出右上角; 图片圆角由 iv 自己裁切)
     UIView *card = [[UIView alloc] initWithFrame:MakeRect(0, 0, w, imgH)];
     [card setBackgroundColor:[UIColor whiteColor]];
