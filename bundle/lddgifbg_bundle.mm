@@ -679,6 +679,11 @@ static id LDDListMaterialFolders(void) {
     [flow setMinimumLineSpacing:18];
     UIEdgeInsets ins; ins.top = 14; ins.left = 16; ins.bottom = 70; ins.right = 16;
     [flow setSectionInset:ins];
+    // 1.9.193: 直接给 flow 设 itemSize (不依赖 delegate 尺寸回调), 保证任何宽度下一行 3 个
+    CGRect sb = [[UIScreen mainScreen] bounds];
+    double iw = (sb.w - 32.0 - 24.0) / 3.0;
+    CGSize isz; isz.w = iw; isz.h = iw * 1.0 + 50.0;
+    [flow setItemSize:isz];
     CGRect vb = [[self view] bounds];
     UICollectionView *cv = [[UICollectionView alloc] initWithFrame:vb collectionViewLayout:flow];
     [cv setBackgroundColor:[UIColor clearColor]];
@@ -977,22 +982,17 @@ static const char kLDDNameKey = 0;
 - (NSInteger)collectionView:(id)cv numberOfItemsInSection:(NSInteger)s {
     return _folders ? (NSInteger)[_folders count] : 0;
 }
-- (CGSize)collectionView:(id)cv layout:(id)layout sizeForItemAtIndexPath:(id)ip {
-    CGRect cb = [(UICollectionView *)cv bounds]; // 用网格自身宽度, 弹窗场景也固定 3 列
-    double w = (cb.w - 32.0 - 24.0) / 3.0;      // 左右 16 + 列距 12x2
-    CGSize sz; sz.w = w; sz.h = w * 1.0 + 50.0;
-    return sz;
-}
 - (id)collectionView:(id)cv cellForItemAtIndexPath:(id)ip {
     NSInteger row = [ip row];
     UICollectionViewCell *cell = [(UICollectionView *)cv dequeueReusableCellWithReuseIdentifier:@"m" forIndexPath:ip];
     for (UIView *v in [[cell contentView] subviews]) { if (v) [v removeFromSuperview]; }
     if (!_folders || row >= (NSInteger)[_folders count]) return cell;
     NSString *name = [_folders objectAtIndex:(NSUInteger)row];
-    CGRect cb = [[cell contentView] bounds];
-    double imgH = cb.w * 1.0;
+    // 1.9.193: 固定按屏幕宽算 3 列, 与 flow itemSize 一致 (不依赖 cell bounds, 避免复用期尺寸异常)
+    double w = ([[UIScreen mainScreen] bounds].w - 32.0 - 24.0) / 3.0;
+    double imgH = w;
     // 白色圆角卡片 + 图 (卡片不裁切, 让删除钮可盖住并伸出右上角; 图片圆角由 iv 自己裁切)
-    UIView *card = [[UIView alloc] initWithFrame:MakeRect(0, 0, cb.w, imgH)];
+    UIView *card = [[UIView alloc] initWithFrame:MakeRect(0, 0, w, imgH)];
     [card setBackgroundColor:[UIColor whiteColor]];
     [card setTag:911];
     [[card layer] setCornerRadius:14.0];
@@ -1010,7 +1010,7 @@ static const char kLDDNameKey = 0;
         }
         if (thumb) [_thumbs setObject:thumb forKeyedSubscript:name];
     }
-    UIImageView *iv = [[UIImageView alloc] initWithFrame:MakeRect(0, 0, cb.w, imgH)];
+    UIImageView *iv = [[UIImageView alloc] initWithFrame:MakeRect(0, 0, w, imgH)];
     [iv setImage:thumb];
     [iv setContentMode:2];
     [[iv layer] setCornerRadius:14.0];
@@ -1041,7 +1041,7 @@ static const char kLDDNameKey = 0;
     }
     // 1.9.191: 编辑态删除钮(红底白"-", 圆心卡缩略图右上角: 一半盖图角一半伸出, 随卡片一起抖动)
     if (_editMode) {
-        UIView *delv = [[UIView alloc] initWithFrame:MakeRect(cb.w - 10, -9, 20, 20)];
+        UIView *delv = [[UIView alloc] initWithFrame:MakeRect(w - 10, -9, 20, 20)];
         [delv setBackgroundColor:[UIColor redColor]];
         [[delv layer] setCornerRadius:10.0];
         [[delv layer] setMasksToBounds:YES];
@@ -1058,11 +1058,11 @@ static const char kLDDNameKey = 0;
     }
     [[cell contentView] addSubview:card];
     // 名字胶囊 (点按 -> 行内改名)
-    UIView *pill = [[UIView alloc] initWithFrame:MakeRect(4, imgH + 7, cb.w - 8, 22)];
+    UIView *pill = [[UIView alloc] initWithFrame:MakeRect(4, imgH + 7, w - 8, 22)];
     [pill setBackgroundColor:[UIColor colorWithWhite:0.62 alpha:0.85]];
     [[pill layer] setCornerRadius:11.0];
     [[pill layer] setMasksToBounds:YES];
-    UILabel *plb = [[UILabel alloc] initWithFrame:MakeRect(0, 0, cb.w - 8, 22)];
+    UILabel *plb = [[UILabel alloc] initWithFrame:MakeRect(0, 0, w - 8, 22)];
     [plb setText:name];
     [plb setFont:[UIFont systemFontOfSize:11.0]];
     [plb setTextAlignment:1];
@@ -1076,7 +1076,7 @@ static const char kLDDNameKey = 0;
     // 选中圆点 (编辑态隐藏)
     if (!_editMode) {
         BOOL on = _sel && [_sel isEqualToString:name];
-        UIView *dot = [[UIView alloc] initWithFrame:MakeRect(cb.w / 2 - 9, imgH + 33, 18, 18)];
+        UIView *dot = [[UIView alloc] initWithFrame:MakeRect(w / 2 - 9, imgH + 33, 18, 18)];
         [[dot layer] setCornerRadius:9.0];
         [[dot layer] setMasksToBounds:YES];
         [dot setBackgroundColor:(on ? [UIColor systemBlueColor] : [UIColor colorWithWhite:0.80 alpha:1.0])];
