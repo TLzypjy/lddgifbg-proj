@@ -892,6 +892,35 @@ static id HookBNDInit(id self, SEL _c) {
     if (r) { gNotifTs = CFAbsoluteTimeGetCurrent(); gNotifActive = YES; ProbeWrite("BND-NOTIF-TS"); }
     return r;
 }
+static id LDDDiagOptionalObject(id object, const char *selectorName);
+// 1.28.2~diag2: 横幅可见性按系统呈现状态采样, 不再只靠 init/关闭事件和尺寸自刷新。
+// 只记录“有没有呈现中的横幅”, 不读取通知内容。
+static __weak id gBNDPresentedVC = nil;
+static double gBNDPresentedCheck = 0;
+static BOOL LDDBannerPresentedNow(void) {
+    double now = CFAbsoluteTimeGetCurrent();
+    if (now - gBNDPresentedCheck < 0.2) return gBNDPresentedVC != nil;
+    gBNDPresentedCheck = now;
+    id vc = nil;
+    if (gPresentLayer) vc = LDDDiagOptionalObject(gPresentLayer, "presentedPresentableVC");
+    gBNDPresentedVC = vc;
+    return vc != nil;
+}
+static void (*origBNDSetPresentedVC)(id, SEL, id);
+static void HookBNDSetPresentedVC(id self, SEL _c, id vc) {
+    if (origBNDSetPresentedVC) origBNDSetPresentedVC(self, _c, vc);
+    if (vc) {
+        gBNDPresentedVC = vc;
+        gNotifActive = YES;
+        gNotifTs = CFAbsoluteTimeGetCurrent();
+        ProbeWrite("BND-PRESENT-SET");
+    } else {
+        gBNDPresentedVC = nil;
+        gNotifActive = NO;
+        gNotifTs = CFAbsoluteTimeGetCurrent();
+        ProbeWrite("BND-PRESENT-CLEAR");
+    }
+}
 // 1.9.199: 横幅关闭钩子 —— 真实通知被划走/超时收起时立即结束通知窗口,
 // 旧 30s 硬窗口把"通知来过"当成"通知还在", 让听歌/直播窄条在小岛关时误铺背景(时有时无)。
 // 三个关闭入口都是 LDDCloseFirstBanner 探针枚举确认存在于呈现层(destination)的方法;
@@ -1125,6 +1154,59 @@ static void LDDDiagCandidate(id view, const char *name, CGRect bounds) {
              gLDDDiagTag, name, bounds.w, bounds.h);
     ProbeWrite(line);
 }
+// Map runtime objects to anonymous, process-local numbers without logging addresses.
+static __weak id gLDDDiagObjects[128];
+static unsigned gLDDDiagObjectCount = 0;
+static unsigned LDDDiagObjectToken(id object) {
+    if (!object) return 0;
+    for (unsigned i = 0; i < gLDDDiagObjectCount; ++i) {
+        id candidate = gLDDDiagObjects[i];
+        if (candidate == object) return i + 1;
+    }
+    if (gLDDDiagObjectCount >= 128) return 0;
+    unsigned i = gLDDDiagObjectCount++;
+    gLDDDiagObjects[i] = object;
+    return i + 1;
+}
+// Compare identifier strings only in memory. Log numerical labels, never the
+// strings themselves (which may contain a bundle or account identifier).
+static id gLDDDiagIdentifiers[64];
+static unsigned gLDDDiagIdentifierCount = 0;
+static unsigned LDDDiagIdentifierToken(id identifier) {
+    if (!identifier) return 0;
+    SEL isKind = sel_registerName("isKindOfClass:");
+    id stringClass = (id)objc_getClass("NSString");
+    if (!stringClass || !((BOOL(*)(id, SEL, id))objc_msgSend)(identifier, isKind, stringClass)) return 0;
+    for (unsigned i = 0; i < gLDDDiagIdentifierCount; ++i) {
+        if (((BOOL(*)(id, SEL, id))objc_msgSend)(identifier, sel_registerName("isEqualToString:"), gLDDDiagIdentifiers[i])) return i + 1;
+    }
+    if (gLDDDiagIdentifierCount >= 64) return 0;
+    unsigned i = gLDDDiagIdentifierCount++;
+    gLDDDiagIdentifiers[i] = identifier;
+    return i + 1;
+}
+static id LDDDiagOptionalObject(id object, const char *selectorName) {
+    if (!object) return nil;
+    SEL selector = sel_registerName(selectorName);
+    if (!((BOOL(*)(id, SEL, SEL))objc_msgSend)(object, sel_registerName("respondsToSelector:"), selector)) return nil;
+    return ((id(*)(id, SEL))objc_msgSend)(object, selector);
+}
+static void LDDDiagElement(id view) {
+    @try {
+        id provider = LDDDiagOptionalObject(view, "elementViewProvider");
+        id element = LDDDiagOptionalObject(provider, "element");
+        id clientId = LDDDiagOptionalObject(element, "clientIdentifier");
+        id elementId = LDDDiagOptionalObject(element, "elementIdentifier");
+        const char *providerName = provider ? object_getClassName(provider) : "-";
+        const char *elementName = element ? object_getClassName(element) : "-";
+        char line[400];
+        snprintf(line, sizeof(line), "LDD128-ELEMENT tag=%s view=%u provider=%u:%.100s element=%u:%.100s clientKey=%u elementKey=%u",
+                 gLDDDiagTag, LDDDiagObjectToken(view), LDDDiagObjectToken(provider), providerName ? providerName : "?",
+                 LDDDiagObjectToken(element), elementName ? elementName : "?",
+                 LDDDiagIdentifierToken(clientId), LDDDiagIdentifierToken(elementId));
+        ProbeWrite(line);
+    } @catch (id e) { ProbeWrite("LDD128-ELEMENT-ERROR"); }
+}
 static void LDDDiagTree(id node, int depth, int *remaining) {
     if (!node || node == gContainerView || node == gContentView || depth > 5 || *remaining <= 0) return;
     --*remaining;
@@ -1163,6 +1245,8 @@ static void LDDDiagSnapshot(id view, CGRect decisionBounds, BOOL show, BOOL capt
     }
     int remaining = 48;
     LDDDiagTree(root, 0, &remaining);
+    LDDDiagElement(view);
+    LDDDiagElement(root);
     ProbeWrite("LDD128-SNAPSHOT-END");
 }
 
@@ -1274,6 +1358,8 @@ static void LDDIslandLayout(id self) {
             //   nActive = 横幅在岛/刚离岛 2 秒内, 由三处刷新: ① BND init(新 destination)
             //   ② 关闭钩子(划走/超时收起, 留 2s 收起动画宽限) ③ 布局层保活(下方, 横幅形态容器即刷新)
             BOOL nActive = (nowT - gNotifTs) < 2.0;
+            // 1.28.2~diag2: 横幅可见性优先取系统呈现状态; 无钩子时回退旧窗口。
+            if (LDDBannerPresentedNow()) nActive = YES;
             dbgNA = nActive;
             // 1.9.206: SceneElement 检测 —— 音乐 Live Activity 展开条(407x92/285x52 动态高度)
             // 与通知横幅尺寸完全重叠, 且同样触发布局层保活刷新 gNotifTs -> 1.9.204 的 nActive 门被击穿
@@ -1294,11 +1380,27 @@ static void LDDIslandLayout(id self) {
                 seCur = ((id(*)(id, SEL))objc_msgSend)(seCur, sel_registerName("superview"));
                 seDepth++;
             }
-            // 布局层保活: 看到横幅形态容器(通知展开/重弹中间态, 宽>=250 高>=40)就刷新窗口,
-            // 不依赖 BND init —— 实机通知复用 destination 不触发 init, 靠它让真实通知的收起/中间态命中
-            // 1.9.206: 加 !seHit 门 —— Live Activity 展开条不再刷新通知窗口, nA 自然回落到 0
-            if (!seHit && b0.w >= 250.0 && b0.h >= 40.0) {
-                gNotifTs = nowT;
+            // 1.28.2~diag2: 不再用“宽>=250 高>=40”的布局自刷新通知窗口。
+            // 旧逻辑会把听歌展开条的布局误当成通知活跃, 造成小岛关时听歌岛铺背景。
+            // 通知活跃改由 BND 呈现状态/呈现 setter/关闭事件维护。
+            if (gNotifActive) {
+                static int nal = 0;
+                if (nal < 40) { nal++; char nl[96]; snprintf(nl, sizeof(nl), "NACTIVE-SRC-PRESENT-w%.0f-h%.0f", b0.w, b0.h); ProbeWrite(nl); }
+            }
+            // 1.28.2~diag2: 先算录屏归属, 未命中时继续走通知分支, 不再吞掉通知判断。
+            BOOL recEvaluated = NO;
+            if (capAll) {
+                int preDepth = 0; id preCur = self;
+                while (preCur && preDepth < 8) {
+                    const char *pcn = class_getName((__bridge void *)object_getClass(preCur));
+                    if (pcn && (strstr(pcn, "Recording") || strstr(pcn, "Capture") || strstr(pcn, "ScreenCapture")
+                                || strstr(pcn, "Mirror") || strstr(pcn, "LiveRender") || strstr(pcn, "Record"))) {
+                        recEvaluated = YES;
+                        break;
+                    }
+                    preCur = ((id(*)(id, SEL))objc_msgSend)(preCur, sel_registerName("superview"));
+                    preDepth++;
+                }
             }
             const char *clsNow = object_getClassName(self);
             int faceidC = (clsNow && strstr(clsNow, "ScenePresenterView"));
@@ -1313,12 +1415,13 @@ static void LDDIslandLayout(id self) {
                 show = YES;
                 static int fid2 = 0;
                 if (fid2 < 40) { fid2++; char fn[96]; snprintf(fn, sizeof(fn), "H52-SHOW-FACEID-SQ-w%.0f-h%.0f", b0.w, b0.h); ProbeWrite(fn); }
-            } else if (capAll) {
+            } else if (capAll && recEvaluated) {
                 // 1.9.203: 录屏分支收紧 —— 旧版"录屏中所有岛都铺", 用户听歌+录屏时听歌条
                 // (129x38/176x37, 尺寸与录屏条相同)也被铺背景(用户: 听歌还是有背景)。
                 // 改: 仅视图链上出现明确录屏/捕获类才视为录屏岛铺背景;
                 // 听歌/直播条链(_SBSystemApertureContainerViewContentView->UIView->SBSystemApertureContainerView)
                 // 无录屏类 -> 录屏中也保持不铺, 符合"小岛关: 只通知/录屏/面容岛铺"语义。
+                // 1.28.2~diag2: 录屏未命中时不再吞掉后面的通知分支, 避免录屏期间通知漏铺。
                 int recDepth = 0; id recCur = self; BOOL recHit = NO;
                 while (recCur && recDepth < 8) {
                     const char *rcn = class_getName((__bridge void *)object_getClass(recCur));
@@ -2165,6 +2268,15 @@ static void LDDInit(void) {
     // 捕获横幅呈现层 (SBNotificationBannerDestination init)
     id clsBND = objc_getClass("SBNotificationBannerDestination");
     if (clsBND) { MSHookMessageEx((Class)clsBND, sel_registerName("init"), (IMP)HookBNDInit, (IMP *)&origBNDInit); ProbeWrite("BND-HOOK"); }
+    if (clsBND) {
+        SEL sSetVC = sel_registerName("_setPresentedPresentableVC:");
+        if (class_getInstanceMethod((Class)clsBND, sSetVC)) {
+            MSHookMessageEx((Class)clsBND, sSetVC, (IMP)HookBNDSetPresentedVC, (IMP *)&origBNDSetPresentedVC);
+            ProbeWrite("BND-PRESENT-HOOK");
+        } else {
+            ProbeWrite("BND-PRESENT-NOHOOK");
+        }
+    }
     // 1.9.199: 关闭入口钩子 —— 划走/超时收起即结束通知窗口 (方法存在才挂, 不存在的版本跳过)
     if (clsBND) {
         SEL sW = sel_registerName("withdrawNotificationRequest:");
